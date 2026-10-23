@@ -1,0 +1,458 @@
+-- TinkerPro Sports user schema
+-- MySQL 8.0+
+
+CREATE DATABASE IF NOT EXISTS tinkerpro_sports
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE tinkerpro_sports;
+
+CREATE TABLE users (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NULL,
+  first_name VARCHAR(100) NULL,
+  last_name VARCHAR(100) NULL,
+  phone VARCHAR(30) NULL,
+  avatar_url LONGTEXT NULL,
+  address VARCHAR(500) NULL,
+  hobby VARCHAR(255) NULL,
+  role ENUM('customer', 'merchant') NOT NULL DEFAULT 'customer',
+  status ENUM('pending', 'active', 'suspended', 'deleted') NOT NULL DEFAULT 'pending',
+  email_verified_at DATETIME NULL,
+  last_login_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_users_email (email),
+  KEY idx_users_role_status (role, status),
+  KEY idx_users_created_at (created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS booking_notification_devices (
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  fcm_token TEXT NOT NULL,
+  sound ENUM('system', 'tinker_bell') NOT NULL DEFAULT 'tinker_bell',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (token_hash),
+  KEY idx_booking_notification_devices_user (user_id),
+  CONSTRAINT fk_booking_notification_devices_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS user_follows (
+  follower_id BIGINT UNSIGNED NOT NULL,
+  followed_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (follower_id, followed_id),
+  KEY idx_user_follows_followed (followed_id, created_at),
+  CONSTRAINT fk_user_follows_follower
+    FOREIGN KEY (follower_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_user_follows_followed
+    FOREIGN KEY (followed_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS social_posts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  caption VARCHAR(2000) NULL,
+  images_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_social_posts_user_created (user_id, created_at, id),
+  KEY idx_social_posts_created (created_at, id),
+  CONSTRAINT fk_social_posts_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE user_identities (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  provider ENUM('google') NOT NULL,
+  provider_user_id VARCHAR(255) NOT NULL,
+  provider_email VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_used_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_identity_provider_user (provider, provider_user_id),
+  UNIQUE KEY uq_user_provider (user_id, provider),
+  KEY idx_identities_user_id (user_id),
+  CONSTRAINT fk_identities_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS merchant_profiles (
+  user_id BIGINT UNSIGNED NOT NULL,
+  business_name VARCHAR(255) NULL,
+  business_type VARCHAR(100) NULL,
+  registration_number VARCHAR(100) NULL,
+  categories_json JSON NULL,
+  facility_type VARCHAR(50) NULL,
+  address VARCHAR(500) NULL,
+  contact_email VARCHAR(255) NULL,
+  owner_designation VARCHAR(150) NULL,
+  business_image LONGTEXT NULL,
+  approval_timeout_minutes INT UNSIGNED NOT NULL DEFAULT 15,
+  payment_timeout_minutes INT UNSIGNED NOT NULL DEFAULT 15,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id),
+  CONSTRAINT fk_merchant_profiles_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+ALTER TABLE users
+  MODIFY COLUMN avatar_url LONGTEXT NULL;
+
+CREATE TABLE IF NOT EXISTS merchant_businesses (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  merchant_id BIGINT UNSIGNED NOT NULL,
+  business_type VARCHAR(50) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  address VARCHAR(500) NOT NULL,
+  facility_type VARCHAR(50) NOT NULL,
+  price_per_hour DECIMAL(10, 2) NOT NULL,
+  slot_count INT UNSIGNED NOT NULL DEFAULT 1,
+  sports_slots_json JSON NULL,
+  opening_hours VARCHAR(100) NOT NULL,
+  availability VARCHAR(50) NOT NULL DEFAULT 'Any',
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  amenities_json JSON NULL,
+  details VARCHAR(1000) NULL,
+  image_url LONGTEXT NULL,
+  image_urls JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_merchant_businesses_merchant (merchant_id, created_at),
+  KEY idx_merchant_businesses_type_enabled (business_type, enabled),
+  CONSTRAINT fk_merchant_businesses_user
+    FOREIGN KEY (merchant_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sports_business_details (
+  business_id BIGINT UNSIGNED NOT NULL,
+  player_capacity INT UNSIGNED NULL,
+  court_type VARCHAR(100) NULL,
+  equipment TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (business_id),
+  CONSTRAINT fk_sports_business_details_business
+    FOREIGN KEY (business_id) REFERENCES merchant_businesses (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS event_business_details (
+  business_id BIGINT UNSIGNED NOT NULL,
+  event_name VARCHAR(255) NULL,
+  event_type VARCHAR(100) NULL,
+  event_types_json JSON NULL,
+  event_date DATE NULL,
+  start_time TIME NULL,
+  end_time TIME NULL,
+  setup_hours DECIMAL(5, 2) NULL,
+  teardown_hours DECIMAL(5, 2) NULL,
+  estimated_attendance INT UNSIGNED NULL,
+  accessibility_needs TEXT NULL,
+  parking_security TEXT NULL,
+  attendance_min INT UNSIGNED NULL,
+  attendance_max INT UNSIGNED NULL,
+  parking_needs JSON NULL,
+  security_needs JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (business_id),
+  CONSTRAINT fk_event_business_details_business
+    FOREIGN KEY (business_id) REFERENCES merchant_businesses (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS fitness_business_details (
+  business_id BIGINT UNSIGNED NOT NULL,
+  class_capacity INT UNSIGNED NULL,
+  session_duration_minutes INT UNSIGNED NULL,
+  instructor_name VARCHAR(255) NULL,
+  class_schedule TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (business_id),
+  CONSTRAINT fk_fitness_business_details_business
+    FOREIGN KEY (business_id) REFERENCES merchant_businesses (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS bookings (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  venue_id BIGINT UNSIGNED NOT NULL,
+  booking_date DATE NOT NULL,
+  start_time TIME NOT NULL,
+  duration_hours DECIMAL(5, 2) NOT NULL,
+  players INT UNSIGNED NOT NULL,
+  payment_method VARCHAR(50) NOT NULL,
+  price_per_hour DECIMAL(10, 2) NOT NULL,
+  total_amount DECIMAL(10, 2) NOT NULL,
+  downpayment_amount DECIMAL(10, 2) NOT NULL,
+  extra_player_charge DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  event_type VARCHAR(100) NULL,
+  sport_type VARCHAR(100) NULL,
+  slot_number INT UNSIGNED NULL,
+  occupies_full_studio TINYINT(1) NOT NULL DEFAULT 1,
+  booking_token_hash CHAR(64) NULL,
+  ticket_token_hash CHAR(64) NULL,
+  idempotency_key VARCHAR(100) NULL,
+  idempotency_request_hash CHAR(64) NULL,
+  idempotency_response_json JSON NULL,
+  idempotency_response_status SMALLINT UNSIGNED NULL,
+  payment_status ENUM('unpaid', 'paid', 'not_required') NOT NULL DEFAULT 'not_required',
+  payment_checkout_session_id VARCHAR(100) NULL,
+  payment_reference VARCHAR(100) NULL,
+  paid_at DATETIME NULL,
+  approval_due_at DATETIME NULL,
+  approval_timeout_minutes INT UNSIGNED NOT NULL DEFAULT 15,
+  payment_timeout_minutes INT UNSIGNED NOT NULL DEFAULT 15,
+  payment_due_at DATETIME NULL,
+  payment_expired_at DATETIME NULL,
+  approval_reminded_at DATETIME NULL,
+  status ENUM('pending', 'approved', 'finished', 'cancelled') NOT NULL DEFAULT 'pending',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_bookings_customer (customer_id, booking_date, start_time),
+  KEY idx_bookings_venue_time (venue_id, booking_date, start_time, status),
+  UNIQUE KEY uq_bookings_checkout_session (payment_checkout_session_id),
+  UNIQUE KEY uq_bookings_customer_idempotency (customer_id, idempotency_key),
+  CONSTRAINT fk_bookings_customer FOREIGN KEY (customer_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_bookings_venue FOREIGN KEY (venue_id) REFERENCES merchant_businesses (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS fitness_booking_attendance (
+  booking_id BIGINT UNSIGNED NOT NULL,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  attendance_date DATE NOT NULL,
+  status ENUM('present', 'absent') NOT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (booking_id, attendance_date),
+  KEY idx_fitness_attendance_customer (customer_id, booking_id),
+  CONSTRAINT fk_fitness_attendance_booking FOREIGN KEY (booking_id)
+    REFERENCES bookings (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_fitness_attendance_customer FOREIGN KEY (customer_id)
+    REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS booking_check_ins (
+    booking_id BIGINT UNSIGNED NOT NULL,
+    customer_id BIGINT UNSIGNED NOT NULL,
+    checked_in_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    qr_issued_at DATETIME NOT NULL,
+    PRIMARY KEY (booking_id),
+    KEY idx_booking_check_ins_customer (customer_id, checked_in_at),
+    CONSTRAINT fk_booking_check_ins_booking
+        FOREIGN KEY (booking_id) REFERENCES bookings (id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT fk_booking_check_ins_customer
+        FOREIGN KEY (customer_id) REFERENCES users (id)
+        ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS merchant_news (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  business_id BIGINT UNSIGNED NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,
+  image_url LONGTEXT NULL,
+  status ENUM('draft', 'published', 'archived') NOT NULL DEFAULT 'draft',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_merchant_news_business_status (business_id, status, created_at),
+  CONSTRAINT fk_merchant_news_business FOREIGN KEY (business_id)
+    REFERENCES merchant_businesses (id) ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS venue_reviews (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  business_id BIGINT UNSIGNED NOT NULL,
+  booking_id BIGINT UNSIGNED NOT NULL,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  rating TINYINT UNSIGNED NOT NULL,
+  comment VARCHAR(2000) NULL,
+  image_data LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_venue_reviews_booking_customer (booking_id, customer_id),
+  KEY idx_venue_reviews_business (business_id, created_at),
+  CONSTRAINT fk_venue_reviews_business FOREIGN KEY (business_id)
+    REFERENCES merchant_businesses (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_venue_reviews_booking FOREIGN KEY (booking_id)
+    REFERENCES bookings (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_venue_reviews_customer FOREIGN KEY (customer_id)
+    REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT chk_venue_reviews_rating CHECK (rating BETWEEN 1 AND 5)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS venue_hearts (
+  business_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (business_id, user_id),
+  KEY idx_venue_hearts_user (user_id, business_id),
+  CONSTRAINT fk_venue_hearts_business FOREIGN KEY (business_id)
+    REFERENCES merchant_businesses (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_venue_hearts_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE email_verification_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_email_verification_token (token_hash),
+  KEY idx_email_verification_user (user_id),
+  KEY idx_email_verification_expiry (expires_at),
+  CONSTRAINT fk_email_verification_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE password_reset_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_password_reset_token (token_hash),
+  KEY idx_password_reset_user (user_id),
+  KEY idx_password_reset_expiry (expires_at),
+  CONSTRAINT fk_password_reset_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE user_sessions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  session_token_hash CHAR(64) NOT NULL,
+  ip_address VARBINARY(16) NULL,
+  user_agent VARCHAR(512) NULL,
+  expires_at DATETIME NOT NULL,
+  revoked_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_session_token (session_token_hash),
+  KEY idx_sessions_user (user_id),
+  KEY idx_sessions_expiry (expires_at),
+  CONSTRAINT fk_sessions_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE saved_items (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  item_type ENUM('sports', 'event', 'fitness') NOT NULL,
+  item_key VARCHAR(255) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  subtitle VARCHAR(255) NULL,
+  image_url VARCHAR(2048) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_saved_item_user (user_id, item_type, item_key),
+  KEY idx_saved_items_user_created (user_id, created_at),
+  CONSTRAINT fk_saved_items_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS user_activity_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  activity_type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description VARCHAR(500) NOT NULL,
+  venue_id BIGINT UNSIGNED NULL,
+  venue_name VARCHAR(255) NULL,
+  sport_type VARCHAR(100) NULL,
+  details_json JSON NULL,
+  actor_user_id BIGINT UNSIGNED NULL,
+  actor_role VARCHAR(50) NULL,
+  request_id CHAR(36) NULL,
+  ip_address VARCHAR(45) NULL,
+  user_agent VARCHAR(500) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_user_activity_logs_user_created (user_id, created_at, id),
+  KEY idx_user_activity_logs_request (request_id),
+  CONSTRAINT fk_user_activity_logs_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE conversations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  type ENUM('direct', 'group') NOT NULL DEFAULT 'direct',
+  title VARCHAR(120) NULL,
+  created_by BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_conversations_created (created_at),
+  CONSTRAINT fk_conversations_creator FOREIGN KEY (created_by) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE conversation_members (
+  conversation_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (conversation_id, user_id),
+  KEY idx_conversation_members_user (user_id),
+  CONSTRAINT fk_conversation_members_conversation FOREIGN KEY (conversation_id)
+    REFERENCES conversations (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_conversation_members_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE messages (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  conversation_id BIGINT UNSIGNED NOT NULL,
+  sender_id BIGINT UNSIGNED NOT NULL,
+  body TEXT NULL,
+  attachment_json LONGTEXT NULL,
+  read_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_messages_conversation_created (conversation_id, created_at),
+  KEY idx_messages_unread (conversation_id, read_at),
+  CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id)
+    REFERENCES conversations (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id)
+    REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;

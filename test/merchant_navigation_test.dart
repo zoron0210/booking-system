@@ -1,0 +1,78 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:myapp/app_bottom_navigation.dart';
+
+void main() {
+  testWidgets('merchant navigation includes analytics and business tabs', (
+    tester,
+  ) async {
+    int? selectedIndex;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          bottomNavigationBar: AppBottomNavigation(
+            merchantMode: true,
+            hideMerchantVenues: true,
+            selectedIndex: 0,
+            merchantRequestCount: 3,
+            onDestinationSelected: (index) => selectedIndex = index,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Add'), findsOneWidget);
+    expect(find.text('Messages'), findsOneWidget);
+    expect(find.text('Manage'), findsOneWidget);
+    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+
+    final navigationTheme = tester.widget<Theme>(
+      find
+          .ancestor(
+            of: find.byType(NavigationBar),
+            matching: find.byType(Theme),
+          )
+          .first,
+    );
+    final labelTextStyle =
+        navigationTheme.data.navigationBarTheme.labelTextStyle!;
+    final unselectedStyle = labelTextStyle.resolve({});
+    final selectedStyle = labelTextStyle.resolve({WidgetState.selected});
+    expect(unselectedStyle?.fontSize, 12);
+    expect(selectedStyle?.fontSize, 12);
+    expect(unselectedStyle?.fontWeight, FontWeight.w700);
+    expect(selectedStyle?.fontWeight, FontWeight.w700);
+    expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).height, 72);
+
+    await tester.tap(find.text('Manage'));
+    expect(selectedIndex, 3);
+  });
+
+  testWidgets('quickly reselecting a merchant tab runs its callback', (
+    tester,
+  ) async {
+    var destinationSelections = 0;
+    var reselections = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          bottomNavigationBar: AppBottomNavigation(
+            merchantMode: true,
+            selectedIndex: 0,
+            onDestinationSelected: (_) => destinationSelections++,
+            onDestinationReselected: () => reselections++,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Dashboard'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Dashboard'));
+
+    expect(destinationSelections, 1);
+    expect(reselections, 1);
+  });
+}

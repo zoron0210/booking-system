@@ -1,0 +1,373 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:myapp/features/messaging/data/messages_session_provider.dart';
+import 'package:myapp/messages_controller.dart';
+import 'package:myapp/messages_service.dart';
+
+class _FakeMessagesSessionProvider implements MessagesSessionProvider {
+  _FakeMessagesSessionProvider({
+    this.apiToken = 'test-token',
+    this.role = 'customer',
+  });
+
+  final String? apiToken;
+  final String? role;
+
+  @override
+  Future<MessagesSession> load() async =>
+      MessagesSession(apiToken: apiToken, role: role);
+}
+
+class _FakeMessagesService extends MessagesService {
+  List<Map<String, dynamic>> conversations = [];
+  List<Map<String, dynamic>> contacts = [];
+  Map<String, dynamic> currentUser = {
+    'user': {'id': 7},
+  };
+  final Map<int, List<Map<String, dynamic>>> messagesByConversation = {};
+  final Map<int, Completer<List<Map<String, dynamic>>>> pendingMessages = {};
+  Completer<List<Map<String, dynamic>>>? pendingConversations;
+  int conversationFetches = 0;
+  String? requestedBusinessType;
+  final List<String?> requestedMessageBusinessTypes = [];
+  final List<int> conversationsMarkedRead = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchConversations(
+    String token, {
+    String? businessType,
+  }) {
+    conversationFetches++;
+    requestedBusinessType = businessType;
+    final pending = pendingConversations;
+    if (pending != null) return pending.future;
+    return Future.value(conversations);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchContacts(String token) async =>
+      contacts;
+
+  @override
+  Future<Map<String, dynamic>> fetchCurrentUser(String token) async =>
+      currentUser;
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchMessages({
+    required String token,
+    required int conversationId,
+    String? businessType,
+  }) {
+    requestedMessageBusinessTypes.add(businessType);
+    final pending = pendingMessages[conversationId];
+    if (pending != null) return pending.future;
+    return Future.value(messagesByConversation[conversationId] ?? []);
+  }
+
+  @override
+  Future<void> setConversationState({
+    required String token,
+    required int conversationId,
+    bool? archived,
+    bool? unread,
+  }) async {
+    if (unread == false) conversationsMarkedRead.add(conversationId);
+  }
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late _FakeMessagesService service;
+  late _FakeMessagesSessionProvider sessionProvider;
+  late MessagesController controller;
+
+  setUp(() async {
+    service = _FakeMessagesService();
+    sessionProvider = _FakeMessagesSessionProvider();
+    controller = MessagesController(
+      service: service,
+      sessionProvider: sessionProvider,
+    );
+  });
+
+  tearDown(() {
+    controller.disposeController();
+    controller.dispose();
+  });
+
+  test('load populates inbox and starts in loaded state', () async {
+    service.conversations = [
+      {'id': 3, 'unreadCount': 2},
+    ];
+    service.contacts = [
+      {'id': 8, 'firstName': 'Alex'},
+    ];
+
+    await controller.load();
+
+    expect(controller.loading, isFalse);
+    expect(controller.token, 'test-token');
+    expect(controller.role, 'customer');
+    expect(controller.currentUserId, 7);
+    expect(controller.conversations.single['id'], 3);
+    expect(controller.contacts.single['id'], 8);
+    expect(controller.unreadMessageCount, 2);
+    expect(controller.realtimeTimer, isNotNull);
+  });
+
+  test(
+    'load handles a session without a token without fetching messages',
+    () async {
+      controller.disposeController();
+      controller.dispose();
+      controller = MessagesController(
+        service: service,
+        sessionProvider: _FakeMessagesSessionProvider(
+          apiToken: null,
+          role: 'guest',
+        ),
+      );
+
+      await controller.load();
+
+      expect(controller.loading, isFalse);
+      expect(controller.token, isNull);
+      expect(controller.role, 'guest');
+      expect(controller.conversations, isEmpty);
+      expect(service.conversationFetches, 0);
+    },
+  );
+
+  test('load requests conversations for the selected business type', () async {
+    controller.disposeController();
+    controller.dispose();
+    controller = MessagesController(
+      service: service,
+      sessionProvider: sessionProvider,
+      businessType: 'Fitness & Wellness',
+    );
+
+    await controller.load();
+    await controller.select(501);
+
+    expect(service.requestedBusinessType, 'Fitness & Wellness');
+    expect(service.requestedMessageBusinessTypes, ['Fitness & Wellness']);
+  });
+
+  test(
+    'select keeps the newest conversation when older request completes late',
+    () async {
+      controller.token = 'test-token';
+      final olderRequest = Completer<List<Map<String, dynamic>>>();
+      service.pendingMessages[1] = olderRequest;
+      service.messagesByConversation[2] = [
+        {'id': 22, 'body': 'new conversation'},
+      ];
+
+      final firstSelection = controller.select(1);
+      await controller.select(2);
+      olderRequest.complete([
+        {'id': 11, 'body': 'stale conversation'},
+      ]);
+      await firstSelection;
+
+      expect(controller.selectedConversationId, 2);
+      expect(controller.messages.single['body'], 'new conversation');
+      expect(controller.showChat, isTrue);
+    },
+  );
+
+  test(
+    'reopening a conversation keeps its messages visible while loading',
+    () async {
+      controller.token = 'test-token';
+      controller.selectedConversationId = 5;
+      controller.messages = [
+        {'id': 51, 'body': 'previous message'},
+      ];
+      final pending = Completer<List<Map<String, dynamic>>>();
+      service.pendingMessages[5] = pending;
+
+      final selection = controller.select(5);
+      expect(controller.messages.single['body'], 'previous message');
+
+      pending.complete([
+        {'id': 51, 'body': 'previous message'},
+        {'id': 52, 'body': 'latest message'},
+      ]);
+      await selection;
+
+      expect(controller.messages.map((message) => message['body']), [
+        'previous message',
+        'latest message',
+      ]);
+    },
+  );
+
+  test('opening a conversation clears its unread indicator', () async {
+    controller.token = 'test-token';
+    controller.currentUserId = 7;
+    controller.conversations = [
+      {'id': 5, 'unreadCount': 2, 'manuallyUnread': true},
+      {'id': 6, 'unreadCount': 1},
+    ];
+    service.messagesByConversation[5] = [
+      {'id': 51, 'body': 'read on open'},
+    ];
+
+    await controller.select(5);
+
+    expect(controller.conversations.first['unreadCount'], 0);
+    expect(controller.conversations.first['manuallyUnread'], isFalse);
+    expect(controller.conversations.last['unreadCount'], 1);
+    expect(controller.unreadMessageCount, 1);
+    expect(service.conversationsMarkedRead, [5]);
+  });
+
+  test(
+    'opening a merged direct chat clears unread counts from its duplicates',
+    () async {
+      controller.token = 'test-token';
+      controller.currentUserId = 7;
+      controller.conversations = [
+        {
+          'id': 5,
+          'type': 'direct',
+          'unreadCount': 1,
+          'members': [
+            {'id': 7},
+            {'id': 8},
+          ],
+        },
+        {
+          'id': 4,
+          'type': 'direct',
+          'unreadCount': 2,
+          'members': [
+            {'id': 7},
+            {'id': 8},
+          ],
+        },
+        {
+          'id': 3,
+          'type': 'direct',
+          'unreadCount': 3,
+          'archived': true,
+          'members': [
+            {'id': 7},
+            {'id': 8},
+          ],
+        },
+        {
+          'id': 6,
+          'type': 'direct',
+          'unreadCount': 1,
+          'members': [
+            {'id': 7},
+            {'id': 9},
+          ],
+        },
+      ];
+
+      await controller.select(5);
+
+      expect(
+        controller.conversations.map(
+          (conversation) => conversation['unreadCount'],
+        ),
+        [0, 0, 3, 1],
+      );
+      expect(controller.unreadMessageCount, 4);
+    },
+  );
+
+  test('archiving immediately removes the conversation from local state', () {
+    controller.conversations = [
+      {'id': 5, 'archived': false},
+      {'id': 6, 'archived': false},
+    ];
+
+    controller.setConversationArchived(5, true);
+
+    expect(controller.conversations.first['archived'], isTrue);
+    expect(controller.conversations.last['archived'], isFalse);
+  });
+
+  test('stale realtime results do not undo a local archive', () async {
+    controller.token = 'test-token';
+    controller.conversations = [
+      {'id': 5, 'archived': false},
+    ];
+    service.pendingConversations = Completer<List<Map<String, dynamic>>>();
+    final refresh = controller.refreshRealtime();
+    await Future<void>.delayed(Duration.zero);
+
+    controller.setConversationArchived(5, true);
+    service.pendingConversations!.complete([
+      {'id': 5, 'archived': false},
+    ]);
+    await refresh;
+
+    expect(controller.conversations.single['archived'], isTrue);
+  });
+
+  test('stale realtime results do not restore a read message count', () async {
+    controller.token = 'test-token';
+    controller.selectedConversationId = 5;
+    controller.conversations = [
+      {'id': 5, 'unreadCount': 1},
+    ];
+    service.pendingConversations = Completer<List<Map<String, dynamic>>>();
+    final refresh = controller.refreshRealtime();
+    await Future<void>.delayed(Duration.zero);
+
+    controller.setMessages([
+      {'id': 51, 'body': 'opened and read'},
+      {'id': 52, 'body': 'newer message'},
+    ]);
+    service.pendingConversations!.complete([
+      {'id': 5, 'unreadCount': 1},
+    ]);
+    await refresh;
+
+    expect(controller.conversations.single['unreadCount'], 0);
+    expect(controller.unreadMessageCount, 0);
+    expect(controller.messages.last['body'], 'newer message');
+  });
+
+  test(
+    'realtime refresh updates inbox and selected conversation messages',
+    () async {
+      controller.token = 'test-token';
+      controller.selectedConversationId = 4;
+      service.conversations = [
+        {'id': 4, 'unreadCount': 1},
+      ];
+      service.messagesByConversation[4] = [
+        {'id': 41, 'body': 'arrived in realtime'},
+      ];
+
+      await controller.refreshRealtime();
+
+      expect(service.conversationFetches, 1);
+      expect(controller.conversations.single['id'], 4);
+      expect(controller.conversations.single['unreadCount'], 0);
+      expect(controller.messages.single['body'], 'arrived in realtime');
+    },
+  );
+
+  test('back to inbox clears selected chat state', () async {
+    controller.setSelectedConversation(9);
+    controller.setMessages([
+      {'id': 91, 'body': 'message'},
+    ]);
+
+    controller.backToInbox();
+
+    expect(controller.showChat, isFalse);
+    expect(controller.selectedConversationId, isNull);
+    expect(controller.messages, isEmpty);
+  });
+}

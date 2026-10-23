@@ -1,0 +1,90 @@
+class FitnessBookingPricing {
+  const FitnessBookingPricing._();
+
+  static List<String> availablePlans(Map<String, dynamic>? category) {
+    if (category == null) return [];
+    return ['session', 'monthly', 'yearly'].where((plan) {
+      return _amount(category['${plan}Price']) > 0;
+    }).toList();
+  }
+
+  static double planPrice(Map<String, dynamic>? category, String? plan) {
+    if (category == null || plan == null) return 0;
+    var price = _amount(category['${plan}Price']);
+    if (plan == 'yearly') {
+      final offerType = category['yearlyDiscountType'];
+      final offerValue = _amount(category['yearlyDiscountValue']);
+      if (offerType == 'freeMonths') {
+        price = (price - _amount(category['monthlyPrice']) * offerValue).clamp(
+          0,
+          double.infinity,
+        );
+      } else if (offerType == 'percentage') {
+        price *= (1 - offerValue / 100).clamp(0, 1);
+      }
+    }
+    return price;
+  }
+
+  static int? planDurationDays(Map<String, dynamic>? category, String? plan) {
+    if (plan == 'session') return 1;
+    if (plan == 'monthly') return 30;
+    if (plan == 'yearly') {
+      final freeMonths =
+          category != null && category['yearlyDiscountType'] == 'freeMonths'
+          ? _amount(category['yearlyDiscountValue'])
+          : 0.0;
+      final additionalDays =
+          freeMonths.isFinite &&
+              freeMonths > 0 &&
+              freeMonths <= (double.maxFinite / 30) &&
+              freeMonths == freeMonths.roundToDouble()
+          ? freeMonths.toInt() * 30
+          : 0;
+      return 365 + additionalDays;
+    }
+    return null;
+  }
+
+  static String? planDurationLabel(
+    Map<String, dynamic>? category,
+    String? plan,
+  ) {
+    final days = planDurationDays(category, plan);
+    if (days == null) return null;
+    return '$days ${days == 1 ? 'day' : 'days'}';
+  }
+
+  static double coachPrice(
+    Map<String, dynamic>? coach, {
+    int durationMonths = 1,
+  }) {
+    if (coach == null || durationMonths < 1) return 0;
+    return _amount(coach['monthlyPrice']) * durationMonths;
+  }
+
+  static String? yearlyOfferLabel(
+    Map<String, dynamic>? category,
+    String? plan,
+  ) {
+    if (plan != 'yearly' || category == null) return null;
+    final type = category['yearlyDiscountType'];
+    final value = _amount(category['yearlyDiscountValue']);
+    if (type == 'freeMonths' && value > 0) {
+      return 'Yearly offer: ${value.toStringAsFixed(0)} free months';
+    }
+    if (type == 'percentage' && value > 0) {
+      return 'Yearly offer: ${value.toStringAsFixed(value % 1 == 0 ? 0 : 1)}% off';
+    }
+    return null;
+  }
+
+  static String planTitle(String value) => switch (value) {
+    'session' => 'Full-day session',
+    'monthly' => 'Monthly',
+    'yearly' => 'Yearly',
+    _ => value,
+  };
+
+  static double _amount(dynamic value) => double.tryParse('$value') ?? 0;
+}

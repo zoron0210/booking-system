@@ -1,0 +1,461 @@
+const MAX_POSTS_PER_24_HOURS = 5;
+const MAX_CAPTION_LENGTH = 2000;
+const MAX_IMAGES_PER_POST = 5;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+function positiveId(value) {
+  if (
+    (typeof value !== 'string' && typeof value !== 'number') ||
+    (typeof value === 'string' && !/^[1-9]\d*$/.test(value))
+  ) {
+    return null;
+  }
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function normalizeCaption(value) {
+  return typeof value === 'string'
+    ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+    : '';
+}
+
+function validateImages(value) {
+  if (value == null) return { valid: true, images: [] };
+  if (!Array.isArray(value) || value.length > MAX_IMAGES_PER_POST) {
+    return { valid: false };
+  }
+  const images = [];
+  for (const image of value) {
+    const match = typeof image === 'string'
+      ? /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(image)
+      : null;
+    if (!match) return { valid: false };
+    const bytes = Buffer.from(match[2], 'base64');
+    if (
+      bytes.length === 0 ||
+      bytes.length > MAX_IMAGE_BYTES ||
+      bytes.toString('base64') !== match[2] ||
+      !matchesImageType(bytes, match[1].toLowerCase())
+    ) {
+      return { valid: false };
+    }
+    images.push(image);
+  }
+  return { valid: true, images };
+}
+
+function matchesImageType(bytes, type) {
+  if (type === 'png') {
+    return bytes.subarray(0, 8).equals(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+  }
+  if (type === 'jpeg' || type === 'jpg') {
+    return bytes.length >= 3 &&
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes[2] === 0xff;
+  }
+  return type === 'webp' &&
+    bytes.length >= 12 &&
+    bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WEBP';
+}
+
+function registerSocialRoutes({ app, pool, requireAuth }) {
+  app.get('/api/social/feed', requireAuth, async (req, res, next) => {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT p.id, p.user_id AS userId, p.caption,
+                p.images_json AS imagesJson, p.created_at AS createdAt,
+                u.first_name AS firstName, u.last_name AS lastName,
+                u.avatar_url AS avatarUrl, u.role
+         FROM social_posts p
+         JOIN users u ON u.id = p.user_id AND u.status = 'active'
+         WHERE (p.user_id = ? OR EXISTS (
+           SELECT 1 FROM user_follows f
+           WHERE f.follower_id = ? AND f.followed_id = p.user_id
+         ))
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = ? AND b.blocked_user_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_user_id = ?)
+         )
+         ORDER BY p.created_at DESC, p.id DESC
+         LIMIT 50`,
+        [req.auth.sub, req.auth.sub, req.auth.sub, req.auth.sub],
+      );
+      return res.json({
+        posts: rows.map((row) => ({
+          ...row,
+          displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
+            'TinkerPro user',
+          images: parseImages(row.imagesJson),
+          createdAt: serializeDate(row.createdAt),
+        })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get('/api/social/users', requireAuth, async (req, res, next) => {
+    const query = typeof req.query.q === 'string'
+      ? req.query.q.trim().slice(0, 80)
+      : '';
+    try {
+      const [rows] = await pool.execute(
+        `SELECT u.id, u.first_name AS firstName, u.last_name AS lastName,
+                u.avatar_url AS avatarUrl, u.role,
+                (SELECT COUNT(*) FROM user_follows f
+                 WHERE f.followed_id = u.id) AS followersCount,
+                EXISTS (
+                  SELECT 1 FROM user_follows f
+                  WHERE f.follower_id = ? AND f.followed_id = u.id
+                ) AS isFollowing
+         FROM users u
+         WHERE u.id <> ? AND u.status = 'active'
+           AND (? = '' OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks b
+             WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
+                OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
+           )
+         ORDER BY u.first_name, u.last_name, u.id
+         LIMIT 50`,
+        [
+          req.auth.sub,
+          req.auth.sub,
+          query,
+          `%${query}%`,
+          req.auth.sub,
+          req.auth.sub,
+        ],
+      );
+      return res.json({
+        users: rows.map((row) => ({
+          id: Number(row.id),
+          displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
+            'TinkerPro user',
+          avatarUrl: row.avatarUrl,
+          role: row.role,
+          followersCount: Number(row.followersCount),
+          isFollowing: Boolean(row.isFollowing),
+        })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get('/api/social/users/:userId', requireAuth, async (req, res, next) => {
+    const userId = positiveId(req.params.userId);
+    if (userId === null) {
+      return res.status(400).json({ error: 'The profile is invalid.' });
+    }
+    try {
+      const [users] = await pool.execute(
+        `SELECT u.id, u.first_name AS firstName, u.last_name AS lastName,
+                u.avatar_url AS avatarUrl, u.role,
+                (SELECT COUNT(*) FROM user_follows f
+                 WHERE f.followed_id = u.id) AS followersCount,
+                (SELECT COUNT(*) FROM user_follows f
+                 WHERE f.follower_id = u.id) AS followingCount,
+                (SELECT COUNT(*) FROM social_posts p
+                 WHERE p.user_id = u.id) AS postsCount,
+                EXISTS (
+                  SELECT 1 FROM user_follows f
+                  WHERE f.follower_id = ? AND f.followed_id = u.id
+                ) AS isFollowing
+         FROM users u
+         WHERE u.id = ? AND u.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks b
+             WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
+                OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
+           )
+         LIMIT 1`,
+        [req.auth.sub, userId, req.auth.sub, req.auth.sub],
+      );
+      if (!users[0]) {
+        return res.status(404).json({ error: 'Profile not found.' });
+      }
+      const [posts] = await pool.execute(
+        `SELECT id, user_id AS userId, caption,
+                images_json AS imagesJson, created_at AS createdAt
+         FROM social_posts
+         WHERE user_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 50`,
+        [userId],
+      );
+      const [businesses] = await pool.execute(
+        `SELECT b.id AS businessId, b.name AS businessName,
+                b.business_type AS businessType, b.enabled,
+                n.title, n.body, b.image_urls AS imageUrls,
+                COALESCE(NULLIF(TRIM(n.image_url), ''),
+                         NULLIF(TRIM(b.image_url), '')) AS imageUrl
+         FROM merchant_businesses b
+         JOIN users u ON u.id = b.merchant_id AND u.status = 'active'
+         JOIN merchant_news n ON n.business_id = b.id
+           AND n.status = 'published'
+           AND n.id = (
+             SELECT MAX(latest.id)
+             FROM merchant_news latest
+             WHERE latest.business_id = b.id
+               AND latest.status = 'published'
+           )
+         WHERE b.merchant_id = ?
+           AND b.enabled = 1
+           AND NULLIF(TRIM(n.title), '') IS NOT NULL
+           AND NULLIF(TRIM(n.body), '') IS NOT NULL
+           AND (
+             COALESCE(NULLIF(TRIM(n.image_url), ''),
+                      NULLIF(TRIM(b.image_url), '')) IS NOT NULL
+               OR COALESCE(JSON_LENGTH(b.image_urls), 0) > 0
+           )
+         ORDER BY n.created_at DESC, b.id DESC`,
+        [userId],
+      );
+      const user = users[0];
+      return res.json({
+        profile: {
+          id: Number(user.id),
+          displayName: `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+            'TinkerPro user',
+          avatarUrl: user.avatarUrl,
+          role: user.role,
+          followersCount: Number(user.followersCount),
+          followingCount: Number(user.followingCount),
+          postsCount: Number(user.postsCount),
+          isFollowing: Boolean(user.isFollowing),
+        },
+        posts: posts.map((post) => ({
+          ...post,
+          images: parseImages(post.imagesJson),
+          createdAt: serializeDate(post.createdAt),
+        })),
+        businesses: businesses.map((business) => ({
+          ...business,
+          businessId: Number(business.businessId),
+          enabled: business.enabled === true || Number(business.enabled) === 1,
+          imageUrl: firstImage(business.imageUrl) ||
+            parseImages(business.imageUrls)[0] || '',
+          imageUrls: parseImages(business.imageUrls),
+        })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  for (const type of ['followers', 'following']) {
+    app.get(`/api/social/users/:userId/${type}`, requireAuth, async (req, res, next) => {
+      const userId = positiveId(req.params.userId);
+      if (userId === null) {
+        return res.status(400).json({ error: 'The profile is invalid.' });
+      }
+      const relation = type === 'followers'
+        ? 'f.followed_id = ? AND f.follower_id = u.id'
+        : 'f.follower_id = ? AND f.followed_id = u.id';
+      try {
+        const [profiles] = await pool.execute(
+          `SELECT u.id, u.first_name AS firstName, u.last_name AS lastName,
+                  u.avatar_url AS avatarUrl, u.role,
+                  (SELECT COUNT(*) FROM user_follows count_follows
+                   WHERE count_follows.followed_id = u.id) AS followersCount,
+                  EXISTS (
+                    SELECT 1 FROM user_follows current_follow
+                    WHERE current_follow.follower_id = ? AND
+                          current_follow.followed_id = u.id
+                  ) AS isFollowing
+           FROM user_follows f
+           JOIN users u ON u.id = ${type === 'followers' ? 'f.follower_id' : 'f.followed_id'}
+           WHERE ${relation} AND u.status = 'active'
+             AND NOT EXISTS (
+               SELECT 1 FROM user_blocks b
+               WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
+                  OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
+             )
+           ORDER BY u.first_name, u.last_name, u.id`,
+          [req.auth.sub, userId, req.auth.sub, req.auth.sub],
+        );
+        return res.json({
+          users: profiles.map((profile) => ({
+            id: Number(profile.id),
+            displayName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() ||
+              'TinkerPro user',
+            avatarUrl: profile.avatarUrl,
+            role: profile.role,
+            followersCount: Number(profile.followersCount),
+            isFollowing: Boolean(profile.isFollowing),
+          })),
+        });
+      } catch (error) {
+        return next(error);
+      }
+    });
+  }
+
+  app.post('/api/social/posts', requireAuth, async (req, res, next) => {
+    const caption = normalizeCaption(req.body.caption);
+    const imageResult = validateImages(req.body.images);
+    if (
+      (req.body.caption !== undefined &&
+        (typeof req.body.caption !== 'string' ||
+          req.body.caption.length > MAX_CAPTION_LENGTH)) ||
+      caption.length > MAX_CAPTION_LENGTH ||
+      !imageResult.valid ||
+      (!caption && imageResult.images.length === 0)
+    ) {
+      return res.status(400).json({
+        error: 'Add a caption or up to five JPEG, PNG, or WebP photos (10 MB each).',
+      });
+    }
+
+    let connection;
+    let transactionStarted = false;
+    try {
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      transactionStarted = true;
+      const [users] = await connection.execute(
+        `SELECT id FROM users
+         WHERE id = ? AND status = 'active'
+         FOR UPDATE`,
+        [req.auth.sub],
+      );
+      if (!users.length) {
+        await connection.rollback();
+        return res.status(403).json({ error: 'An active account is required to post.' });
+      }
+      const [recentPosts] = await connection.execute(
+        `SELECT COUNT(*) AS postCount, MIN(created_at) AS oldestPostAt
+         FROM social_posts
+         WHERE user_id = ?
+           AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)`,
+        [req.auth.sub],
+      );
+      if (Number(recentPosts[0]?.postCount ?? 0) >= MAX_POSTS_PER_24_HOURS) {
+        await connection.rollback();
+        const availableAt = recentPosts[0]?.oldestPostAt
+          ? new Date(
+              new Date(recentPosts[0].oldestPostAt).getTime() + 24 * 60 * 60 * 1000,
+            ).toISOString()
+          : null;
+        return res.status(429).json({
+          error: 'You have reached the limit of five posts in 24 hours.',
+          limit: MAX_POSTS_PER_24_HOURS,
+          availableAt,
+        });
+      }
+      const [result] = await connection.execute(
+        `INSERT INTO social_posts (user_id, caption, images_json)
+         VALUES (?, ?, ?)`,
+        [
+          req.auth.sub,
+          caption || null,
+          JSON.stringify(imageResult.images),
+        ],
+      );
+      await connection.commit();
+      transactionStarted = false;
+      return res.status(201).json({
+        id: Number(result.insertId),
+        userId: Number(req.auth.sub),
+        caption,
+        images: imageResult.images,
+        message: 'Experience shared.',
+      });
+    } catch (error) {
+      if (transactionStarted) await connection.rollback();
+      return next(error);
+    } finally {
+      connection?.release();
+    }
+  });
+
+  app.post('/api/social/follows/:userId', requireAuth, async (req, res, next) => {
+    const userId = positiveId(req.params.userId);
+    if (userId === null || userId === Number(req.auth.sub)) {
+      return res.status(400).json({ error: 'Choose another valid profile to follow.' });
+    }
+    try {
+      const [targets] = await pool.execute(
+        `SELECT id FROM users u
+         WHERE u.id = ? AND u.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks b
+             WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
+                OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
+           )
+         LIMIT 1`,
+        [userId, req.auth.sub, req.auth.sub],
+      );
+      if (!targets.length) {
+        return res.status(404).json({ error: 'Profile not found.' });
+      }
+      await pool.execute(
+        `INSERT IGNORE INTO user_follows (follower_id, followed_id)
+         VALUES (?, ?)`,
+        [req.auth.sub, userId],
+      );
+      return res.json({ isFollowing: true });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.delete('/api/social/follows/:userId', requireAuth, async (req, res, next) => {
+    const userId = positiveId(req.params.userId);
+    if (userId === null || userId === Number(req.auth.sub)) {
+      return res.status(400).json({ error: 'Choose another valid profile to unfollow.' });
+    }
+    try {
+      await pool.execute(
+        'DELETE FROM user_follows WHERE follower_id = ? AND followed_id = ?',
+        [req.auth.sub, userId],
+      );
+      return res.json({ isFollowing: false });
+    } catch (error) {
+      return next(error);
+    }
+  });
+}
+
+function parseImages(value) {
+  if (Array.isArray(value)) return value.filter((image) => typeof image === 'string');
+  if (typeof value !== 'string') return [];
+  try {
+    const images = JSON.parse(value);
+    return Array.isArray(images)
+      ? images.filter((image) => typeof image === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function firstImage(value) {
+  if (typeof value !== 'string') return '';
+  const image = value.trim();
+  if (!image) return '';
+  const images = parseImages(image);
+  return images[0] || image;
+}
+
+function serializeDate(value) {
+  if (value instanceof Date) return value.toISOString();
+  return value == null ? null : new Date(value).toISOString();
+}
+
+module.exports = {
+  MAX_CAPTION_LENGTH,
+  MAX_IMAGES_PER_POST,
+  MAX_IMAGE_BYTES,
+  MAX_POSTS_PER_24_HOURS,
+  registerSocialRoutes,
+  matchesImageType,
+  validateImages,
+};

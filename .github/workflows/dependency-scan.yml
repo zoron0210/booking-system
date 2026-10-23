@@ -1,0 +1,182 @@
+name: Dependency scan
+
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: >-
+          dart format --output=none --set-exit-if-changed
+          lib/features/bookings/domain/booking_schedule.dart
+          lib/features/bookings/application/booking_schedule_controller.dart
+          lib/features/bookings/data/http_booking_schedule_repository.dart
+          lib/features/bookings/presentation/booking_schedule_conflict.dart
+          lib/features/merchant_management/data/merchant_booking_repository.dart
+          lib/core/api_http_client.dart
+          test/booking_schedule_controller_test.dart
+          test/booking_schedule_repository_test.dart
+          test/merchant_booking_repository_test.dart
+          lib/features/app_shell/presentation/app_root.dart
+          lib/features/app_shell/presentation/overview_page.dart
+          lib/features/app_shell/presentation/auth_page.dart
+          lib/features/app_shell/presentation/discovery_pages.dart
+          lib/features/auth/presentation/auth_dashboard.dart
+          lib/features/app_shell/presentation/app_root.dart
+          lib/guest_access.dart
+          lib/profile_dashboard.dart
+          test/auth_success_feedback_test.dart
+          test/logout_feedback_test.dart
+          lib/features/settings/presentation/app_settings_page.dart
+          test/app_settings_dependency_test.dart
+          lib/features/merchant_management/data/merchant_add_session.dart
+          lib/features/merchant_management/presentation/merchant_fitness_form_sections.dart
+          lib/merchant_add_page.dart
+          test/merchant_add_wizard_test.dart
+          test/merchant_add_publish_test.dart
+          test/merchant_add_multi_sport_test.dart
+          test/merchant_add_fitness_test.dart
+          test/merchant_add_form_layout_test.dart
+          test/merchant_add_price_display_test.dart
+          test/merchant_fitness_form_sections_test.dart
+          lib/features/messaging/data/messages_session_provider.dart
+          lib/messages_controller.dart
+          lib/messages_dashboard.dart
+          test/messages_controller_test.dart
+          lib/features/profile/data/profile_session_provider.dart
+          lib/profile_dashboard.dart
+          test/profile_session_provider_test.dart
+          lib/features/bookings/presentation/booking_details_panel.dart
+          test/customer_bookings_banner_test.dart
+          lib/features/bookings/data/customer_bookings_session_provider.dart
+          lib/customer_bookings_page.dart
+          test/customer_bookings_session_test.dart
+          test/profile_session_provider_test.dart
+          test/customer_bookings_banner_test.dart
+          lib/features/merchant_management/data/merchant_session_provider.dart
+          lib/merchant_profile_dashboard.dart
+          lib/merchant_dashboard.dart
+          test/merchant_session_provider_test.dart
+      - run: flutter analyze
+      - run: >-
+          flutter test
+          test/auth_success_feedback_test.dart
+          test/logout_feedback_test.dart
+          test/auth_service_test.dart
+          test/app_startup_test.dart
+          test/app_settings_dependency_test.dart
+          test/messages_api_auth_test.dart
+          test/messages_controller_test.dart
+          test/customer_bookings_session_test.dart
+          test/news_feed_navigation_test.dart
+          test/booking_schedule_conflict_test.dart
+          test/booking_schedule_controller_test.dart
+          test/booking_schedule_repository_test.dart
+          test/booking_pricing_test.dart
+          test/booking_status_analyzer_test.dart
+          test/merchant_booking_repository_test.dart
+          test/merchant_analytics_dashboard_test.dart
+          test/merchant_profile_dashboard_test.dart
+          test/merchant_session_provider_test.dart
+          test/merchant_dashboard_polling_test.dart
+          test/profile_dashboard_test.dart
+          test/merchant_add_wizard_test.dart
+          test/merchant_add_publish_test.dart
+          test/merchant_add_multi_sport_test.dart
+          test/merchant_add_fitness_test.dart
+          test/merchant_add_form_layout_test.dart
+          test/merchant_add_price_display_test.dart
+          test/merchant_fitness_form_sections_test.dart
+          test/fitness_booking_page_test.dart
+          test/event_booking_page_test.dart
+
+  backend-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm test
+
+  mysql-integration:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-test-root-password
+          MYSQL_DATABASE: ci_test_database
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MYSQL_TEST_REQUIRED: '1'
+      MYSQL_TEST_HOST: 127.0.0.1
+      MYSQL_TEST_PORT: '3306'
+      MYSQL_TEST_USER: root
+      MYSQL_TEST_PASSWORD: ci-test-root-password
+      MYSQL_TEST_DATABASE: tinkerpro_ci_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run test:integration
+
+  osv-scan:
+    if: github.event_name != 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@c7c7bcb0773cc4678a674ada03a66cc5c4325476
+    with:
+      scan-args: |-
+        --include-git-root
+        -r
+        ./
+
+  osv-scan-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@c7c7bcb0773cc4678a674ada03a66cc5c4325476
+    with:
+      scan-args: |-
+        --include-git-root
+        -r
+        ./

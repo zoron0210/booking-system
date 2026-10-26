@@ -22,10 +22,15 @@ void main() {
   test('configured light theme applies shared page and surface styles', () {
     final theme = AppTheme.configured(
       darkMode: false,
-      accentColor: AppPalette.orange.color,
+      accentColor: AppPalette.blue.color,
     );
 
     expect(theme.brightness, Brightness.light);
+    expect(theme.colorScheme.primary, AppPalette.blue.color);
+    expect(
+      theme.filledButtonTheme.style!.backgroundColor!.resolve({}),
+      AppPalette.blue.color,
+    );
     expect(theme.scaffoldBackgroundColor, AppColors.lightPage);
     expect(theme.cardTheme.color, Colors.white);
     expect(theme.dialogTheme.backgroundColor, Colors.white);
@@ -34,6 +39,14 @@ void main() {
       theme.inputDecorationTheme.fillColor,
       theme.colorScheme.surfaceContainerLow,
     );
+  });
+
+  test('new accounts default to the reference blue theme', () {
+    final preferences = AppPreferences.empty();
+
+    expect(preferences.palette, AppPalette.blue);
+    expect(preferences.accentColor, const Color(0xFF214A94));
+    expect(preferences.darkMode, isFalse);
   });
 
   testWidgets('appearance and language choices apply and persist', (
@@ -201,7 +214,7 @@ void main() {
     expect(stored['customAccentColor'], customColor.toARGB32());
 
     await preferences.load(accountEmail: 'other-color@example.com');
-    expect(preferences.accentColor, AppPalette.orange.color);
+    expect(preferences.accentColor, AppPalette.blue.color);
     await preferences.load(accountEmail: 'custom-color@example.com');
     expect(preferences.accentColor, customColor);
 
@@ -260,7 +273,7 @@ void main() {
 
       await preferences.load(accountEmail: 'bob@example.com');
       expect(preferences.darkMode, isFalse);
-      expect(preferences.palette, AppPalette.orange);
+      expect(preferences.palette, AppPalette.blue);
       expect(preferences.languageCode, 'en');
       expect(appLanguageText('Settings', 'Mga Setting'), 'Settings');
       await preferences.update(palette: AppPalette.blue, languageCode: 'ja');
@@ -273,7 +286,7 @@ void main() {
 
       await preferences.load();
       expect(preferences.darkMode, isFalse);
-      expect(preferences.palette, AppPalette.orange);
+      expect(preferences.palette, AppPalette.blue);
       expect(preferences.languageCode, 'en');
       await preferences.update(languageCode: 'fil');
 

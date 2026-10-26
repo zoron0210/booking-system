@@ -92,10 +92,10 @@ void main() {
     await tester.pumpAndSettle();
 
     final incoming = tester.getRect(
-      find.byKey(const ValueKey('message-ticket-701')),
+      find.byKey(const ValueKey('message-ticket-701')).last,
     );
     final sent = tester.getRect(
-      find.byKey(const ValueKey('message-ticket-702')),
+      find.byKey(const ValueKey('message-ticket-702')).last,
     );
     expect(incoming.left, lessThan(sent.left));
     expect(sent.right, closeTo(900 - 16, 1));

@@ -108,6 +108,11 @@ function publicUser(user) {
     avatarUrl: user.avatar_url || null,
     address: user.address || null,
     hobby: user.hobby || null,
+    gender: user.gender || null,
+    playerType: user.player_type || null,
+    onboardingCompleted:
+      user.onboarding_completed === true ||
+      Number(user.onboarding_completed) === 1,
     role: user.role,
     status: user.status,
   };

@@ -129,7 +129,7 @@ class _BookingTransactionNotificationSettingsState
             items: const [
               DropdownMenuItem(
                 value: 'tinker_bell',
-                child: AppText('TinkerPro bell', localize: true),
+                child: AppText('SpotGo bell', localize: true),
               ),
               DropdownMenuItem(
                 value: 'system',

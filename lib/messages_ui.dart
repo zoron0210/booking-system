@@ -230,6 +230,22 @@ class MessagesImageAttachment extends StatelessWidget {
     final attachment = rawAttachment is Map
         ? Map<String, dynamic>.from(rawAttachment)
         : <String, dynamic>{};
+    if (safeString(attachment['type']) == 'gif') {
+      final url = safeString(attachment['url']);
+      final uri = Uri.tryParse(url);
+      if (uri == null ||
+          uri.scheme != 'https' ||
+          uri.host != 'media.tenor.com' ||
+          uri.hasPort ||
+          uri.userInfo.isNotEmpty ||
+          !RegExp(r'\.(gif|webp)$', caseSensitive: false).hasMatch(uri.path)) {
+        return const AppText('GIF unavailable', localize: true);
+      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(url, width: 220, height: 220, fit: BoxFit.cover),
+      );
+    }
     final data = safeString(attachment['data']);
     if (data.isEmpty || !data.startsWith('data:image/')) {
       return const AppText('Image unavailable', localize: true);

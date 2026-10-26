@@ -78,4 +78,29 @@ void main() {
     await tester.tap(find.text('Profile'));
     expect(selectedDestination, 4);
   });
+
+  testWidgets('customer navigation exposes Home as its own destination', (
+    tester,
+  ) async {
+    int? selectedDestination;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          bottomNavigationBar: AppBottomNavigation(
+            selectedIndex: 5,
+            hideSavedDestination: true,
+            showHomeDestination: true,
+            onDestinationSelected: (index) => selectedDestination = index,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('customer-nav-home')), findsOneWidget);
+    expect(find.text('Home').first, findsOneWidget);
+    await tester.tap(find.text('Venue'));
+    expect(selectedDestination, 0);
+    await tester.tap(find.text('Home'));
+    expect(selectedDestination, 5);
+  });
 }

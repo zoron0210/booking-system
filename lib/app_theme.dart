@@ -7,9 +7,9 @@ import 'app_design_system.dart';
 abstract final class AppTheme {
   static final light = ThemeData(
     colorScheme: ColorScheme.light(
-      primary: AppColors.navy,
+      primary: AppColors.blue,
       onPrimary: Colors.white,
-      secondary: AppColors.orange,
+      secondary: AppColors.blue,
       onSecondary: Colors.white,
       surface: Colors.white,
       onSurface: AppColors.ink,
@@ -81,7 +81,7 @@ abstract final class AppTheme {
         fontWeight: FontWeight.w700,
       ),
       secondaryLabelStyle: TextStyle(
-        color: AppColors.navy,
+        color: AppColors.blue,
         fontSize: 12,
         fontWeight: FontWeight.w800,
       ),
@@ -104,7 +104,7 @@ abstract final class AppTheme {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(AppRadii.control)),
-        borderSide: const BorderSide(color: AppColors.navy, width: 1.4),
+        borderSide: const BorderSide(color: AppColors.blue, width: 1.4),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(AppRadii.control)),
@@ -117,10 +117,10 @@ abstract final class AppTheme {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: AppColors.orange,
+        backgroundColor: AppColors.blue,
         foregroundColor: Colors.white,
         padding: AppSpacing.buttonPadding,
-        minimumSize: const Size(0, 46),
+        minimumSize: const Size(0, 48),
         elevation: 0,
         shadowColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
@@ -131,10 +131,10 @@ abstract final class AppTheme {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.navy,
-        side: const BorderSide(color: AppColors.navy),
+        foregroundColor: AppColors.blue,
+        side: const BorderSide(color: AppColors.blue),
         padding: AppSpacing.buttonPadding,
-        minimumSize: const Size(0, 46),
+        minimumSize: const Size(0, 48),
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppRadii.button)),
         ),
@@ -151,7 +151,11 @@ abstract final class AppTheme {
       style: TextButton.styleFrom(padding: AppSpacing.buttonPadding),
     ),
     iconButtonTheme: IconButtonThemeData(
-      style: IconButton.styleFrom(padding: AppSpacing.buttonPadding),
+      style: IconButton.styleFrom(
+        padding: AppSpacing.buttonPadding,
+        minimumSize: const Size.square(48),
+        tapTargetSize: MaterialTapTargetSize.padded,
+      ),
     ),
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(
@@ -171,9 +175,9 @@ abstract final class AppTheme {
     ),
     tabBarTheme: TabBarThemeData(
       dividerColor: Colors.transparent,
-      indicatorColor: AppColors.orange,
+      indicatorColor: AppColors.blue,
       indicatorSize: TabBarIndicatorSize.label,
-      labelColor: AppColors.navy,
+      labelColor: AppColors.blue,
       unselectedLabelColor: AppColors.muted,
       labelStyle: TextStyle(fontWeight: FontWeight.w800),
       unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w600),
@@ -190,21 +194,21 @@ abstract final class AppTheme {
       ),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
-      color: AppColors.orange,
+      color: AppColors.blue,
       linearTrackColor: AppColors.softOrange,
     ),
     sliderTheme: SliderThemeData(
-      activeTrackColor: AppColors.orange,
+      activeTrackColor: AppColors.blue,
       inactiveTrackColor: AppColors.border,
-      thumbColor: AppColors.orange,
+      thumbColor: AppColors.blue,
       overlayColor: AppColors.softOrange,
-      valueIndicatorColor: AppColors.orange,
+      valueIndicatorColor: AppColors.blue,
       valueIndicatorTextStyle: TextStyle(color: AppColors.onAccent),
     ),
     textSelectionTheme: TextSelectionThemeData(
-      cursorColor: AppColors.orange,
+      cursorColor: AppColors.blue,
       selectionColor: AppColors.softOrange,
-      selectionHandleColor: AppColors.orange,
+      selectionHandleColor: AppColors.blue,
     ),
     dividerTheme: DividerThemeData(color: AppColors.border, thickness: 1),
   );
@@ -379,7 +383,7 @@ abstract final class AppTheme {
           elevation: 0,
           shadowColor: Colors.transparent,
           padding: AppSpacing.buttonPadding,
-          minimumSize: const Size(0, 46),
+          minimumSize: const Size(0, 48),
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.all(Radius.circular(AppRadii.button)),
           ),
@@ -391,7 +395,7 @@ abstract final class AppTheme {
           foregroundColor: scheme.primary,
           side: BorderSide(color: scheme.primary),
           padding: AppSpacing.buttonPadding,
-          minimumSize: const Size(0, 46),
+          minimumSize: const Size(0, 48),
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.all(Radius.circular(AppRadii.button)),
           ),
@@ -417,6 +421,8 @@ abstract final class AppTheme {
         style: IconButton.styleFrom(
           foregroundColor: scheme.onSurfaceVariant,
           padding: AppSpacing.buttonPadding,
+          minimumSize: const Size.square(48),
+          tapTargetSize: MaterialTapTargetSize.padded,
         ),
       ),
       inputDecorationTheme: base.inputDecorationTheme.copyWith(

@@ -960,6 +960,78 @@ async function ensureVenueHeartsSchema() {
         [16, 'social-following-and-experience-posts'],
       );
     }
+    if (!appliedVersions.has(17)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_post_likes (
+          post_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (post_id, user_id),
+          KEY idx_social_post_likes_user (user_id, created_at),
+          CONSTRAINT fk_social_post_likes_post
+            FOREIGN KEY (post_id) REFERENCES social_posts (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_post_likes_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_saved_posts (
+          post_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (post_id, user_id),
+          KEY idx_social_saved_posts_user (user_id, created_at),
+          CONSTRAINT fk_social_saved_posts_post
+            FOREIGN KEY (post_id) REFERENCES social_posts (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_saved_posts_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_post_comments (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          post_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          comment_text VARCHAR(2000) NOT NULL,
+          gif_url VARCHAR(2048) NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_social_post_comments_post (post_id, created_at, id),
+          CONSTRAINT fk_social_post_comments_post
+            FOREIGN KEY (post_id) REFERENCES social_posts (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_post_comments_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [17, 'social-post-interactions'],
+      );
+    }
+    if (!appliedVersions.has(18)) {
+      await ensureTableColumn('users', 'gender', 'VARCHAR(32) NULL');
+      await ensureTableColumn('users', 'player_type', 'VARCHAR(80) NULL');
+      await ensureTableColumn(
+        'users',
+        'onboarding_completed',
+        'TINYINT(1) NOT NULL DEFAULT 0',
+      );
+      await connection.execute(
+        'UPDATE users SET onboarding_completed = 1 WHERE onboarding_completed = 0',
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [18, 'customer-onboarding-profile'],
+      );
+    }
   } finally {
     try {
       if (lockAcquired) {

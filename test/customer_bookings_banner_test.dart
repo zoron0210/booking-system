@@ -70,7 +70,7 @@ void main() {
           if (bookingRequests == 1) {
             return http.Response(
               jsonEncode({
-                'error': 'The local API at http://192.168.1.45:3000 took too long to respond.',
+                'error': 'The local API at http://192.168.1.18:3000 took too long to respond.',
               }),
               408,
             );
@@ -92,7 +92,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.textContaining('192.168.1.45'), findsNothing);
+    expect(find.textContaining('192.168.1.18'), findsNothing);
     expect(find.textContaining('timed out'), findsNothing);
     expect(
       find.byKey(const ValueKey('customer-bookings-retry')),

@@ -1,7 +1,25 @@
+const { createRateLimiter } = require('../rate_limit');
+
 const MAX_POSTS_PER_24_HOURS = 5;
 const MAX_CAPTION_LENGTH = 2000;
 const MAX_IMAGES_PER_POST = 5;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_COMMENT_LENGTH = 2000;
+
+function validTenorGifUrl(value) {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' &&
+      url.hostname === 'media.tenor.com' &&
+      url.port === '' &&
+      !url.username &&
+      !url.password &&
+      /\.(gif|webp)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
 
 function positiveId(value) {
   if (
@@ -20,6 +38,23 @@ function normalizeCaption(value) {
     : '';
 }
 
+async function visiblePost(pool, postId, viewerId) {
+  const [rows] = await pool.execute(
+    `SELECT p.id
+     FROM social_posts p
+     JOIN users u ON u.id = p.user_id AND u.status = 'active'
+     WHERE p.id = ?
+       AND (? IS NULL OR NOT EXISTS (
+         SELECT 1 FROM user_blocks b
+         WHERE (b.blocker_id = ? AND b.blocked_user_id = p.user_id)
+            OR (b.blocker_id = p.user_id AND b.blocked_user_id = ?)
+       ))
+     LIMIT 1`,
+    [postId, viewerId, viewerId, viewerId],
+  );
+  return rows.length > 0;
+}
+
 function validateImages(value) {
   if (value == null) return { valid: true, images: [] };
   if (!Array.isArray(value) || value.length > MAX_IMAGES_PER_POST) {
@@ -27,6 +62,10 @@ function validateImages(value) {
   }
   const images = [];
   for (const image of value) {
+    if (validTenorGifUrl(image)) {
+      images.push(image);
+      continue;
+    }
     const match = typeof image === 'string'
       ? /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(image)
       : null;
@@ -63,34 +102,112 @@ function matchesImageType(bytes, type) {
     bytes.toString('ascii', 8, 12) === 'WEBP';
 }
 
-function registerSocialRoutes({ app, pool, requireAuth }) {
-  app.get('/api/social/feed', requireAuth, async (req, res, next) => {
+function registerSocialRoutes({
+  app,
+  pool,
+  requireAuth,
+  tenorApiKey = process.env.TENOR_API_KEY,
+  fetchImpl = globalThis.fetch,
+}) {
+  const optionalAuth = (req, res, next) => {
+    const authorization = typeof req.get === 'function'
+      ? req.get('authorization')
+      : req.headers?.authorization;
+    if (!authorization) {
+      req.auth = null;
+      return next();
+    }
+    return requireAuth(req, res, next);
+  };
+  const tenorSearchRateLimit = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 30,
+    keyGenerator: (req) => req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+    message: 'Too many GIF searches. Try again in a minute.',
+  });
+
+  app.get('/api/social/feed', optionalAuth, async (req, res, next) => {
+    const viewerId = req.auth?.sub ?? null;
+    const feedScope = ['public', 'following'].includes(req.query.scope)
+      ? req.query.scope
+      : 'default';
+    if (feedScope === 'following' && viewerId == null) {
+      return res.status(401).json({
+        error: 'Sign in to view posts from people you follow.',
+      });
+    }
     try {
       const [rows] = await pool.execute(
         `SELECT p.id, p.user_id AS userId, p.caption,
                 p.images_json AS imagesJson, p.created_at AS createdAt,
                 u.first_name AS firstName, u.last_name AS lastName,
-                u.avatar_url AS avatarUrl, u.role
+                u.avatar_url AS avatarUrl, u.role,
+                (SELECT COUNT(*) FROM social_post_likes l
+                 WHERE l.post_id = p.id) AS likeCount,
+                (SELECT COUNT(*) FROM social_post_comments c
+                 WHERE c.post_id = p.id) AS commentCount,
+                EXISTS (
+                  SELECT 1 FROM social_post_likes l
+                  WHERE l.post_id = p.id AND l.user_id = ?
+                ) AS isLiked,
+                EXISTS (
+                  SELECT 1 FROM social_saved_posts s
+                  WHERE s.post_id = p.id AND s.user_id = ?
+                ) AS isSaved
          FROM social_posts p
          JOIN users u ON u.id = p.user_id AND u.status = 'active'
-         WHERE (p.user_id = ? OR EXISTS (
-           SELECT 1 FROM user_follows f
-           WHERE f.follower_id = ? AND f.followed_id = p.user_id
-         ))
-         AND NOT EXISTS (
+         WHERE (
+           ? = 'public'
+           OR (
+             ? = 'following'
+             AND ? IS NOT NULL
+             AND p.user_id <> ?
+             AND EXISTS (
+               SELECT 1 FROM user_follows f
+               WHERE f.follower_id = ? AND f.followed_id = p.user_id
+             )
+           )
+           OR (
+             ? = 'default'
+             AND (
+               ? IS NULL
+               OR p.user_id = ?
+               OR EXISTS (
+                 SELECT 1 FROM user_follows f
+                 WHERE f.follower_id = ? AND f.followed_id = p.user_id
+               )
+             )
+           )
+         )
+         AND (? IS NULL OR NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = ? AND b.blocked_user_id = p.user_id)
               OR (b.blocker_id = p.user_id AND b.blocked_user_id = ?)
-         )
+         ))
          ORDER BY p.created_at DESC, p.id DESC
          LIMIT 50`,
-        [req.auth.sub, req.auth.sub, req.auth.sub, req.auth.sub],
+        [
+          viewerId,
+          viewerId,
+          feedScope,
+          feedScope,
+          viewerId,
+          viewerId,
+          viewerId,
+          feedScope,
+          viewerId,
+          viewerId,
+          viewerId,
+          viewerId,
+          viewerId,
+          viewerId,
+        ],
       );
       return res.json({
         posts: rows.map((row) => ({
           ...row,
           displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
-            'TinkerPro user',
+            'SpotGo user',
           images: parseImages(row.imagesJson),
           createdAt: serializeDate(row.createdAt),
         })),
@@ -100,7 +217,174 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
     }
   });
 
-  app.get('/api/social/users', requireAuth, async (req, res, next) => {
+  app.get('/api/social/gifs', tenorSearchRateLimit, async (req, res, next) => {
+    const query =
+      typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+    if (!query) return res.status(400).json({ error: 'Enter a GIF search term.' });
+    if (!tenorApiKey) {
+      return res.status(503).json({ error: 'GIF search is not configured.' });
+    }
+    try {
+      const url = new URL('https://tenor.googleapis.com/v2/search');
+      url.searchParams.set('q', query);
+      url.searchParams.set('key', tenorApiKey);
+      url.searchParams.set('client_key', 'tinkerpro');
+      url.searchParams.set('limit', '20');
+      url.searchParams.set('media_filter', 'tinygif');
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) {
+        return res.status(502).json({ error: 'GIF search is temporarily unavailable.' });
+      }
+      const payload = await response.json();
+      const gifs = (Array.isArray(payload.results) ? payload.results : [])
+        .map((result) => {
+          const formats = result.media_formats ?? {};
+          const media = formats.tinygif ?? formats.gif;
+          const gifUrl = media?.url;
+          if (!validTenorGifUrl(gifUrl)) return null;
+          return {
+            url: gifUrl,
+            title: typeof result.content_description === 'string'
+              ? result.content_description.slice(0, 120)
+              : 'GIF',
+          };
+        })
+        .filter(Boolean);
+      return res.json({ gifs });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get(
+    '/api/social/posts/:postId/comments',
+    optionalAuth,
+    async (req, res, next) => {
+      const postId = positiveId(req.params.postId);
+      if (postId === null) return res.status(400).json({ error: 'Invalid post.' });
+      const viewerId = req.auth?.sub ?? null;
+      try {
+        const visible = await visiblePost(pool, postId, viewerId);
+        if (!visible) return res.status(404).json({ error: 'Post not found.' });
+        const [rows] = await pool.execute(
+          `SELECT c.id, c.comment_text AS text, c.gif_url AS gifUrl,
+                  c.created_at AS createdAt, u.id AS userId,
+                  u.first_name AS firstName, u.last_name AS lastName,
+                  u.avatar_url AS avatarUrl
+           FROM social_post_comments c
+           JOIN users u ON u.id = c.user_id AND u.status = 'active'
+           WHERE c.post_id = ?
+             AND (? IS NULL OR NOT EXISTS (
+               SELECT 1 FROM user_blocks b
+               WHERE (b.blocker_id = ? AND b.blocked_user_id = c.user_id)
+                  OR (b.blocker_id = c.user_id AND b.blocked_user_id = ?)
+             ))
+           ORDER BY c.created_at, c.id
+           LIMIT 100`,
+          [postId, viewerId, viewerId, viewerId],
+        );
+        return res.json({
+          comments: rows.map((row) => ({
+            ...row,
+            displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
+              'SpotGo user',
+            createdAt: serializeDate(row.createdAt),
+          })),
+        });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.post(
+    '/api/social/posts/:postId/comments',
+    requireAuth,
+    async (req, res, next) => {
+      const postId = positiveId(req.params.postId);
+      const text = typeof req.body.text === 'string'
+        ? req.body.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+        : '';
+      const gifUrl = req.body.gifUrl == null ? null : req.body.gifUrl;
+      if (
+        postId === null ||
+        text.length > MAX_COMMENT_LENGTH ||
+        (!text && !gifUrl) ||
+        (gifUrl != null && !validTenorGifUrl(gifUrl))
+      ) {
+        return res.status(400).json({
+          error: 'Enter a comment or choose a valid GIF.',
+        });
+      }
+      try {
+        const visible = await visiblePost(pool, postId, req.auth.sub);
+        if (!visible) return res.status(404).json({ error: 'Post not found.' });
+        const [result] = await pool.execute(
+          `INSERT INTO social_post_comments (post_id, user_id, comment_text, gif_url)
+           VALUES (?, ?, ?, ?)`,
+          [postId, req.auth.sub, text, gifUrl],
+        );
+        return res.status(201).json({
+          id: Number(result.insertId),
+          postId,
+          userId: Number(req.auth.sub),
+          text,
+          gifUrl,
+        });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  for (const [action, table, column, status] of [
+    ['likes', 'social_post_likes', 'isLiked', true],
+    ['saves', 'social_saved_posts', 'isSaved', true],
+  ]) {
+    app.post(
+      `/api/social/posts/:postId/${action}`,
+      requireAuth,
+      async (req, res, next) => {
+        const postId = positiveId(req.params.postId);
+        if (postId === null) {
+          return res.status(400).json({ error: 'Invalid post.' });
+        }
+        try {
+          const visible = await visiblePost(pool, postId, req.auth.sub);
+          if (!visible) return res.status(404).json({ error: 'Post not found.' });
+          await pool.execute(
+            `INSERT IGNORE INTO ${table} (post_id, user_id) VALUES (?, ?)`,
+            [postId, req.auth.sub],
+          );
+          return res.json({ [column]: status });
+        } catch (error) {
+          return next(error);
+        }
+      },
+    );
+    app.delete(
+      `/api/social/posts/:postId/${action}`,
+      requireAuth,
+      async (req, res, next) => {
+        const postId = positiveId(req.params.postId);
+        if (postId === null) {
+          return res.status(400).json({ error: 'Invalid post.' });
+        }
+        try {
+          await pool.execute(
+            `DELETE FROM ${table} WHERE post_id = ? AND user_id = ?`,
+            [postId, req.auth.sub],
+          );
+          return res.json({ [column]: !status });
+        } catch (error) {
+          return next(error);
+        }
+      },
+    );
+  }
+
+  app.get('/api/social/users', optionalAuth, async (req, res, next) => {
+    const viewerId = req.auth?.sub ?? null;
     const query = typeof req.query.q === 'string'
       ? req.query.q.trim().slice(0, 80)
       : '';
@@ -115,29 +399,31 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
                   WHERE f.follower_id = ? AND f.followed_id = u.id
                 ) AS isFollowing
          FROM users u
-         WHERE u.id <> ? AND u.status = 'active'
+         WHERE (? IS NULL OR u.id <> ?) AND u.status = 'active'
            AND (? = '' OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
-           AND NOT EXISTS (
+           AND (? IS NULL OR NOT EXISTS (
              SELECT 1 FROM user_blocks b
              WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
                 OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
-           )
+           ))
          ORDER BY u.first_name, u.last_name, u.id
          LIMIT 50`,
         [
-          req.auth.sub,
-          req.auth.sub,
+          viewerId,
+          viewerId,
+          viewerId,
           query,
           `%${query}%`,
-          req.auth.sub,
-          req.auth.sub,
+          viewerId,
+          viewerId,
+          viewerId,
         ],
       );
       return res.json({
         users: rows.map((row) => ({
           id: Number(row.id),
           displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
-            'TinkerPro user',
+            'SpotGo user',
           avatarUrl: row.avatarUrl,
           role: row.role,
           followersCount: Number(row.followersCount),
@@ -149,7 +435,8 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
     }
   });
 
-  app.get('/api/social/users/:userId', requireAuth, async (req, res, next) => {
+  app.get('/api/social/users/:userId', optionalAuth, async (req, res, next) => {
+    const viewerId = req.auth?.sub ?? null;
     const userId = positiveId(req.params.userId);
     if (userId === null) {
       return res.status(400).json({ error: 'The profile is invalid.' });
@@ -170,25 +457,37 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
                 ) AS isFollowing
          FROM users u
          WHERE u.id = ? AND u.status = 'active'
-           AND NOT EXISTS (
+           AND (? IS NULL OR NOT EXISTS (
              SELECT 1 FROM user_blocks b
              WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
                 OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
-           )
+           ))
          LIMIT 1`,
-        [req.auth.sub, userId, req.auth.sub, req.auth.sub],
+        [viewerId, userId, viewerId, viewerId, viewerId],
       );
       if (!users[0]) {
         return res.status(404).json({ error: 'Profile not found.' });
       }
       const [posts] = await pool.execute(
         `SELECT id, user_id AS userId, caption,
-                images_json AS imagesJson, created_at AS createdAt
+                images_json AS imagesJson, created_at AS createdAt,
+                (SELECT COUNT(*) FROM social_post_likes l
+                 WHERE l.post_id = social_posts.id) AS likeCount,
+                (SELECT COUNT(*) FROM social_post_comments c
+                 WHERE c.post_id = social_posts.id) AS commentCount,
+                EXISTS (
+                  SELECT 1 FROM social_post_likes l
+                  WHERE l.post_id = social_posts.id AND l.user_id = ?
+                ) AS isLiked,
+                EXISTS (
+                  SELECT 1 FROM social_saved_posts s
+                  WHERE s.post_id = social_posts.id AND s.user_id = ?
+                ) AS isSaved
          FROM social_posts
          WHERE user_id = ?
          ORDER BY created_at DESC, id DESC
          LIMIT 50`,
-        [userId],
+        [viewerId, viewerId, userId],
       );
       const [businesses] = await pool.execute(
         `SELECT b.id AS businessId, b.name AS businessName,
@@ -223,7 +522,7 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
         profile: {
           id: Number(user.id),
           displayName: `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
-            'TinkerPro user',
+            'SpotGo user',
           avatarUrl: user.avatarUrl,
           role: user.role,
           followersCount: Number(user.followersCount),
@@ -251,7 +550,8 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
   });
 
   for (const type of ['followers', 'following']) {
-    app.get(`/api/social/users/:userId/${type}`, requireAuth, async (req, res, next) => {
+    app.get(`/api/social/users/:userId/${type}`, optionalAuth, async (req, res, next) => {
+      const viewerId = req.auth?.sub ?? null;
       const userId = positiveId(req.params.userId);
       if (userId === null) {
         return res.status(400).json({ error: 'The profile is invalid.' });
@@ -273,19 +573,19 @@ function registerSocialRoutes({ app, pool, requireAuth }) {
            FROM user_follows f
            JOIN users u ON u.id = ${type === 'followers' ? 'f.follower_id' : 'f.followed_id'}
            WHERE ${relation} AND u.status = 'active'
-             AND NOT EXISTS (
+             AND (? IS NULL OR NOT EXISTS (
                SELECT 1 FROM user_blocks b
                WHERE (b.blocker_id = ? AND b.blocked_user_id = u.id)
                   OR (b.blocker_id = u.id AND b.blocked_user_id = ?)
-             )
+             ))
            ORDER BY u.first_name, u.last_name, u.id`,
-          [req.auth.sub, userId, req.auth.sub, req.auth.sub],
+          [viewerId, userId, viewerId, viewerId, viewerId],
         );
         return res.json({
           users: profiles.map((profile) => ({
             id: Number(profile.id),
             displayName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() ||
-              'TinkerPro user',
+              'SpotGo user',
             avatarUrl: profile.avatarUrl,
             role: profile.role,
             followersCount: Number(profile.followersCount),

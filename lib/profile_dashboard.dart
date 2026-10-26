@@ -10,6 +10,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import 'features/activity_log/presentation/activity_log_routes.dart';
 import 'features/profile/data/profile_session_provider.dart';
+import 'features/social/presentation/social_profile_stats.dart';
 import 'saved_dashboard.dart';
 import 'messages_dashboard.dart';
 import 'customer_bookings_page.dart';
@@ -993,8 +994,22 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
       bottomNavigationBar: AppBottomNavigation(
         selectedIndex: 4,
         hideSavedDestination: true,
+        showHomeDestination: true,
         onDestinationReselected: _refreshAndScrollToTop,
         onDestinationSelected: (index) async {
+          if (index == 5) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute<void>(
+                builder: (_) => CustomerHomePage(
+                  onLogout: widget.onLogout,
+                  api: widget.api,
+                  initialUserPosition: widget.initialUserPosition,
+                  businessType: widget.businessType,
+                ),
+              ),
+            );
+            return;
+          }
           if (index == 0) {
             _openExplore(context);
             return;
@@ -1149,24 +1164,15 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
           ),
         ),
         const SizedBox(height: 16),
-        if (socialProfileUiEnabled) ...[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _socialHeaderCount(socialProfile?['postsCount'], 'Posts'),
-              const SizedBox(width: 24),
-              _socialHeaderCount(
-                socialProfile?['followersCount'],
-                'Followers',
-                onTap: () => _openMyConnections('followers'),
-              ),
-              const SizedBox(width: 24),
-              _socialHeaderCount(
-                socialProfile?['followingCount'],
-                'Following',
-                onTap: () => _openMyConnections('following'),
-              ),
-            ],
+        if (_canShowSocialProfile) ...[
+          SocialProfileStats(
+            postsCount: socialProfile?['postsCount'],
+            followersCount: socialProfile?['followersCount'],
+            followingCount: socialProfile?['followingCount'],
+            foregroundColor: _profileInk,
+            mutedColor: _profileMuted,
+            onFollowersTap: () => _openMyConnections('followers'),
+            onFollowingTap: () => _openMyConnections('following'),
           ),
           const SizedBox(height: 14),
         ],
@@ -1217,36 +1223,6 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
     );
   }
 
-  Widget _socialHeaderCount(
-    dynamic value,
-    String label, {
-    VoidCallback? onTap,
-  }) => InkWell(
-    key: ValueKey('profile-social-count-${label.toLowerCase()}'),
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(8),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppText(
-            '${(value as num?)?.toInt() ?? 0}',
-            style: TextStyle(
-              color: _profileInk,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          AppText(
-            label,
-            style: TextStyle(color: _profileMuted, fontSize: 11),
-            localize: true,
-          ),
-        ],
-      ),
-    ),
-  );
   Widget _profileHistorySection(BuildContext context) {
     final historyTitle = _historyTitle;
     final tabs = [

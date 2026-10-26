@@ -1,11 +1,11 @@
 {
-    "name": "TinkerPro",
-    "short_name": "TinkerPro",
+    "name": "SpotGo",
+    "short_name": "SpotGo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#F7F8FA",
     "theme_color": "#192B50",
-    "description": "Discover sports venues, event spaces, and fitness experiences with TinkerPro.",
+    "description": "Discover sports venues, event spaces, and fitness experiences with SpotGo.",
     "prefer_related_applications": false,
     "icons": [
         {

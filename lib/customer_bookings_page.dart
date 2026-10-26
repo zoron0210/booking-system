@@ -649,11 +649,25 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
       bottomNavigationBar: AppBottomNavigation(
         selectedIndex: 3,
         hideSavedDestination: true,
+        showHomeDestination: true,
         unreadMessageCount: _unreadMessageCount,
         unreadBookingCount: _unreadBookingCount,
         onDestinationReselected: _refreshAndScrollToTop,
         onDestinationSelected: (index) {
           if (index == 3) return;
+          if (index == 5) {
+            _replaceWith(
+              MaterialPageRoute(
+                builder: (_) => CustomerHomePage(
+                  onLogout: widget.onLogout,
+                  api: widget.api,
+                  initialUserPosition: widget.initialUserPosition,
+                  businessType: widget.businessType,
+                ),
+              ),
+            );
+            return;
+          }
           if (index == 0) {
             _openExplore();
             return;

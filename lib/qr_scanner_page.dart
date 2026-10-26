@@ -215,12 +215,12 @@ class _CameraError extends StatelessWidget {
               AppText(
                 appLanguageText(
                   permissionDenied
-                      ? 'Allow TinkerPro to use the camera in your phone settings, '
+                      ? 'Allow SpotGo to use the camera in your phone settings, '
                             'then try again.'
                       : 'Check that your camera is available and not being used '
                             'by another app, then try again.',
                   permissionDenied
-                      ? 'Allow TinkerPro to use the camera in your phone settings, '
+                      ? 'Allow SpotGo to use the camera in your phone settings, '
                             'then try again.'
                       : 'Check that your camera is available and not being used '
                             'by another app, then try again.',

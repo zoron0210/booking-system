@@ -54,6 +54,7 @@ const {
 } = require('./routes/merchant_news_routes');
 const { registerAuthRoutes } = require('./routes/auth_routes');
 const { registerSocialRoutes } = require('./routes/social_routes');
+const { registerSystemRoutes } = require('./routes/system_routes');
 
 const app = express();
 app.set('json escape', true);
@@ -86,6 +87,21 @@ function positiveIntegerId(value) {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function validTenorGifUrl(value) {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' &&
+      url.hostname === 'media.tenor.com' &&
+      url.port === '' &&
+      !url.username &&
+      !url.password &&
+      /\.(gif|webp)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function venueCheckInCode(venueId) {
@@ -566,13 +582,11 @@ function requireAuth(req, res, next) {
   }
 }
 
-app.get('/health', async (req, res, next) => {
-  try {
-    await pool.query('SELECT 1');
-    return res.json({ status: 'ok', database: 'connected' });
-  } catch (error) {
-    return next(error);
-  }
+registerSystemRoutes({
+  app,
+  pool,
+  requireAuth,
+  notificationTokenHash,
 });
 
 app.patch('/api/messages/conversations/:id/state', requireAuth, async (req, res, next) => {
@@ -680,58 +694,6 @@ app.delete('/api/messages/blocks/:userId', requireAuth, async (req, res, next) =
       [req.auth.sub, blockedUserId],
     );
     return res.json({ message: 'User unblocked.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.put('/api/notifications/device', requireAuth, async (req, res, next) => {
-  const token = req.body?.fcmToken;
-  const sound = req.body?.sound;
-  if (
-    typeof token !== 'string' ||
-    token.trim().length < 20 ||
-    token.length > 4096 ||
-    !['system', 'tinker_bell'].includes(sound)
-  ) {
-    return res.status(400).json({
-      error: 'A valid device token and notification sound are required.',
-    });
-  }
-  try {
-    const cleanToken = token.trim();
-    await pool.execute(
-      `INSERT INTO booking_notification_devices
-       (token_hash, user_id, fcm_token, sound)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id),
-         fcm_token = VALUES(fcm_token), sound = VALUES(sound),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        notificationTokenHash(cleanToken),
-        req.auth.sub,
-        cleanToken,
-        sound,
-      ],
-    );
-    return res.json({ message: 'Booking push notifications are enabled.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.delete('/api/notifications/device', requireAuth, async (req, res, next) => {
-  const token = req.body?.fcmToken;
-  if (typeof token !== 'string' || token.trim().length < 20 || token.length > 4096) {
-    return res.status(400).json({ error: 'A valid device token is required.' });
-  }
-  try {
-    await pool.execute(
-      `DELETE FROM booking_notification_devices
-       WHERE token_hash = ? AND user_id = ?`,
-      [notificationTokenHash(token.trim()), req.auth.sub],
-    );
-    return res.json({ message: 'Booking push notifications are disabled.' });
   } catch (error) {
     return next(error);
   }
@@ -1321,13 +1283,17 @@ app.post('/api/messages/conversations/:id', requireAuth, async (req, res, next) 
     typeof attachment.data === 'string' &&
     /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(attachment.data) &&
     attachment.data.length <= 7 * 1024 * 1024;
-  if ((!body && !hasImage) || body.length > 4000) {
+  const hasGif = attachment &&
+    typeof attachment === 'object' &&
+    attachment.type === 'gif' &&
+    validTenorGifUrl(attachment.url);
+  if ((!body && !hasImage && !hasGif) || body.length > 4000) {
     return res.status(400).json({
       error: 'Add a message or a valid image attachment. Images must be smaller than 5 MB.',
     });
   }
-  if (attachment != null && !hasImage) {
-    return res.status(400).json({ error: 'The image attachment is invalid or too large.' });
+  if (attachment != null && !hasImage && !hasGif) {
+    return res.status(400).json({ error: 'The image or GIF attachment is invalid or too large.' });
   }
   try {
     const conversationId = positiveIntegerId(req.params.id);
@@ -1390,6 +1356,8 @@ app.post('/api/messages/conversations/:id', requireAuth, async (req, res, next) 
                 : 'image',
               data: attachment.data,
             })
+          : hasGif
+          ? JSON.stringify({ type: 'gif', url: attachment.url })
           : null,
       ],
     );
@@ -2690,13 +2658,13 @@ app.post('/api/payments/paymongo/checkout', requireAuth, requireRole('customer')
             line_items: [{
               currency: 'PHP',
               amount: Math.round(checkoutAmount * 100),
-              name: `TinkerPro booking #${booking.id}`,
+              name: `SpotGo booking #${booking.id}`,
               quantity: 1,
             }],
             payment_method_types: [paymentMethod],
             success_url: process.env.PAYMONGO_SUCCESS_URL,
             cancel_url: process.env.PAYMONGO_CANCEL_URL,
-            description: `TinkerPro booking #${booking.id}`,
+            description: `SpotGo booking #${booking.id}`,
             reference_number: bookingTransactionId(booking.id),
             metadata: {
               booking_id: String(booking.id),
@@ -5558,7 +5526,7 @@ app.use((error, req, res, next) => {
 
 function startServer() {
   const server = app.listen(port, '0.0.0.0', () => {
-    console.log(`TinkerPro Sports API listening on http://0.0.0.0:${port}`);
+    console.log(`SpotGo Sports API listening on http://0.0.0.0:${port}`);
   });
   const completionInterval = setInterval(() => {
     processBookingApprovalDeadlines().catch((error) => {

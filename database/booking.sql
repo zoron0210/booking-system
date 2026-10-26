@@ -1,4 +1,3 @@
--- TinkerPro Sports user schema
 -- MySQL 8.0+
 
 CREATE DATABASE IF NOT EXISTS tinkerpro_sports
@@ -17,6 +16,9 @@ CREATE TABLE users (
   avatar_url LONGTEXT NULL,
   address VARCHAR(500) NULL,
   hobby VARCHAR(255) NULL,
+  gender VARCHAR(32) NULL,
+  player_type VARCHAR(80) NULL,
+  onboarding_completed TINYINT(1) NOT NULL DEFAULT 0,
   role ENUM('customer', 'merchant') NOT NULL DEFAULT 'customer',
   status ENUM('pending', 'active', 'suspended', 'deleted') NOT NULL DEFAULT 'pending',
   email_verified_at DATETIME NULL,
@@ -68,6 +70,51 @@ CREATE TABLE IF NOT EXISTS social_posts (
   KEY idx_social_posts_user_created (user_id, created_at, id),
   KEY idx_social_posts_created (created_at, id),
   CONSTRAINT fk_social_posts_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS social_post_likes (
+  post_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (post_id, user_id),
+  KEY idx_social_post_likes_user (user_id, created_at),
+  CONSTRAINT fk_social_post_likes_post
+    FOREIGN KEY (post_id) REFERENCES social_posts (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_social_post_likes_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS social_saved_posts (
+  post_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (post_id, user_id),
+  KEY idx_social_saved_posts_user (user_id, created_at),
+  CONSTRAINT fk_social_saved_posts_post
+    FOREIGN KEY (post_id) REFERENCES social_posts (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_social_saved_posts_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS social_post_comments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  post_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  comment_text VARCHAR(2000) NOT NULL,
+  gif_url VARCHAR(2048) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_social_post_comments_post (post_id, created_at, id),
+  CONSTRAINT fk_social_post_comments_post
+    FOREIGN KEY (post_id) REFERENCES social_posts (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_social_post_comments_user
     FOREIGN KEY (user_id) REFERENCES users (id)
     ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB;

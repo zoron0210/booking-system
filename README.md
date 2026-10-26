@@ -1,6 +1,6 @@
-# TinkerPro Sports
+# SpotGo Sports
 
-TinkerPro Sports is a Flutter app for discovering sports venues and booking
+SpotGo Sports is a Flutter app for discovering sports venues and booking
 facilities. Customers can manage bookings, saved venues, reviews, and messages;
 merchants can manage their business profiles, venues, bookings, and news posts.
 The app uses Firebase for sign-in integrations and a Node.js/Express API backed
@@ -20,7 +20,7 @@ flutter run --dart-define=API_BASE_URL=http://<host-reachable-from-device>:3000
 ```
 
 The API listens on port 3000 by default. The development API URL defaults to
-`http://192.168.1.45:3000` for this LAN. This is a local developer address,
+`http://192.168.1.18:3000` for this LAN. This is a local developer address,
 not a public/live server. If the computer's LAN address changes, override it
 with `API_BASE_URL` as above. For the Android emulator, the host machine is
 usually reachable at `10.0.2.2`, so use `http://10.0.2.2:3000`. A physical
@@ -67,14 +67,21 @@ Merchant profile and dashboard session access share an injectable provider in
 `lib/features/merchant_management/data/`, with tests for session persistence.
 Successful sign-in and sign-out transitions show localized confirmation; the
 sign-out confirmation makes clear that the app has returned to guest browsing.
-The social community is available from customer and merchant profiles. It
-supports following active accounts, a following feed, and experience posts with
-captions and photos. Posts are limited to five per user in any rolling 24-hour
-period; each post can contain up to five JPEG, PNG, or WebP photos (10 MiB per
-photo maximum).
+Guests can browse public community posts and profiles; following people or
+sharing experiences requires signing in. Customer Home is the first footer
+destination and shows a newest-first **For You** feed of public experiences
+alongside a **Following** feed containing posts by followed accounts. The
+header add button opens the experience composer directly. Feed posts support
+likes, comments, saved posts, and sharing through the device share menu.
+Captions, comments, and chat messages support emoji; Tenor GIF search is
+available in those composers and as post media. Configure `TENOR_API_KEY` in
+the backend environment to enable GIF search. Posts are limited to five per
+user in any rolling 24-hour period; each post can contain up to five media
+items: JPEG, PNG, or WebP photos (10 MiB per photo maximum) or Tenor GIFs.
 The Express API uses shared infrastructure and normalizers under
-`backend/src/`; authentication and merchant news routes are registered from
-dedicated modules under `backend/src/routes/`. The API server no longer runs
+`backend/src/`; health and device-notification routes, authentication, social,
+and merchant news routes are registered from dedicated modules under
+`backend/src/routes/`. The API server no longer runs
 schema changes on startup: apply them explicitly with `npm run migrate` from
 `backend` before starting or deploying the API. Applied schema migration
 versions are recorded in MySQL, and DDL privileges should be kept separate

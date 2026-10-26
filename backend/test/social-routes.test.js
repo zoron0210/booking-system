@@ -6,23 +6,27 @@ const {
   validateImages,
 } = require('../src/routes/social_routes');
 
-function createRouteHarness(pool) {
+function createRouteHarness(pool, options = {}) {
   const routes = new Map();
   const app = {
     get(path, ...handlers) {
-      routes.set(`GET ${path}`, handlers.at(-1));
+      routes.set(`GET ${path}`, handlers);
     },
     post(path, ...handlers) {
-      routes.set(`POST ${path}`, handlers.at(-1));
+      routes.set(`POST ${path}`, handlers);
     },
     delete(path, ...handlers) {
-      routes.set(`DELETE ${path}`, handlers.at(-1));
+      routes.set(`DELETE ${path}`, handlers);
     },
   };
   registerSocialRoutes({
     app,
     pool,
-    requireAuth(_req, _res, next) {
+    ...options,
+    requireAuth(req, res, next) {
+      if (!req.headers.authorization) {
+        return res.status(401).json({ error: 'Authentication required.' });
+      }
       return next();
     },
   });
@@ -33,6 +37,9 @@ function response() {
   return {
     statusCode: 200,
     body: undefined,
+    set() {
+      return this;
+    },
     status(code) {
       this.statusCode = code;
       return this;
@@ -45,15 +52,22 @@ function response() {
 }
 
 async function call(routes, key, request, res = response()) {
-  let nextError;
-  await routes.get(key)(
-    { auth: { sub: 7, role: 'customer' }, body: {}, params: {}, query: {}, ...request },
-    res,
-    (error) => {
-      nextError = error;
-    },
-  );
-  if (nextError) throw nextError;
+  const req = {
+    auth: { sub: 7, role: 'customer' },
+    body: {},
+    params: {},
+    query: {},
+    headers: { authorization: 'Bearer test-token' },
+    ...request,
+  };
+  const handlers = routes.get(key);
+  let index = 0;
+  const next = (error) => {
+    if (error) throw error;
+    const handler = handlers[index++];
+    return handler?.(req, res, next);
+  };
+  await next();
   return res;
 }
 
@@ -67,6 +81,14 @@ test('validates supported photos and rejects mismatched content and excessive fi
   });
   assert.equal(validateImages(['data:image/png;base64,YWJj']).valid, false);
   assert.equal(validateImages(Array(6).fill(pngDataUrl)).valid, false);
+  assert.equal(
+    validateImages(['https://media.tenor.com/hash/sports.gif']).valid,
+    true,
+  );
+  assert.equal(
+    validateImages(['https://media.tenor.com:8443/hash/sports.gif']).valid,
+    false,
+  );
   assert.equal(validateImages(null).valid, true);
 });
 
@@ -165,9 +187,217 @@ test('social connection lists expose public follower and following profiles', as
   assert.match(calls[0].sql, /f\.followed_id = \? AND f\.follower_id = u\.id/);
   assert.match(calls[1].sql, /f\.follower_id = \? AND f\.followed_id = u\.id/);
   assert.deepEqual(calls.map(({ params }) => params), [
-    [7, 7, 7, 7],
-    [7, 7, 7, 7],
+    [7, 7, 7, 7, 7],
+    [7, 7, 7, 7, 7],
   ]);
+});
+
+test('guests can read public feed, search results, profiles, and connections', async () => {
+  const routes = createRouteHarness({
+    async execute(sql) {
+      if (sql.includes('FROM social_posts p')) {
+        return [[{
+          id: 19,
+          userId: 42,
+          caption: 'Public match',
+          imagesJson: '[]',
+          createdAt: new Date('2026-05-01T12:00:00.000Z'),
+          firstName: 'Alex',
+          lastName: 'Player',
+          role: 'customer',
+        }], []];
+      }
+      if (sql.includes('postsCount')) {
+        return [[{
+          id: 42,
+          firstName: 'Alex',
+          lastName: 'Player',
+          role: 'customer',
+          followersCount: 4,
+          followingCount: 2,
+          postsCount: 1,
+        }], []];
+      }
+      if (sql.includes('FROM social_posts')) return [[], []];
+      if (sql.includes('FROM merchant_businesses b')) return [[], []];
+      if (sql.includes('FROM user_follows f')) {
+        return [[{
+          id: 42,
+          firstName: 'Alex',
+          lastName: 'Player',
+          role: 'customer',
+          followersCount: 4,
+        }], []];
+      }
+      if (sql.includes('FROM users u')) {
+        return [[{
+          id: 42,
+          firstName: 'Alex',
+          lastName: 'Player',
+          role: 'customer',
+          followersCount: 4,
+          isFollowing: 0,
+        }], []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+
+  test('authenticated public feed includes all posts but keeps block filtering', async () => {
+    let feedQuery;
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        if (sql.includes('FROM social_posts p')) {
+          feedQuery = { sql, params };
+          return [[{
+            id: 20,
+            userId: 42,
+            caption: 'Community experience',
+            imagesJson: '[]',
+            createdAt: new Date('2026-10-26T08:00:00.000Z'),
+            firstName: 'Alex',
+            lastName: 'Player',
+            role: 'customer',
+          }], []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+
+    const result = await call(routes, 'GET /api/social/feed', {
+      query: { scope: 'public' },
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.body.posts[0].caption, 'Community experience');
+    assert.match(feedQuery.sql, /\? = 'public'/);
+    assert.match(feedQuery.sql, /FROM user_blocks b/);
+    assert.deepEqual(feedQuery.params, [
+      7,
+      7,
+      'public',
+      'public',
+      7,
+      7,
+      7,
+      'public',
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+    ]);
+  });
+
+  test('following feed only returns posts from followed users', async () => {
+    let feedQuery;
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        if (sql.includes('FROM social_posts p')) {
+          feedQuery = { sql, params };
+          return [[], []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+
+    const result = await call(routes, 'GET /api/social/feed', {
+      query: { scope: 'following' },
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.match(feedQuery.sql, /\? = 'following'/);
+    assert.match(feedQuery.sql, /p\.user_id <> \?/);
+    assert.match(feedQuery.sql, /f\.follower_id = \? AND f\.followed_id = p\.user_id/);
+    assert.deepEqual(feedQuery.params, [
+      7,
+      7,
+      'following',
+      'following',
+      7,
+      7,
+      7,
+      'following',
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+    ]);
+  });
+
+  test('guests cannot request the following feed', async () => {
+    const routes = createRouteHarness({
+      async execute() {
+        throw new Error('The following feed must require authentication.');
+      },
+    });
+    const result = await call(routes, 'GET /api/social/feed', {
+      query: { scope: 'following' },
+      auth: null,
+      headers: {},
+    });
+
+    assert.equal(result.statusCode, 401);
+    assert.match(result.body.error, /Sign in/);
+  });
+
+  const guestRequest = { headers: {}, auth: undefined };
+  const feed = await call(routes, 'GET /api/social/feed', guestRequest);
+  assert.equal(feed.statusCode, 200);
+  assert.equal(feed.body.posts[0].caption, 'Public match');
+
+  const users = await call(routes, 'GET /api/social/users', guestRequest);
+  assert.equal(users.statusCode, 200);
+  assert.equal(users.body.users[0].displayName, 'Alex Player');
+  assert.equal(users.body.users[0].isFollowing, false);
+
+  const profile = await call(routes, 'GET /api/social/users/:userId', {
+    ...guestRequest,
+    params: { userId: '42' },
+  });
+  assert.equal(profile.statusCode, 200);
+  assert.equal(profile.body.profile.displayName, 'Alex Player');
+
+  const connections = await call(
+    routes,
+    'GET /api/social/users/:userId/followers',
+    { ...guestRequest, params: { userId: '42' } },
+  );
+  assert.equal(connections.statusCode, 200);
+  assert.equal(connections.body.users[0].displayName, 'Alex Player');
+});
+
+test('guests cannot create posts or change follows', async () => {
+  const routes = createRouteHarness({
+    async execute() {
+      throw new Error('Unauthenticated mutations must not query the database.');
+    },
+    async getConnection() {
+      throw new Error('Unauthenticated mutations must not open a transaction.');
+    },
+  });
+
+  const guestRequest = { headers: {}, auth: undefined };
+  const post = await call(routes, 'POST /api/social/posts', {
+    ...guestRequest,
+    body: { caption: 'Guest post', images: [] },
+  });
+  assert.equal(post.statusCode, 401);
+
+  const follow = await call(routes, 'POST /api/social/follows/:userId', {
+    ...guestRequest,
+    params: { userId: '42' },
+  });
+  assert.equal(follow.statusCode, 401);
+
+  const unfollow = await call(routes, 'DELETE /api/social/follows/:userId', {
+    ...guestRequest,
+    params: { userId: '42' },
+  });
+  assert.equal(unfollow.statusCode, 401);
 });
 
 test('limits experience posts to five in a rolling 24-hour window', async () => {
@@ -312,6 +542,109 @@ test('creates a one-way follow after checking the target account and block list'
       if (sql.includes('INSERT IGNORE INTO user_follows')) return [{}, []];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
+  });
+
+  test('creates a post comment after verifying visibility and rejects untrusted GIF hosts', async () => {
+    const calls = [];
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT p.id')) return [[{ id: 35 }], []];
+        if (sql.includes('INSERT INTO social_post_comments')) {
+          return [{ insertId: 91 }, []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+    const res = await call(routes, 'POST /api/social/posts/:postId/comments', {
+      params: { postId: '35' },
+      body: { text: 'Great game! 😀', gifUrl: 'https://media.tenor.com/a1/test.gif' },
+    });
+    assert.equal(res.statusCode, 201);
+    assert.deepEqual(res.body, {
+      id: 91,
+      postId: 35,
+      userId: 7,
+      text: 'Great game! 😀',
+      gifUrl: 'https://media.tenor.com/a1/test.gif',
+    });
+    assert.deepEqual(calls[1].params, [
+      35,
+      7,
+      'Great game! 😀',
+      'https://media.tenor.com/a1/test.gif',
+    ]);
+
+    const invalid = await call(routes, 'POST /api/social/posts/:postId/comments', {
+      params: { postId: '35' },
+      body: { text: '', gifUrl: 'https://example.com/test.gif' },
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(calls.length, 2);
+  });
+
+  test('likes and saves are idempotent and require a visible post', async () => {
+    const calls = [];
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT p.id')) return [[{ id: 35 }], []];
+        if (sql.includes('INSERT IGNORE INTO social_post_likes')) return [{}, []];
+        if (sql.includes('DELETE FROM social_saved_posts')) return [{}, []];
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+    const liked = await call(routes, 'POST /api/social/posts/:postId/likes', {
+      params: { postId: '35' },
+    });
+    assert.deepEqual(liked.body, { isLiked: true });
+    const unsaved = await call(routes, 'DELETE /api/social/posts/:postId/saves', {
+      params: { postId: '35' },
+    });
+    assert.deepEqual(unsaved.body, { isSaved: false });
+    assert.equal(calls.length, 3);
+  });
+
+  test('Tenor GIF search keeps its API key server-side and returns approved media URLs', async () => {
+    let requestedUrl;
+    const routes = createRouteHarness(
+      { async execute() { throw new Error('GIF search should not query SQL.'); } },
+      {
+        tenorApiKey: 'server-secret',
+        async fetchImpl(url) {
+          requestedUrl = new URL(url);
+          return {
+            ok: true,
+            async json() {
+              return {
+                results: [
+                  {
+                    content_description: 'Sports',
+                    media_formats: {
+                      tinygif: { url: 'https://media.tenor.com/hash/sports.gif' },
+                    },
+                  },
+                  {
+                    media_formats: {
+                      tinygif: { url: 'https://example.com/not-a-tenor.gif' },
+                    },
+                  },
+                ],
+              };
+            },
+          };
+        },
+      },
+    );
+    const res = await call(routes, 'GET /api/social/gifs', {
+      query: { q: 'sports' },
+      auth: null,
+      headers: {},
+    });
+    assert.equal(requestedUrl.searchParams.get('key'), 'server-secret');
+    assert.deepEqual(res.body.gifs, [
+      { url: 'https://media.tenor.com/hash/sports.gif', title: 'Sports' },
+    ]);
   });
 
   const res = await call(routes, 'POST /api/social/follows/:userId', {

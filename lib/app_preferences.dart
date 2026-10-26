@@ -12,7 +12,7 @@ class AppPreferences extends ChangeNotifier {
 
   AppPreferences.empty()
     : _darkMode = false,
-      _palette = AppPalette.orange,
+      _palette = AppPalette.blue,
       _customAccentColor = null,
       _textScale = 1,
       _languageCode = 'en',
@@ -26,7 +26,7 @@ class AppPreferences extends ChangeNotifier {
   static const _storageKeyPrefix = 'app_preferences_';
 
   bool _darkMode = false;
-  AppPalette _palette = AppPalette.orange;
+  AppPalette _palette = AppPalette.blue;
   Color? _customAccentColor;
   double _textScale = 1;
   String _languageCode = 'en';
@@ -163,7 +163,7 @@ class AppPreferences extends ChangeNotifier {
 
   void _resetToDefaults() {
     _darkMode = false;
-    _palette = AppPalette.orange;
+    _palette = AppPalette.blue;
     _customAccentColor = null;
     _textScale = 1;
     _languageCode = 'en';

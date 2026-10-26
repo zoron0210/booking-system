@@ -9,86 +9,62 @@ class _Hero extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       key: const ValueKey('overview-hero-card'),
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: _navy,
-        borderRadius: BorderRadius.circular(18),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: AppColors.border),
       ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            right: -28,
-            top: -18,
-            child: _Orb(size: 140, color: _orange.withValues(alpha: .18)),
-          ),
-          Positioned(
-            right: 45,
-            bottom: -50,
-            child: _Orb(size: 110, color: Colors.white.withValues(alpha: .06)),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: _orange.withValues(alpha: .16),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: AppText(
-                  'PLAY MORE. PLAN LESS.',
-                  style: TextStyle(
-                    color: _orange,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.3,
-                  ),
-                  localize: true,
-                ),
+              Icon(
+                Icons.explore_outlined,
+                size: 16,
+                color: AppColors.accentForeground,
               ),
-              const SizedBox(height: 6),
-              const AppText(
-                'Your sport.\nYour event.\nYour place.',
-                key: ValueKey('overview-hero-title'),
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 35,
-                  height: 1.08,
-                  fontWeight: FontWeight.w800,
-                ),
-                localize: true,
-              ),
-              const SizedBox(height: 6),
+              const SizedBox(width: 7),
               AppText(
-                'TinkerPro brings sports and events together in one marketplace. Discover local businesses, compare what they offer, and book in a few taps.',
+                'A LITTLE INSPIRATION FOR TODAY',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: .75),
-                  fontSize: 15,
-                  height: 1.55,
+                  color: AppColors.accentForeground,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1,
                 ),
                 localize: true,
-              ),
-              const SizedBox(height: 6),
-              FilledButton.icon(
-                key: const ValueKey('overview-hero-explore'),
-                onPressed: onExplore,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 19),
-                label: const AppText('Explore bookings', localize: true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _orange,
-                  foregroundColor: Colors.white,
-                  padding: AppSpacing.buttonPadding,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w800),
-                ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          AppText(
+            'Make today\nyours.',
+            key: const ValueKey('overview-hero-title'),
+            style: TextStyle(
+              color: _ink,
+              fontSize: 38,
+              height: 1.02,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1.2,
+            ),
+            localize: true,
+          ),
+          const SizedBox(height: 10),
+          AppText(
+            'Find a court, a fitness session, or a space to celebrate something special.',
+            style: TextStyle(color: _muted, fontSize: 15, height: 1.45),
+            localize: true,
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            key: const ValueKey('overview-hero-explore'),
+            onPressed: onExplore,
+            icon: const Icon(Icons.arrow_forward_rounded, size: 19),
+            label: const AppText('Find your next place', localize: true),
           ),
         ],
       ),
@@ -97,115 +73,195 @@ class _Hero extends StatelessWidget {
 }
 
 class _OverviewCategories extends StatelessWidget {
-  const _OverviewCategories({required this.onExplore});
+  const _OverviewCategories({required this.onExploreType});
 
-  final VoidCallback onExplore;
+  final ValueChanged<String> onExploreType;
 
   @override
   Widget build(BuildContext context) {
-    final categories = [
-      (
-        Icons.sports_tennis_rounded,
-        'Sports',
-        'Find courts, fields, facilities, and open schedules.',
-        AppColors.softOrangeAlt,
-      ),
-      (
-        Icons.celebration_rounded,
-        'Events',
-        'Discover spaces for gatherings, celebrations, and occasions.',
-        AppColors.surfaceVariant,
-      ),
-      (
-        Icons.fitness_center_rounded,
-        'Fitness & Wellness',
-        'Explore classes, sessions, gyms, and wellness activities.',
-        AppColors.successSurface,
-      ),
-    ];
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 30, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppText(
-            'Find the right place for your plan',
+            'What sounds good?',
             style: TextStyle(
               color: _ink,
-              fontSize: 23,
-              fontWeight: FontWeight.w800,
+              fontSize: 25,
+              fontWeight: FontWeight.w900,
             ),
             localize: true,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           AppText(
-            'Browse real merchant listings with details, availability, photos, and pricing before you decide.',
+            'Pick a starting point. There’s no wrong answer.',
             style: TextStyle(color: _muted, fontSize: 14, height: 1.4),
             localize: true,
           ),
-          const SizedBox(height: 6),
-          ...categories.map(
-            (category) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: InkWell(
-                onTap: onExplore,
-                borderRadius: BorderRadius.circular(17),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final categories = [
+                (
+                  'assets/overview/sports.png',
+                  Icons.sports_tennis_rounded,
+                  'Sports',
+                  'GET ACTIVE',
+                  'Find a court or field',
+                  'Sports',
+                ),
+                (
+                  'assets/overview/events.png',
+                  Icons.celebration_rounded,
+                  'Events',
+                  'CELEBRATE',
+                  'Find a place to gather',
+                  'Event',
+                ),
+                (
+                  'assets/overview/fitness.png',
+                  Icons.fitness_center_rounded,
+                  'Fitness & Wellness',
+                  'MOVE & RESET',
+                  'Explore fitness nearby',
+                  'Fitness & Wellness',
+                ),
+              ];
+              return Column(
+                children: [
+                  for (final category in categories)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _OverviewCategoryTile(
+                        key: ValueKey('overview-category-${category.$3}'),
+                        category: category,
+                        width: constraints.maxWidth,
+                        height: 196,
+                        onTap: () => onExploreType(category.$6),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewCategoryTile extends StatelessWidget {
+  const _OverviewCategoryTile({
+    super.key,
+    required this.category,
+    required this.width,
+    required this.height,
+    required this.onTap,
+  });
+
+  final (String, IconData, String, String, String, String) category;
+  final double width;
+  final double height;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = width < 200;
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(22),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(category.$1, fit: BoxFit.cover),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: .08),
+                      Colors.black.withValues(alpha: .72),
+                    ],
+                    stops: const [0.15, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 13,
+                left: 13,
                 child: Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(17),
-                    border: Border.all(color: AppColors.border),
+                    color: AppColors.accentForeground,
+                    borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: category.$4,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(category.$1, color: _orange, size: 25),
-                      ),
+                      Icon(category.$2, size: 14, color: Colors.white),
                       const SizedBox(width: 6),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            AppText(
-                              category.$2,
-                              style: TextStyle(
-                                color: _ink,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            AppText(
-                              category.$3,
-                              style: TextStyle(
-                                color: _muted,
-                                fontSize: 12,
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
+                      AppText(
+                        category.$4,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: .6,
                         ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        color: _muted,
-                        size: 16,
+                        localize: true,
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
+              Positioned(
+                left: 15,
+                right: 13,
+                bottom: 14,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: AppText(
+                        category.$5,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 16 : 20,
+                          height: 1.12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                        localize: true,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    CircleAvatar(
+                      radius: compact ? 17 : 19,
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.blue,
+                      child: Icon(
+                        Icons.arrow_outward_rounded,
+                        size: compact ? 18 : 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -699,66 +755,44 @@ class _SportCard extends StatelessWidget {
   }
 }
 
-class _Orb extends StatelessWidget {
-  const _Orb({required this.size, required this.color});
-
-  final double size;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-  );
-}
-
 class _HowItWorks extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 30, 20, 4),
+    return Container(
+      key: const ValueKey('overview-how-it-works'),
+      margin: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.softSurface,
+        borderRadius: BorderRadius.circular(22),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppText(
-            'Everything in one place',
+            'HOW SPOTGO WORKS',
             style: TextStyle(
-              color: _ink,
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
+              color: AppColors.accentForeground,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1,
             ),
             localize: true,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           AppText(
-            'A simple marketplace for clients to book and merchants to grow.',
-            style: TextStyle(color: _muted, fontSize: 14, height: 1.4),
+            'Choose an activity, compare places, then follow the booking steps for the one you like.',
+            style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
             localize: true,
           ),
-          const SizedBox(height: 6),
-          Row(
-            children: const [
-              _Step(
-                number: '01',
-                icon: Icons.search_rounded,
-                title: 'Discover',
-                text: 'Find sports, events, and local businesses.',
-              ),
-              SizedBox(width: 6),
-              _Step(
-                number: '02',
-                icon: Icons.calendar_month_rounded,
-                title: 'Book',
-                text: 'Choose a service, slot, or event.',
-              ),
-              SizedBox(width: 6),
-              _Step(
-                number: '03',
-                icon: Icons.sports_score_rounded,
-                title: 'Enjoy',
-                text: 'Arrive ready and let your plans happen.',
-              ),
+          const SizedBox(height: 16),
+          const Row(
+            children: [
+              _PlanStep(number: '01', title: 'Choose'),
+              _PlanStepConnector(),
+              _PlanStep(number: '02', title: 'Compare'),
+              _PlanStepConnector(),
+              _PlanStep(number: '03', title: 'Book'),
             ],
           ),
         ],
@@ -767,245 +801,48 @@ class _HowItWorks extends StatelessWidget {
   }
 }
 
-class _Step extends StatelessWidget {
-  const _Step({
-    required this.number,
-    required this.icon,
-    required this.title,
-    required this.text,
-  });
+class _PlanStep extends StatelessWidget {
+  const _PlanStep({required this.number, required this.title});
 
   final String number;
-  final IconData icon;
   final String title;
-  final String text;
 
   @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        height: 154,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(17),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(icon, color: _orange, size: 22),
-                AppText(
-                  number,
-                  style: TextStyle(
-                    color: _muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-            const Spacer(),
-            AppText(
-              title,
-              style: TextStyle(
-                color: _ink,
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 6),
-            AppText(
-              text,
-              style: TextStyle(color: _muted, fontSize: 11, height: 1.3),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Features extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    const features = [
-      (
-        Icons.sports_tennis_rounded,
-        'Sports and events',
-        'Book courts, activities, venues, and experiences in one place.',
-      ),
-      (
-        Icons.schedule_rounded,
-        'Merchant marketplace',
-        'Businesses can showcase their services, spaces, and schedules.',
-      ),
-      (
-        Icons.groups_rounded,
-        'Easy discovery',
-        'Compare listings, details, and availability before you book.',
-      ),
-      (
-        Icons.insights_rounded,
-        'Simple bookings',
-        'Keep every sports or event reservation organized in one app.',
-      ),
-    ];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 34, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppText(
-            'Made for the way you play',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-            ),
-            localize: true,
-          ),
-          const SizedBox(height: 6),
-          ...features.map(
-            (feature) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                key: ValueKey('overview-feature-card-${feature.$2}'),
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(17),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: AppColors.softOrangeAlt,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(feature.$1, color: _orange),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AppText(
-                            feature.$2,
-                            style: TextStyle(
-                              color: _ink,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          AppText(
-                            feature.$3,
-                            style: TextStyle(color: _muted, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      color: Color(0xFFB8C0CD),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OverviewTrustSection extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: _navy,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
-        children: [
-          Expanded(
-            child: _TrustItem(
-              icon: Icons.verified_rounded,
-              title: 'Clear details',
-              text: 'See what each venue offers.',
-            ),
-          ),
-          SizedBox(width: 6),
-          Expanded(
-            child: _TrustItem(
-              icon: savedItemSelectedIcon,
-              title: 'Save favorites',
-              text: 'Keep places ready to book.',
-            ),
-          ),
-          SizedBox(width: 6),
-          Expanded(
-            child: _TrustItem(
-              icon: Icons.storefront_rounded,
-              title: 'Local options',
-              text: 'Support real businesses.',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TrustItem extends StatelessWidget {
-  const _TrustItem({
-    required this.icon,
-    required this.title,
-    required this.text,
-  });
-
-  final IconData icon;
-  final String title;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: _orange, size: 22),
-        const SizedBox(height: 6),
+        AppText(
+          number,
+          style: TextStyle(
+            color: AppColors.accentForeground,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 3),
         AppText(
           title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
+          style: TextStyle(
+            color: _ink,
+            fontSize: 13,
             fontWeight: FontWeight.w800,
           ),
-        ),
-        const SizedBox(height: 6),
-        AppText(
-          text,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: .68),
-            fontSize: 10,
-            height: 1.3,
-          ),
+          localize: true,
         ),
       ],
-    );
-  }
+    ),
+  );
+}
+
+class _PlanStepConnector extends StatelessWidget {
+  const _PlanStepConnector();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 10, bottom: 17),
+    child: Icon(Icons.arrow_forward_rounded, size: 15, color: _muted),
+  );
 }
 
 class _BottomCallout extends StatelessWidget {
@@ -1016,43 +853,45 @@ class _BottomCallout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-      padding: const EdgeInsets.all(22),
+      key: const ValueKey('overview-bottom-callout'),
+      margin: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(
-        color: AppColors.softOrange,
+        color: AppColors.blue,
         borderRadius: BorderRadius.circular(22),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AppText(
-                  'Ready to make a plan?',
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  localize: true,
-                ),
-                const SizedBox(height: 6),
-                AppText(
-                  'Book a sport or event from a local business today.',
-                  style: TextStyle(color: _muted, fontSize: 13),
-                  localize: true,
-                ),
-              ],
+          AppText(
+            'Your next plan starts here',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 21,
+              fontWeight: FontWeight.w900,
             ),
+            localize: true,
           ),
-          IconButton(
-            onPressed: onTap,
-            style: IconButton.styleFrom(
-              backgroundColor: _orange,
-              foregroundColor: Colors.white,
+          const SizedBox(height: 7),
+          AppText(
+            'Browse courts, fitness sessions, and event spaces in one place.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: .84),
+              fontSize: 13,
+              height: 1.4,
             ),
-            icon: const Icon(Icons.arrow_forward_rounded),
+            localize: true,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            key: const ValueKey('overview-bottom-explore'),
+            onPressed: onTap,
+            icon: const Icon(Icons.grid_view_rounded),
+            label: const AppText('See every category', localize: true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppColors.blue,
+            ),
           ),
         ],
       ),

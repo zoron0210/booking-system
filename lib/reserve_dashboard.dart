@@ -18,7 +18,7 @@ Color get _text => AppColors.ink;
 Color get _muted => AppColors.muted;
 Color get _mint => AppColors.accentForeground;
 Color get _gold => AppColors.accentForeground;
-const _reserveCardRadius = 17.0;
+const _reserveCardRadius = 20.0;
 
 class ReserveDashboardPage extends StatefulWidget {
   const ReserveDashboardPage({super.key, this.initialSelection, this.onLogout});
@@ -85,9 +85,8 @@ class _ReserveDashboardPageState extends State<ReserveDashboardPage> {
         );
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => dashboard),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => dashboard));
   }
 
   @override
@@ -101,7 +100,7 @@ class _ReserveDashboardPageState extends State<ReserveDashboardPage> {
           slivers: [
             SliverAppBar(
               pinned: true,
-              centerTitle: true,
+              titleSpacing: 16,
               title: const _ReserveHeader(),
               backgroundColor: _background,
               foregroundColor: _text,
@@ -115,84 +114,98 @@ class _ReserveDashboardPageState extends State<ReserveDashboardPage> {
                   constraints.crossAxisExtent,
                 );
                 final horizontalInset =
-                    ((constraints.crossAxisExtent - contentWidth) / 2)
-                        .clamp(18.0, double.infinity);
+                    ((constraints.crossAxisExtent - contentWidth) / 2).clamp(
+                      18.0,
+                      double.infinity,
+                    );
                 return SliverPadding(
-                  padding: EdgeInsets.fromLTRB(horizontalInset, 12, horizontalInset, 6),
+                  padding: EdgeInsets.fromLTRB(
+                    horizontalInset,
+                    16,
+                    horizontalInset,
+                    12,
+                  ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                  Center(
-                    child: AppText(
-                      'Choose your booking type',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.sectionTitle.copyWith(
-                        color: _text,
-                        height: 1.25,
+                      AppText(
+                        'INSTANTLY BOOKABLE',
+                        style: TextStyle(
+                          color: _mint,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1,
+                        ),
+                        localize: true,
                       ),
-                      localize: true,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Center(
-                    child: AppText(
-                      'Choose a type to browse venues. Sign in only when you book or chat.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: _muted,
-                        fontSize: 14,
-                        height: 1.4,
+                      const SizedBox(height: 5),
+                      AppText(
+                        'Choose Booking Type',
+                        key: const ValueKey('reserve-heading'),
+                        style: TextStyle(
+                          color: _text,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -.4,
+                        ),
+                        localize: true,
                       ),
-                      localize: true,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _ExperienceCard(
-                    key: const ValueKey('reserve-option-sports'),
-                    imagePath: 'assets/book-type/sports.jpg',
-                    badge: 'Courts & facilities',
-                    title: 'Sports',
-                    description: 'Courts, arenas, tournaments and more',
-                    tags: const [
-                      'Tennis',
-                      'Padel',
-                      'Basketball',
-                      'Volleyball',
-                      'Badminton',
-                      'Pickleball',
-                    ],
-                    icon: Icons.sports_tennis_rounded,
-                    accent: _mint,
-                    selected: _selected == 'Sports',
-                    onTap: () => setState(() => _selected = 'Sports'),
-                  ),
-                  const SizedBox(height: 6),
-                  _ExperienceCard(
-                    key: const ValueKey('reserve-option-event'),
-                    imagePath: 'assets/book-type/event.jpg',
-                    badge: 'Venues for every occasion',
-                    title: 'Event',
-                    description: 'Hotel venues, private dining and more',
-                    tags: const ['Ballroom', 'Terrace', 'Private Dining'],
-                    icon: Icons.auto_awesome_rounded,
-                    accent: _gold,
-                    selected: _selected == 'Event',
-                    onTap: () => setState(() => _selected = 'Event'),
-                  ),
-                  const SizedBox(height: 6),
-                  _ExperienceCard(
-                    key: const ValueKey('reserve-option-fitness'),
-                    imagePath: 'assets/book-type/fitness.jpg',
-                    badge: 'Classes & facilities',
-                    title: 'Fitness & Wellness',
-                    description:
-                        'Gyms, martial arts, yoga and personal training',
-                    tags: const ['CrossFit', 'Pilates', 'Zumba', 'Boxing'],
-                    icon: Icons.fitness_center_rounded,
-                    accent: _mint,
-                    selected: _selected == 'Fitness & Wellness',
-                    onTap: () =>
-                        setState(() => _selected = 'Fitness & Wellness'),
-                  ),
+                      const SizedBox(height: 17),
+                      _ExperienceCard(
+                        key: const ValueKey('reserve-option-sports'),
+                        imagePath: 'assets/overview/sports.png',
+                        badge: 'SPORTS COURTS',
+                        title: 'Sports & Courts',
+                        description:
+                            'Padel  •  Tennis  •  Football  •  Pickleball',
+                        actionLabel: 'Browse Courts',
+                        tags: const [
+                          'Tennis',
+                          'Padel',
+                          'Basketball',
+                          'Volleyball',
+                          'Badminton',
+                          'Pickleball',
+                        ],
+                        icon: Icons.sports_tennis_rounded,
+                        accent: _mint,
+                        selected: _selected == 'Sports',
+                        onTap: () => setState(() => _selected = 'Sports'),
+                      ),
+                      const SizedBox(height: 14),
+                      _ExperienceCard(
+                        key: const ValueKey('reserve-option-event'),
+                        imagePath: 'assets/overview/events.png',
+                        badge: 'EVENTS & EXPERIENCES',
+                        title: 'Events & Experiences',
+                        description:
+                            'Concerts  •  DJ sets  •  Gatherings  •  Tourneys',
+                        actionLabel: 'Browse Events',
+                        tags: const [
+                          'Concerts',
+                          'DJ Sets',
+                          'Gatherings',
+                          'Tournaments',
+                        ],
+                        icon: Icons.celebration_rounded,
+                        accent: _gold,
+                        selected: _selected == 'Event',
+                        onTap: () => setState(() => _selected = 'Event'),
+                      ),
+                      const SizedBox(height: 14),
+                      _ExperienceCard(
+                        key: const ValueKey('reserve-option-fitness'),
+                        imagePath: 'assets/overview/fitness.png',
+                        badge: 'FITNESS & WELLNESS',
+                        title: 'Studios & Fitness',
+                        description: 'Reformer  •  Sauna  •  Boxing  •  Yoga',
+                        actionLabel: 'Browse Sessions',
+                        tags: const ['CrossFit', 'Pilates', 'Zumba', 'Boxing'],
+                        icon: Icons.fitness_center_rounded,
+                        accent: _mint,
+                        selected: _selected == 'Fitness & Wellness',
+                        onTap: () =>
+                            setState(() => _selected = 'Fitness & Wellness'),
+                      ),
                     ]),
                   ),
                 );
@@ -213,29 +226,6 @@ class _ReserveDashboardPageState extends State<ReserveDashboardPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  _Benefit(
-                        icon: Icons.touch_app_rounded,
-                        label: 'Choose type',
-                    color: _mint,
-                        detail: 'Pick an experience',
-                  ),
-                  _Benefit(
-                        icon: Icons.search_rounded,
-                        label: 'Explore venues',
-                    color: _gold,
-                        detail: 'Compare details',
-                  ),
-                  _Benefit(
-                        icon: Icons.lock_open_rounded,
-                        label: 'Book when ready',
-                    color: _text,
-                        detail: 'Sign in to book',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
               SizedBox(
                 width: double.infinity,
                 height: 54,
@@ -304,11 +294,34 @@ class _ReserveHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppText(
-      'Reserve experience',
-      textAlign: TextAlign.center,
-      style: AppTypography.pageTitle.copyWith(color: _text),
-      localize: true,
+    return Row(
+      children: [
+        const SpotGoLogo(size: 34),
+        const SizedBox(width: 8),
+        AppText.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: 'Spot',
+                style: TextStyle(
+                  color: _text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              TextSpan(
+                text: 'GO',
+                style: TextStyle(
+                  color: AppColors.accentForeground,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          localize: true,
+        ),
+      ],
     );
   }
 }
@@ -319,6 +332,7 @@ class _ExperienceCard extends StatelessWidget {
     required this.badge,
     required this.title,
     required this.description,
+    required this.actionLabel,
     required this.tags,
     required this.icon,
     required this.accent,
@@ -331,6 +345,7 @@ class _ExperienceCard extends StatelessWidget {
   final String badge;
   final String title;
   final String description;
+  final String actionLabel;
   final List<String> tags;
   final IconData icon;
   final Color accent;
@@ -339,8 +354,9 @@ class _ExperienceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textScale = MediaQuery.textScalerOf(context).scale(1);
     final accentForeground = AppColors.accentForeground;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final imageHeight = textScale > 1.2 ? 176.0 : 148.0;
     return Semantics(
       button: true,
       selected: selected,
@@ -351,224 +367,168 @@ class _ExperienceCard extends StatelessWidget {
         child: AnimatedContainer(
           key: ValueKey('reserve-option-surface-$title'),
           duration: const Duration(milliseconds: 180),
-          height: textScale > 1.2 ? 236 : 162,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(_reserveCardRadius),
             border: Border.all(
               color: selected ? accentForeground : AppColors.border,
-              width: selected ? 2 : 1,
+              width: 2,
             ),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                width: 112,
-                height: double.infinity,
+                height: imageHeight,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(17),
-                        child: Image.asset(imagePath, fit: BoxFit.cover),
+                    Image.asset(imagePath, fit: BoxFit.cover),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: .08),
+                            Colors.black.withValues(alpha: .78),
+                          ],
+                          stops: const [0.05, 1],
+                        ),
                       ),
                     ),
-                    const Positioned(
-                      top: 10,
-                      right: 5,
-                      bottom: 10,
-                      width: 18,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: AppGradients.horizontalEdgeShade,
-                          ),
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
                         ),
+                        decoration: BoxDecoration(
+                          color: accentForeground,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(icon, size: 13, color: AppColors.onAccent),
+                            const SizedBox(width: 6),
+                            AppText(
+                              badge,
+                              style: TextStyle(
+                                color: AppColors.onAccent,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: .4,
+                              ),
+                              localize: true,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (selected)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Icon(
+                          Icons.check_circle_rounded,
+                          color: accentForeground,
+                          size: 23,
+                        ),
+                      ),
+                    Positioned(
+                      left: 14,
+                      right: 14,
+                      bottom: 11,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AppText(
+                            title,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: title.length > 13 ? 19 : 21,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -.25,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          AppText(
+                            tags.take(4).join('  •  '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xE6FFFFFF),
+                              fontSize: 11,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _Badge(
-                              text: badge,
-                              color: accentForeground,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Icon(
-                            selected ? Icons.check_circle_rounded : icon,
-                            color: accentForeground,
-                            size: 22,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      AppText(
-                        title,
-                        style: TextStyle(
-                          color: _text,
-                          fontSize: title.length > 10 ? 17 : 20,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      AppText(
-                        description,
-                        maxLines: 2,
+              Container(
+                height: 43,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: AppPreferences.instance.darkMode
+                      ? AppColors.darkSurfaceHighest
+                      : AppColors.surfaceVariant,
+                  border: Border(
+                    top: BorderSide(
+                      color: AppColors.border.withValues(alpha: .7),
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      selected ? Icons.check_rounded : Icons.touch_app_rounded,
+                      size: 15,
+                      color: selected ? AppColors.success : accentForeground,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: AppText(
+                        selected ? 'Selected' : description,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: _muted,
-                          fontSize: 12,
-                          height: 1.25,
+                          color: selected ? AppColors.success : _muted,
+                          fontSize: 11,
+                          fontWeight: selected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
                         ),
+                        localize: true,
                       ),
-                      const SizedBox(height: 6),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (var index = 0; index < tags.length; index++)
-                              Padding(
-                                padding: EdgeInsets.only(
-                                  right: index == tags.length - 1 ? 0 : 6,
-                                ),
-                                child: _OptionChip(label: tags[index]),
-                              ),
-                          ],
-                        ),
+                    ),
+                    const SizedBox(width: 8),
+                    AppText(
+                      actionLabel,
+                      style: TextStyle(
+                        color: accentForeground,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
                       ),
-                    ],
-                  ),
+                      localize: true,
+                    ),
+                    const SizedBox(width: 3),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 17,
+                      color: accentForeground,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: color.withValues(alpha: .45)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 8, color: color),
-          const SizedBox(width: 6),
-          Flexible(
-            child: AppText(
-              text,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w800,
-                fontSize: 10,
-                letterSpacing: .1,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OptionChip extends StatelessWidget {
-  const _OptionChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: _surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: AppText(
-        label,
-        style: TextStyle(
-          color: _text,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-class _Benefit extends StatelessWidget {
-  const _Benefit({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.detail,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(height: 6),
-            AppText(
-              label,
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _text,
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                height: 1.15,
-              ),
-            ),
-            const SizedBox(height: 6),
-            AppText(
-              detail,
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: _muted, fontSize: 9, height: 1.2),
-            ),
-          ],
         ),
       ),
     );

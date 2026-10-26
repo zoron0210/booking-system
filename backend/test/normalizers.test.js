@@ -135,6 +135,9 @@ test('accepts only supported account roles and shapes public users', () => {
     avatar_url: null,
     address: '',
     hobby: null,
+    gender: 'female',
+    player_type: 'Athlete',
+    onboarding_completed: 1,
     role: 'customer',
     status: 'active',
   };
@@ -147,6 +150,9 @@ test('accepts only supported account roles and shapes public users', () => {
     avatarUrl: null,
     address: null,
     hobby: null,
+    gender: 'female',
+    playerType: 'Athlete',
+    onboardingCompleted: true,
     role: 'customer',
     status: 'active',
   });

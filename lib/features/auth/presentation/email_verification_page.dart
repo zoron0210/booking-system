@@ -31,8 +31,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
     final code = _codeController.text.trim();
     if (!RegExp(r'^\d{6}$').hasMatch(code)) {
       setState(
-        () => _codeError =
-            'Enter the 6-digit code sent to your email address.',
+        () => _codeError = 'Enter the 6-digit code sent to your email address.',
       );
       final target = _codeFieldKey.currentContext;
       if (target != null) {
@@ -76,8 +75,9 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
   }
 
   void _message(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: AppText(message), backgroundColor: _navy));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: AppText(message), backgroundColor: _navy));
   }
 
   @override
@@ -91,7 +91,8 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
         title: const AppText(
           'Verify email',
           style: TextStyle(fontWeight: FontWeight.w900),
-         localize: true,),
+          localize: true,
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(22),
@@ -100,10 +101,14 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
           children: [
             const SizedBox(height: 6),
             Center(
-              child: Image.asset(
-                'assets/tinker_logo.png',
-                width: 82,
+              child: Container(
+                width: 62,
                 height: 62,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const SpotGoLogo(size: 54),
               ),
             ),
             const SizedBox(height: 6),
@@ -135,12 +140,14 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                 fontSize: 27,
                 fontWeight: FontWeight.w900,
               ),
-             localize: true,),
+              localize: true,
+            ),
             const SizedBox(height: 6),
             AppText(
               'We sent a 6-digit verification code to ${widget.email}.',
               style: TextStyle(color: _muted, fontSize: 14, height: 1.45),
-             localize: true,),
+              localize: true,
+            ),
             const SizedBox(height: 6),
             _AuthCodeField(
               controller: _codeController,

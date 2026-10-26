@@ -8,7 +8,10 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
-  Future<void> _openBookings(BuildContext context) async {
+  Future<void> _openBookings(
+    BuildContext context, {
+    bool showBookingTypePicker = false,
+  }) async {
     final session = await AppSessionService.instance.load();
     if (!context.mounted) return;
     if (session.role == 'merchant' &&
@@ -22,10 +25,12 @@ class _OverviewPageState extends State<OverviewPage> {
       );
       return;
     }
-    final lastBookingPage = bookingTypeDashboard(
-      session.lastBookingType,
-      onLogout: logoutToBookingPicker,
-    );
+    final lastBookingPage = showBookingTypePicker
+        ? null
+        : bookingTypeDashboard(
+            session.lastBookingType,
+            onLogout: logoutToBookingPicker,
+          );
     if (lastBookingPage != null) {
       await Navigator.of(context)
           .push(MaterialPageRoute<void>(builder: (_) => lastBookingPage));
@@ -41,16 +46,35 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  void _showMessage(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: AppText(message),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: _navy,
+  Future<void> _openBookingType(BuildContext context, String type) async {
+    final session = await AppSessionService.instance.load();
+    if (!context.mounted) return;
+    if (session.role == 'merchant' &&
+        session.isAuthenticated &&
+        session.apiToken?.isNotEmpty == true) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              MerchantDashboardPage(onLogout: logoutToBookingPicker),
         ),
       );
+      return;
+    }
+
+    final dashboard = bookingTypeDashboard(
+      type,
+      onLogout: logoutToBookingPicker,
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            dashboard ??
+            ReserveDashboardPage(
+              initialSelection: type,
+              onLogout: logoutToBookingPicker,
+            ),
+      ),
+    );
   }
 
   Future<void> _refreshOverview() {
@@ -85,16 +109,14 @@ class _OverviewPageState extends State<OverviewPage> {
                   ),
                   SliverToBoxAdapter(
                     child: _OverviewCategories(
-                      onExplore: () => _openBookings(context),
+                      onExploreType: (type) => _openBookingType(context, type),
                     ),
                   ),
                   SliverToBoxAdapter(child: _HowItWorks()),
-                  SliverToBoxAdapter(child: _Features()),
-                  SliverToBoxAdapter(child: _OverviewTrustSection()),
                   SliverToBoxAdapter(
                     child: _BottomCallout(
                       onTap: () =>
-                          _showMessage(context, 'Welcome to TinkerPro Sports!'),
+                          _openBookings(context, showBookingTypePicker: true),
                     ),
                   ),
                   const SliverToBoxAdapter(child: SizedBox(height: 6)),
@@ -123,11 +145,9 @@ class _Header extends StatelessWidget {
             key: const ValueKey('overview-brand'),
             child: Row(
               children: [
-                Image.asset(
-                  'assets/tinker_logo.png',
-                  width: 52,
-                  height: 44,
-                  fit: BoxFit.contain,
+                const SpotGoLogo(
+                  key: ValueKey('overview-brand-logo'),
+                  size: 46,
                 ),
                 const SizedBox(width: 6),
                 Flexible(
@@ -135,7 +155,7 @@ class _Header extends StatelessWidget {
                     TextSpan(
                       children: [
                         TextSpan(
-                          text: 'Tinker',
+                          text: 'Spot',
                           style: TextStyle(
                             color: _ink,
                             fontSize: 22,
@@ -144,9 +164,9 @@ class _Header extends StatelessWidget {
                           ),
                         ),
                         TextSpan(
-                          text: 'Pro',
+                          text: 'Go',
                           style: TextStyle(
-                            color: _orange,
+                            color: AppColors.blue,
                             fontSize: 22,
                             fontWeight: FontWeight.w900,
                             letterSpacing: -.5,

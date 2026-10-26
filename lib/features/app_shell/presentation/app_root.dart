@@ -16,7 +16,6 @@ import 'package:myapp/merchant_dashboard.dart';
 import 'package:myapp/message_notification_host.dart';
 import 'package:myapp/messages_dashboard.dart';
 import 'package:myapp/reserve_dashboard.dart';
-import 'package:myapp/saved_icons.dart';
 import 'package:myapp/scroll_to_top_overlay.dart';
 
 part 'overview_page.dart';
@@ -70,7 +69,7 @@ class MyApp extends StatelessWidget {
       return MaterialApp(
         navigatorKey: _rootNavigatorKey,
         navigatorObservers: [_scrollObserver],
-        title: 'TinkerPro',
+        title: 'SpotGo',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.configured(
           darkMode: _preferences.darkMode,

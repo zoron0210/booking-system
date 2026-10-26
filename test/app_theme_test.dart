@@ -60,6 +60,10 @@ void main() {
         final elevatedStyle = theme.elevatedButtonTheme.style!;
         final elevatedForeground = elevatedStyle.foregroundColor!.resolve({});
         final elevatedBackground = elevatedStyle.backgroundColor!.resolve({});
+        final filledButtonSize = theme.filledButtonTheme.style!.minimumSize!
+            .resolve({});
+        final iconButtonSize = theme.iconButtonTheme.style!.minimumSize!
+            .resolve({});
 
         expect(
           _contrastRatio(filledForeground!, palette.color),
@@ -77,6 +81,9 @@ void main() {
           _contrastRatio(elevatedForeground!, elevatedBackground!),
           greaterThanOrEqualTo(4.5),
         );
+        expect(filledButtonSize!.height, greaterThanOrEqualTo(48));
+        expect(iconButtonSize!.width, greaterThanOrEqualTo(48));
+        expect(iconButtonSize.height, greaterThanOrEqualTo(48));
         expect(
           _contrastRatio(
             theme.snackBarTheme.contentTextStyle!.color!,
@@ -122,9 +129,10 @@ void main() {
 
   test('semantic colors and spacing use the shared design tokens', () {
     expect(AppColors.navy, const Color(0xFF192B50));
+    expect(AppColors.blue, const Color(0xFF214A94));
     expect(AppColors.ink, const Color(0xFF101B33));
     expect(AppColors.orange, const Color(0xFFFF8200));
-    expect(AppColors.page, const Color(0xFFF7F9FC));
+    expect(AppColors.page, const Color(0xFFFAFBFD));
     expect(AppSpacing.large, 16);
     expect(AppRadii.marketplaceCard, 14);
     expect(AppRadii.merchantCard, 12);
@@ -137,18 +145,18 @@ void main() {
   test('light theme applies shared tokens to core controls', () {
     final theme = AppTheme.light;
 
-    expect(theme.colorScheme.primary, AppColors.navy);
-    expect(theme.colorScheme.secondary, AppColors.orange);
+    expect(theme.colorScheme.primary, AppColors.blue);
+    expect(theme.colorScheme.secondary, AppColors.blue);
     expect(theme.scaffoldBackgroundColor, AppColors.page);
     expect(
       theme.inputDecorationTheme.focusedBorder!.borderSide.color,
-      AppColors.navy,
+      AppColors.blue,
     );
     expect(
       theme.filledButtonTheme.style!.backgroundColor!.resolve({}),
-      AppColors.orange,
+      AppColors.blue,
     );
-    expect(theme.filledButtonTheme.style!.minimumSize!.resolve({})!.height, 46);
+    expect(theme.filledButtonTheme.style!.minimumSize!.resolve({})!.height, 48);
     expect(
       theme.filledButtonTheme.style!.padding!.resolve({}),
       AppSpacing.buttonPadding,

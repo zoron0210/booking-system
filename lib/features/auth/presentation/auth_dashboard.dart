@@ -9,6 +9,7 @@ import '../../../app_design_system.dart';
 import '../../../app_preferences.dart';
 import '../../session/application/session_service.dart';
 import '../application/auth_service.dart';
+import 'customer_onboarding_page.dart';
 
 part 'password_reset_page.dart';
 part 'email_verification_page.dart';
@@ -40,9 +41,14 @@ enum _AuthMode { login, register }
 enum _AccountRole { customer, merchant }
 
 class AuthDashboardPage extends StatefulWidget {
-  const AuthDashboardPage({super.key, this.authService});
+  const AuthDashboardPage({
+    super.key,
+    this.authService,
+    this.onCustomerOnboardingCompleted,
+  });
 
   final AuthService? authService;
+  final VoidCallback? onCustomerOnboardingCompleted;
 
   @override
   State<AuthDashboardPage> createState() => _AuthDashboardPageState();
@@ -204,22 +210,47 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
           _showMessage('Email verification did not return a valid session.');
           return;
         }
-        if (!mounted) return;
-        Navigator.of(context).pop(true);
+        await _finishAuthentication(verificationResult);
       } else if (response['user'] is Map) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: AppText('You’re signed in successfully.', localize: true),
-          ),
-        );
-        Navigator.of(context).pop(true);
+        await _finishAuthentication(response);
       }
     } on AuthApiException catch (error) {
       if (mounted) _showMessage(error.message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _finishAuthentication(Map<String, dynamic> response) async {
+    final user = response['user'];
+    if (user is! Map) return;
+    if (user['role'] == 'customer' &&
+        user['onboardingCompleted'] == false &&
+        response['token'] is String) {
+      final onboardingCompleted = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => CustomerOnboardingPage(
+            service: _authService,
+            token: response['token'] as String,
+            firstName: user['firstName'] as String?,
+          ),
+        ),
+      );
+      if (onboardingCompleted == true) {
+        final onCompleted = widget.onCustomerOnboardingCompleted;
+        if (onCompleted != null) {
+          onCompleted();
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: AppText('You’re signed in successfully.', localize: true),
+      ),
+    );
+    Navigator.of(context).pop(true);
   }
 
   Future<void> _signInWithGoogle() async {
@@ -277,13 +308,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
       if (!mounted) return;
       final user = apiResult['user'] as Map<String, dynamic>?;
       if (user != null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: AppText('You’re signed in successfully.', localize: true),
-          ),
-        );
-        Navigator.of(context).pop(true);
+        await _finishAuthentication(apiResult);
       }
     } on AuthApiException catch (error) {
       if (mounted) _showMessage(error.userMessage);
@@ -331,7 +356,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
           contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
           actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
           title: AppText(
-            'How will you use TinkerPro?',
+            'How will you use SpotGo?',
             style: TextStyle(
               color: _ink,
               fontSize: 21,
@@ -576,10 +601,14 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Center(
-                            child: Image.asset(
-                              'assets/tinker_logo.png',
-                              width: 56,
-                              height: 36,
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const SpotGoLogo(size: 46),
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -624,8 +653,8 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                           if (!isLogin) ...[
                             AppText(
                               appLanguageText(
-                                'How will you use TinkerPro?',
-                                'Paano mo gagamitin ang TinkerPro?',
+                                'How will you use SpotGo?',
+                                'Paano mo gagamitin ang SpotGo?',
                               ),
                               style: TextStyle(
                                 color: _ink,
@@ -897,10 +926,10 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                               child: AppText(
                                 appLanguageText(
                                   isLogin
-                                      ? 'New to TinkerPro? Register'
+                                      ? 'New to SpotGo? Register'
                                       : 'Already have an account? Sign in',
                                   isLogin
-                                      ? 'Bago sa TinkerPro? Mag-register'
+                                      ? 'Bago sa SpotGo? Mag-register'
                                       : 'May account ka na? Mag-sign in',
                                 ),
                                 style: TextStyle(

@@ -71,38 +71,10 @@ jobs:
           lib/merchant_profile_dashboard.dart
           lib/merchant_dashboard.dart
           test/merchant_session_provider_test.dart
+          lib/features/social/presentation/social_profile_stats.dart
+          test/messages_chat_view_test.dart
       - run: flutter analyze
-      - run: >-
-          flutter test
-          test/auth_success_feedback_test.dart
-          test/logout_feedback_test.dart
-          test/auth_service_test.dart
-          test/app_startup_test.dart
-          test/app_settings_dependency_test.dart
-          test/messages_api_auth_test.dart
-          test/messages_controller_test.dart
-          test/customer_bookings_session_test.dart
-          test/news_feed_navigation_test.dart
-          test/booking_schedule_conflict_test.dart
-          test/booking_schedule_controller_test.dart
-          test/booking_schedule_repository_test.dart
-          test/booking_pricing_test.dart
-          test/booking_status_analyzer_test.dart
-          test/merchant_booking_repository_test.dart
-          test/merchant_analytics_dashboard_test.dart
-          test/merchant_profile_dashboard_test.dart
-          test/merchant_session_provider_test.dart
-          test/merchant_dashboard_polling_test.dart
-          test/profile_dashboard_test.dart
-          test/merchant_add_wizard_test.dart
-          test/merchant_add_publish_test.dart
-          test/merchant_add_multi_sport_test.dart
-          test/merchant_add_fitness_test.dart
-          test/merchant_add_form_layout_test.dart
-          test/merchant_add_price_display_test.dart
-          test/merchant_fitness_form_sections_test.dart
-          test/fitness_booking_page_test.dart
-          test/event_booking_page_test.dart
+      - run: flutter test
 
   backend-audit:
     runs-on: ubuntu-latest

@@ -2,8 +2,24 @@ import 'package:flutter/material.dart';
 
 import 'app_preferences.dart';
 
+class SpotGoLogo extends StatelessWidget {
+  const SpotGoLogo({super.key, this.size = 48});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Image.asset(
+    'assets/overview/spotgo_logo.png',
+    width: size,
+    height: size,
+    fit: BoxFit.contain,
+    semanticLabel: 'SpotGo logo',
+  );
+}
+
 abstract final class AppColors {
   static const navy = Color(0xFF192B50);
+  static const blue = Color(0xFF214A94);
   static const lightInk = Color(0xFF101B33);
   static const darkInk = Color(0xFFF2F4F8);
   static Color get ink => AppPreferences.instance.darkMode ? darkInk : lightInk;
@@ -61,7 +77,7 @@ abstract final class AppColors {
     return best;
   }
 
-  static const lightPage = Color(0xFFF7F9FC);
+  static const lightPage = Color(0xFFFAFBFD);
   static const darkPage = Color(0xFF101116);
   static Color get page =>
       AppPreferences.instance.darkMode ? darkPage : lightPage;

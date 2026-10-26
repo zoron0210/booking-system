@@ -15,6 +15,7 @@ import 'messages_controller.dart';
 import 'features/messaging/data/messages_session_provider.dart';
 import 'public_user_profile.dart';
 import 'social_community_page.dart';
+import 'social_message_tools.dart';
 import 'message_unread_count.dart';
 import 'guest_access.dart';
 import 'profile_dashboard.dart';
@@ -70,6 +71,7 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
   final _imagePicker = ImagePicker();
   XFile? _pendingImage;
   String? _pendingImageData;
+  String? _pendingGifUrl;
   bool _ownerConversationOpened = false;
   bool _initialConversationOpened = false;
 
@@ -205,7 +207,7 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     if (token == null || id == null || _sending) {
       return;
     }
-    if (text.isEmpty && _pendingImageData == null) {
+    if (text.isEmpty && _pendingImageData == null && _pendingGifUrl == null) {
       setState(() => _composerError = 'Write a message or attach an image.');
       return;
     }
@@ -218,7 +220,9 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
         body: text,
         businessType: widget.businessType,
         attachment: _pendingImageData == null
-            ? null
+            ? _pendingGifUrl == null
+                  ? null
+                  : {'type': 'gif', 'url': _pendingGifUrl}
             : {
                 'type': 'image',
                 'name': _pendingImage?.name ?? 'image',
@@ -230,6 +234,7 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
         setState(() {
           _pendingImage = null;
           _pendingImageData = null;
+          _pendingGifUrl = null;
         });
       }
       await _select(id);
@@ -503,6 +508,7 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
       setState(() {
         _pendingImage = image;
         _pendingImageData = 'data:$mime;base64,${base64Encode(bytes)}';
+        _pendingGifUrl = null;
       });
     } on Exception catch (error) {
       _show('Could not select the image: $error');
@@ -513,7 +519,40 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     setState(() {
       _pendingImage = null;
       _pendingImageData = null;
+      _pendingGifUrl = null;
     });
+  }
+
+  Future<void> _pickGif() async {
+    final gif = await showTenorGifPicker(
+      context,
+      api: _socialApi,
+      token: _token,
+    );
+    final url = gif?['url'];
+    if (!mounted || url is! String) return;
+    setState(() {
+      _pendingImage = null;
+      _pendingImageData = null;
+      _pendingGifUrl = url;
+    });
+  }
+
+  Future<void> _insertEmoji() async {
+    final emoji = await showSocialEmojiPicker(context);
+    if (emoji == null || !mounted) return;
+    final value = _composer.value;
+    final start = value.selection.isValid
+        ? value.selection.start
+        : value.text.length;
+    final end = value.selection.isValid
+        ? value.selection.end
+        : value.text.length;
+    final text = value.text.replaceRange(start, end, emoji);
+    _composer.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
   }
 
   void _backToInbox() {
@@ -948,12 +987,15 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
                           blocked: _selectedConversationIsBlocked,
                           composer: _composer,
                           pendingImageData: _pendingImageData,
+                          pendingGifUrl: _pendingGifUrl,
                           sending: _sending,
                           composerError: _composerError,
                           onComposerChanged: _onComposerChanged,
                           onDeleteMessage: _deleteMessage,
                           onPickImage: _pickImage,
                           onRemovePendingImage: _removePendingImage,
+                          onPickGif: _pickGif,
+                          onInsertEmoji: _insertEmoji,
                           onSend: _send,
                           scrollController: _chatScrollController,
                         );
@@ -979,6 +1021,7 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     return AppBottomNavigation(
       selectedIndex: 2,
       hideSavedDestination: !isMerchant,
+      showHomeDestination: !isMerchant,
       unreadMessageCount: _unreadMessageCount,
       merchantMode: isMerchant,
       hideMerchantVenues: isMerchant,
@@ -991,6 +1034,18 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
           } else if (mounted) {
             Navigator.of(context).pop();
           }
+          return;
+        }
+        if (index == 5) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (_) => CustomerHomePage(
+                api: widget.api,
+                initialUserPosition: widget.initialUserPosition,
+                businessType: widget.businessType,
+              ),
+            ),
+          );
           return;
         }
         final page = switch (index) {

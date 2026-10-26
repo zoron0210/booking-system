@@ -227,7 +227,8 @@ function registerAuthRoutes({
 
     try {
       const [rows] = await pool.execute(
-        `SELECT t.id AS token_id, t.token_hash, u.id, u.email, u.first_name, u.last_name, u.role
+        `SELECT t.id AS token_id, t.token_hash, u.id, u.email, u.first_name, u.last_name,
+                u.role, u.gender, u.player_type, u.onboarding_completed
          FROM email_verification_tokens t
          INNER JOIN users u ON u.id = t.user_id
          WHERE u.email = ? AND t.used_at IS NULL AND t.expires_at > NOW()
@@ -479,7 +480,8 @@ function registerAuthRoutes({
 
     try {
       const [rows] = await pool.execute(
-        `SELECT id, email, password_hash, first_name, last_name, role, status
+        `SELECT id, email, password_hash, first_name, last_name, role, status,
+                gender, player_type, onboarding_completed
          FROM users WHERE email = ? LIMIT 1`,
         [email],
       );
@@ -531,13 +533,54 @@ function registerAuthRoutes({
   app.get('/api/auth/me', requireAuth, async (req, res, next) => {
     try {
       const [rows] = await pool.execute(
-        `SELECT id, email, first_name, last_name, phone, avatar_url, address, hobby, role, status
+        `SELECT id, email, first_name, last_name, phone, avatar_url, address,
+                hobby, gender, player_type, onboarding_completed, role, status
          FROM users WHERE id = ? LIMIT 1`,
         [req.auth.sub],
       );
       if (rows.length === 0) {
         return res.status(404).json({ error: 'User account not found.' });
       }
+      return res.json({ user: publicUser(rows[0]) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.put('/api/auth/onboarding', requireAuth, async (req, res, next) => {
+    const gender = req.body.gender;
+    const playerType = req.body.playerType == null
+      ? null
+      : normalizeText(req.body.playerType, 80);
+    const hobby = req.body.hobby == null
+      ? ''
+      : normalizeText(req.body.hobby, 255);
+    if (
+      !['male', 'female', 'prefer_not_to_say'].includes(gender) ||
+      (req.body.playerType != null &&
+        (typeof req.body.playerType !== 'string' ||
+          req.body.playerType.length > 80)) ||
+      (req.body.hobby != null &&
+        (typeof req.body.hobby !== 'string' || req.body.hobby.length > 255))
+    ) {
+      return res.status(400).json({ error: 'One or more onboarding answers are invalid.' });
+    }
+    try {
+      const [result] = await pool.execute(
+        `UPDATE users
+         SET gender = ?, player_type = ?, hobby = ?, onboarding_completed = 1
+         WHERE id = ? AND status = 'active' AND role = 'customer'`,
+        [gender, playerType || null, hobby || null, req.auth.sub],
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'Customer account not found.' });
+      }
+      const [rows] = await pool.execute(
+        `SELECT id, email, first_name, last_name, phone, avatar_url, address,
+                hobby, gender, player_type, onboarding_completed, role, status
+         FROM users WHERE id = ? LIMIT 1`,
+        [req.auth.sub],
+      );
       return res.json({ user: publicUser(rows[0]) });
     } catch (error) {
       return next(error);
@@ -585,7 +628,8 @@ function registerAuthRoutes({
         'Your profile details were changed.',
       );
       const [rows] = await pool.execute(
-        `SELECT id, email, first_name, last_name, phone, avatar_url, address, hobby, role, status
+        `SELECT id, email, first_name, last_name, phone, avatar_url, address,
+                hobby, gender, player_type, onboarding_completed, role, status
          FROM users WHERE id = ? LIMIT 1`,
         [req.auth.sub],
       );
@@ -651,7 +695,8 @@ function registerAuthRoutes({
 
       // Find or create the user
       const [rows] = await pool.execute(
-        `SELECT id, email, first_name, last_name, role, status
+        `SELECT id, email, first_name, last_name, role, status,
+                gender, player_type, onboarding_completed
          FROM users WHERE email = ? LIMIT 1`,
         [email],
       );
@@ -675,7 +720,15 @@ function registerAuthRoutes({
             [email, firstName, lastName, role],
           );
           await connection.commit();
-          user = { id: result.insertId, email, first_name: firstName, last_name: lastName, role, status: 'active' };
+          user = {
+            id: result.insertId,
+            email,
+            first_name: firstName,
+            last_name: lastName,
+            role,
+            status: 'active',
+            onboarding_completed: 0,
+          };
         } catch (err) {
           await connection.rollback();
           throw err;

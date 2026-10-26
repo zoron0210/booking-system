@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myapp/app_design_system.dart';
 import 'package:myapp/app_preferences.dart';
 import 'package:myapp/app_session.dart';
 import 'package:myapp/app_startup.dart';
@@ -28,7 +29,8 @@ void main() {
       ),
     );
 
-    expect(find.text('TinkerPro'), findsOneWidget);
+    expect(find.text('SpotGo'), findsOneWidget);
+    expect(find.byType(SpotGoLogo), findsOneWidget);
     expect(find.text('Getting your courts ready...'), findsOneWidget);
     expect(find.byType(OverviewPage), findsNothing);
 
@@ -56,7 +58,7 @@ void main() {
     initialAttempt.completeError(StateError('Initialization failed'));
     await tester.pump();
 
-    expect(find.text('TinkerPro could not start'), findsOneWidget);
+    expect(find.text('SpotGo could not start'), findsOneWidget);
     expect(find.textContaining('Initialization failed'), findsOneWidget);
     expect(attempts, 1);
 

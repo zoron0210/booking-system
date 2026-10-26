@@ -11,6 +11,7 @@ const originalListen = express.application.listen;
 let server;
 let accessToken;
 let originalJwtSecret;
+let onboardingUser;
 
 before(async () => {
   originalJwtSecret = process.env.JWT_SECRET;
@@ -19,14 +20,35 @@ before(async () => {
   const fakePool = {
     execute: async (sql, params = []) => {
       if (sql.includes('SELECT id, email, role, status FROM users')) {
-        return params[0] === '88'
-          ? [[{
+        if (params[0] === '88') {
+          return [[{
             id: 88,
             email: 'merchant@example.test',
             role: 'merchant',
             status: 'active',
+          }], []];
+        }
+        return params[0] === '42'
+          ? [[{
+            id: 42,
+            email: 'customer@example.test',
+            role: 'customer',
+            status: 'active',
           }], []]
           : [[], []];
+      }
+      if (sql.includes('UPDATE users') && sql.includes('onboarding_completed = 1')) {
+        onboardingUser = {
+          ...onboardingUser,
+          gender: params[0],
+          player_type: params[1],
+          hobby: params[2],
+          onboarding_completed: 1,
+        };
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('FROM users WHERE id = ? LIMIT 1')) {
+        return onboardingUser ? [[onboardingUser], []] : [[], []];
       }
       if (sql.includes('SELECT role, status FROM users WHERE id = ?')) {
         return params[0] === '88'
@@ -70,6 +92,14 @@ before(async () => {
     email: 'customer@example.test',
     role: 'customer',
   }, process.env.JWT_SECRET);
+  onboardingUser = {
+    id: 42,
+    email: 'customer@example.test',
+    first_name: 'Sam',
+    last_name: null,
+    role: 'customer',
+    status: 'active',
+  };
 });
 
 after(async () => {
@@ -176,4 +206,46 @@ test('customer accounts cannot request a merchant portal token', async () => {
   );
 
   assert.equal(response.status, 403);
+});
+
+test('customer onboarding requires a supported gender choice', async () => {
+  const response = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/auth/onboarding`,
+    {
+      method: 'PUT',
+      headers: {
+        authorization: ['Bearer', accessToken].join(' '),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ gender: 'unspecified' }),
+    },
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, 'One or more onboarding answers are invalid.');
+});
+
+test('customers can save onboarding answers and mark onboarding complete', async () => {
+  const response = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/auth/onboarding`,
+    {
+      method: 'PUT',
+      headers: {
+        authorization: ['Bearer', accessToken].join(' '),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        gender: 'prefer_not_to_say',
+        playerType: 'New player',
+        hobby: 'Basketball, Badminton',
+      }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const { user } = await response.json();
+  assert.equal(user.gender, 'prefer_not_to_say');
+  assert.equal(user.playerType, 'New player');
+  assert.equal(user.hobby, 'Basketball, Badminton');
+  assert.equal(user.onboardingCompleted, true);
 });

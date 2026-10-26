@@ -12,7 +12,7 @@ void main() {
       0,
     );
     const timeout = AuthApiException(
-      'The local API at http://192.168.1.45:3000 timed out.',
+      'The local API at http://192.168.1.18:3000 timed out.',
       408,
     );
 
@@ -24,7 +24,7 @@ void main() {
       timeout.toString(),
       'The service is taking longer than expected to respond. Please try again in a moment.',
     );
-    expect(timeout.toString(), isNot(contains('192.168.1.45')));
+    expect(timeout.toString(), isNot(contains('192.168.1.18')));
     expect(
       const AuthApiException('Please choose a valid date.', 400).toString(),
       'Please choose a valid date.',
@@ -42,7 +42,7 @@ void main() {
 
     await api.login(email: 'client@example.com', password: 'password123');
 
-    expect(receivedRequest.url.host, '192.168.1.45');
+    expect(receivedRequest.url.host, '192.168.1.18');
     expect(receivedRequest.url.port, 3000);
     expect(receivedRequest.url.path, '/api/auth/login');
   });

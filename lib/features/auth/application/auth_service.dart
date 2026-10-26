@@ -68,6 +68,26 @@ class AuthService {
     return response;
   }
 
+  Future<Map<String, dynamic>> completeCustomerOnboarding({
+    required String token,
+    required String gender,
+    String? playerType,
+    required String hobby,
+  }) async {
+    if (token.isEmpty) {
+      throw const AuthApiException(
+        'Sign in again to save your onboarding answers.',
+        401,
+      );
+    }
+    return api.completeCustomerOnboarding(
+      token: token,
+      gender: gender,
+      playerType: playerType,
+      hobby: hobby,
+    );
+  }
+
   Future<Map<String, dynamic>> verifyEmail({
     required String email,
     required String code,

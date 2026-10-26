@@ -21,6 +21,7 @@ class AppBottomNavigation extends StatefulWidget {
     this.merchantMode = false,
     this.hideMerchantVenues = false,
     this.hideSavedDestination = false,
+    this.showHomeDestination = false,
   });
 
   final int selectedIndex;
@@ -32,6 +33,7 @@ class AppBottomNavigation extends StatefulWidget {
   final bool merchantMode;
   final bool hideMerchantVenues;
   final bool hideSavedDestination;
+  final bool showHomeDestination;
 
   @override
   State<AppBottomNavigation> createState() => _AppBottomNavigationState();
@@ -43,11 +45,9 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
   DateTime? _lastTapAt;
 
   void _onDestinationSelected(int index) {
-    final destination = widget.hideSavedDestination &&
-            !widget.merchantMode &&
-            index > 0
-        ? index + 1
-        : index;
+    final destination = widget.merchantMode
+        ? index
+        : _customerDestinationOrder[index];
     final now = DateTime.now();
     final isQuickReselect =
         destination == widget.selectedIndex &&
@@ -65,6 +65,15 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
     widget.onDestinationSelected(destination);
   }
 
+  List<int> get _customerDestinationOrder => [
+    if (widget.showHomeDestination) 5,
+    0,
+    if (!widget.hideSavedDestination) 1,
+    2,
+    3,
+    4,
+  ];
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
@@ -77,15 +86,10 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
       final unreadMessageCount =
           MessageUnreadCountScope.countOf(context) ?? widget.unreadMessageCount;
       final barHeight = compact ? 68.0 : 72.0;
-      final hideSaved =
-          widget.hideSavedDestination && !widget.merchantMode;
-      final visibleSelectedIndex = hideSaved
-          ? widget.selectedIndex == 1
-                ? 0
-                : widget.selectedIndex > 1
-                ? widget.selectedIndex - 1
-                : widget.selectedIndex
-          : widget.selectedIndex;
+      final hideSaved = widget.hideSavedDestination && !widget.merchantMode;
+      final visibleSelectedIndex = widget.merchantMode
+          ? widget.selectedIndex
+          : _customerDestinationOrder.indexOf(widget.selectedIndex);
       final labelSize = veryNarrow
           ? 9.0
           : compact
@@ -127,96 +131,111 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
                   maxWidth: AppResponsive.navigationMaxWidth,
                 ),
                 child: NavigationBar(
-                height: barHeight,
-                elevation: 0,
-                indicatorShape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                selectedIndex: visibleSelectedIndex,
-                labelBehavior: veryNarrow
-                    ? NavigationDestinationLabelBehavior.onlyShowSelected
-                    : NavigationDestinationLabelBehavior.alwaysShow,
-                onDestinationSelected: _onDestinationSelected,
-                destinations: widget.merchantMode
-                    ? [
-                  NavigationDestination(
-                    key: ValueKey('merchant-dashboard-nav-dashboard'),
-                    icon: Icon(Icons.dashboard_outlined),
-                    selectedIcon: Icon(Icons.dashboard_rounded),
-                    label: label('Dashboard', 'Dashboard'),
+                  height: barHeight,
+                  elevation: 0,
+                  indicatorShape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
                   ),
-                  NavigationDestination(
-                    key: ValueKey('merchant-dashboard-nav-add'),
-                    icon: Icon(Icons.add_circle_outline),
-                    selectedIcon: Icon(Icons.add_circle),
-                    label: label('Add', 'Magdagdag'),
-                  ),
-                  NavigationDestination(
-                    key: ValueKey('merchant-dashboard-nav-messages'),
-                    icon: _countBadge(messagesSquareIcon, unreadMessageCount),
-                    selectedIcon: _countBadge(
-                      messagesSquareIcon,
-                      unreadMessageCount,
-                    ),
-                    label: label('Messages', 'Mga mensahe'),
-                  ),
-                  NavigationDestination(
-                    key: ValueKey('merchant-dashboard-nav-payouts'),
-                    icon: _countBadge(
-                      Icons.pending_actions_outlined,
-                      widget.merchantRequestCount,
-                    ),
-                    selectedIcon: _countBadge(
-                      Icons.pending_actions_rounded,
-                      widget.merchantRequestCount,
-                    ),
-                    label: label('Manage', 'Pamahalaan'),
-                  ),
-                  NavigationDestination(
-                    key: ValueKey('merchant-dashboard-nav-profile'),
-                    icon: Icon(Icons.person_outline_rounded),
-                    selectedIcon: Icon(Icons.person_rounded),
-                    label: label('Profile', 'Profile'),
-                  ),
-                      ]
-                    : [
-                  NavigationDestination(
-                    key: const ValueKey('news-feed-nav-explore'),
-                    icon: const Icon(Icons.storefront_outlined),
-                    selectedIcon: const Icon(Icons.storefront_rounded),
-                    label: label('Venue', 'Lugar'),
-                  ),
-                  if (!hideSaved)
-                    NavigationDestination(
-                      key: const ValueKey('news-feed-nav-saved'),
-                      icon: const Icon(savedItemIcon),
-                      selectedIcon: const Icon(savedItemSelectedIcon),
-                      label: label('Saved', 'Naka-save'),
-                    ),
-                  NavigationDestination(
-                    key: const ValueKey('news-feed-nav-messages'),
-                    icon: _countBadge(messagesSquareIcon, unreadMessageCount),
-                    selectedIcon: _countBadge(
-                      messagesSquareIcon,
-                      unreadMessageCount,
-                    ),
-                    label: label('Messages', 'Mga mensahe'),
-                  ),
-                  NavigationDestination(
-                    key: const ValueKey('news-feed-nav-bookings'),
-                    icon: _calendarClockBadge(widget.unreadBookingCount),
-                    selectedIcon: _calendarClockBadge(
-                      widget.unreadBookingCount,
-                    ),
-                    label: label('Bookings', 'Mga booking'),
-                  ),
-                  NavigationDestination(
-                    key: const ValueKey('news-feed-nav-profile'),
-                    icon: const Icon(Icons.person_outline_rounded),
-                    selectedIcon: const Icon(Icons.person_rounded),
-                    label: label('Profile', 'Profile'),
-                  ),
-                      ],
+                  selectedIndex: visibleSelectedIndex,
+                  labelBehavior: veryNarrow
+                      ? NavigationDestinationLabelBehavior.onlyShowSelected
+                      : NavigationDestinationLabelBehavior.alwaysShow,
+                  onDestinationSelected: _onDestinationSelected,
+                  destinations: widget.merchantMode
+                      ? [
+                          NavigationDestination(
+                            key: ValueKey('merchant-dashboard-nav-dashboard'),
+                            icon: Icon(Icons.dashboard_outlined),
+                            selectedIcon: Icon(Icons.dashboard_rounded),
+                            label: label('Dashboard', 'Dashboard'),
+                          ),
+                          NavigationDestination(
+                            key: ValueKey('merchant-dashboard-nav-add'),
+                            icon: Icon(Icons.add_circle_outline),
+                            selectedIcon: Icon(Icons.add_circle),
+                            label: label('Add', 'Magdagdag'),
+                          ),
+                          NavigationDestination(
+                            key: ValueKey('merchant-dashboard-nav-messages'),
+                            icon: _countBadge(
+                              messagesSquareIcon,
+                              unreadMessageCount,
+                            ),
+                            selectedIcon: _countBadge(
+                              messagesSquareIcon,
+                              unreadMessageCount,
+                            ),
+                            label: label('Messages', 'Mga mensahe'),
+                          ),
+                          NavigationDestination(
+                            key: ValueKey('merchant-dashboard-nav-payouts'),
+                            icon: _countBadge(
+                              Icons.pending_actions_outlined,
+                              widget.merchantRequestCount,
+                            ),
+                            selectedIcon: _countBadge(
+                              Icons.pending_actions_rounded,
+                              widget.merchantRequestCount,
+                            ),
+                            label: label('Manage', 'Pamahalaan'),
+                          ),
+                          NavigationDestination(
+                            key: ValueKey('merchant-dashboard-nav-profile'),
+                            icon: Icon(Icons.person_outline_rounded),
+                            selectedIcon: Icon(Icons.person_rounded),
+                            label: label('Profile', 'Profile'),
+                          ),
+                        ]
+                      : [
+                          if (widget.showHomeDestination)
+                            NavigationDestination(
+                              key: const ValueKey('customer-nav-home'),
+                              icon: const Icon(Icons.home_outlined),
+                              selectedIcon: const Icon(Icons.home_rounded),
+                              label: label('Home', 'Home'),
+                            ),
+                          NavigationDestination(
+                            key: const ValueKey('news-feed-nav-explore'),
+                            icon: const Icon(Icons.storefront_outlined),
+                            selectedIcon: const Icon(Icons.storefront_rounded),
+                            label: label('Venue', 'Lugar'),
+                          ),
+                          if (!hideSaved)
+                            NavigationDestination(
+                              key: const ValueKey('news-feed-nav-saved'),
+                              icon: const Icon(savedItemIcon),
+                              selectedIcon: const Icon(savedItemSelectedIcon),
+                              label: label('Saved', 'Naka-save'),
+                            ),
+                          NavigationDestination(
+                            key: const ValueKey('news-feed-nav-messages'),
+                            icon: _countBadge(
+                              messagesSquareIcon,
+                              unreadMessageCount,
+                            ),
+                            selectedIcon: _countBadge(
+                              messagesSquareIcon,
+                              unreadMessageCount,
+                            ),
+                            label: label('Messages', 'Mga mensahe'),
+                          ),
+                          NavigationDestination(
+                            key: const ValueKey('news-feed-nav-bookings'),
+                            icon: _calendarClockBadge(
+                              widget.unreadBookingCount,
+                            ),
+                            selectedIcon: _calendarClockBadge(
+                              widget.unreadBookingCount,
+                            ),
+                            label: label('Bookings', 'Mga booking'),
+                          ),
+                          NavigationDestination(
+                            key: const ValueKey('news-feed-nav-profile'),
+                            icon: const Icon(Icons.person_outline_rounded),
+                            selectedIcon: const Icon(Icons.person_rounded),
+                            label: label('Profile', 'Profile'),
+                          ),
+                        ],
                 ),
               ),
             ),

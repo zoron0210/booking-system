@@ -1,4 +1,4 @@
-# TinkerPro Sports backend
+# SpotGo Sports backend
 
 Node.js 20+ and Express API for the Flutter app. It handles account and profile
 operations, venue and booking data, merchant tools, messaging, news, and
@@ -7,11 +7,11 @@ reviews, using MySQL.
 ## Setup
 
 1. Install MySQL 8 or newer and create the project schema from the repository
-   root. The actual schema file is `database/sports.sql`; it creates and selects
+   root. The actual schema file is `database/booking.sql`; it creates and selects
    the `tinkerpro_sports` database:
 
    ```sh
-   mysql -u root -p < database/sports.sql
+   mysql -u root -p < database/booking.sql
    ```
 
    Create a dedicated database account for the API instead of using `root`.
@@ -114,8 +114,8 @@ reviews, using MySQL.
    `npm run dev` starts Node.js watch mode (`node --watch src/server.js`). For a
    regular start, use `npm start` (`node src/server.js`); `node server.js` is
    also supported as a compatibility entry point when run from `backend`.
-   Authentication and merchant news endpoints are registered by
-   `src/routes/auth_routes.js` and `src/routes/merchant_news_routes.js`;
+   Health/device-notification, authentication, social, and merchant news
+   endpoints are registered by modules under `src/routes/`;
    remaining route groups are still registered from `src/server.js` and can
    be extracted incrementally.
 
@@ -123,11 +123,26 @@ The health endpoint is `GET http://localhost:3000/health`. It checks both the
 API and its MySQL connection. `npm run migrate` ensures the merchant,
 messaging, booking, QR arrival check-in, profile, news, review, and other
 upgraded schema is present.
-Migration 16 adds one-way user follows and social experience posts. The social
-API allows five posts per account in a rolling 24-hour period and validates
-captions and up to five JPEG, PNG, or WebP images per post (10 MiB maximum per
-image). Images are stored in MySQL with each post; for larger deployments,
-move post media to object storage before scaling the social gallery.
+Migration 16 adds one-way user follows and social experience posts. Migration
+17 adds likes, saved posts, and comments. The social API allows five posts per
+account in a rolling 24-hour period and validates captions and up to five
+media items per post: JPEG, PNG, or WebP images (10 MiB maximum per image) or
+Tenor GIF URLs. Photo data is stored in MySQL with each post; for larger
+deployments, move post media to object storage before scaling the social
+gallery. Configure the server-side `TENOR_API_KEY` environment variable to
+enable Tenor search; the key is never sent to Flutter clients. Chat messages
+can also contain Tenor GIF attachments and emoji text.
+Social feed, user search, profile, and connection-list GET routes are
+read-only and can be used without a token; authenticated requests retain
+viewer-specific follow and block visibility. Creating posts and changing
+follows still require authentication. The customer Home feed's `scope=public`
+option returns newest-first public posts, while `scope=following` returns only
+posts from accounts followed by the authenticated user and requires a token.
+Both scopes continue to exclude posts hidden by the viewer's block list.
+Authenticated users can like or save visible posts and comment on them. Comment
+reads apply the viewer's block filters. The `GET /api/social/gifs?q=...` route
+proxies bounded search requests to Tenor and only returns media hosted at
+`media.tenor.com`.
 Every API response includes an `X-Request-Id` header. When reporting an
 unexpected error, include that support reference so it can be matched to the
 backend error log. Internal server errors return a generic message; sensitive
@@ -158,6 +173,8 @@ Authenticated endpoints require `Authorization: Bearer <token>`.
   `/api/auth/forgot-password`, `/api/auth/verify-password-reset-code`,
   `/api/auth/reset-password`, and `/api/auth/oauth/google`
 - Profiles: `GET /api/auth/me`, `PUT /api/auth/profile`,
+  `PUT /api/auth/onboarding` (customer gender is required; player type and
+  hobby are optional),
   `GET /api/merchant/profile`, and `PUT /api/merchant/profile`
 - Venues and merchant tools: `GET /api/businesses`,
   `GET/POST /api/merchant/businesses`, `PUT /api/merchant/businesses/:id`,
@@ -220,7 +237,7 @@ npm run test:integration
 ```
 
 The test creates a uniquely named temporary database derived from the
-`MYSQL_TEST_DATABASE` prefix, applies `database/sports.sql`, starts the API
+`MYSQL_TEST_DATABASE` prefix, applies `database/booking.sql`, starts the API
 against that database, verifies Fitness booking/pricing and conflict checks,
 approves a booking, and confirms the issued ticket is persisted in Messages.
 It drops only the temporary database it created.

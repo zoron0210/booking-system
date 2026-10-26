@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import 'features/activity_log/presentation/activity_log_routes.dart';
+import 'features/merchant_management/domain/merchant_profile_performance.dart';
 import 'features/merchant_management/data/merchant_session_provider.dart';
+import 'features/merchant_management/presentation/merchant_profile_dialogs.dart';
+import 'features/merchant_management/presentation/merchant_profile_performance_card.dart';
 import 'app_bottom_navigation.dart';
 import 'auth_api.dart';
 import 'app_design_system.dart';
@@ -17,7 +19,6 @@ import 'notification_settings_page.dart';
 import 'news_feed.dart';
 import 'profile_image_preview.dart';
 import 'rating_widgets.dart';
-import 'core/booking_status.dart';
 import 'features/merchant_management/data/merchant_booking_repository.dart';
 
 Color get _profileInk => AppColors.ink;
@@ -86,6 +87,13 @@ class _MerchantProfileDashboardPageState
   String _performancePeriod = 'Today';
   bool _matchNotificationsEnabled = false;
   bool _updatingMatchNotificationSetting = false;
+
+  MerchantProfilePerformance get _performance =>
+      MerchantProfilePerformance.calculate(
+        bookings: _bookings,
+        period: _performancePeriod,
+        now: DateTime.now(),
+      );
 
   @override
   void initState() {
@@ -198,83 +206,6 @@ class _MerchantProfileDashboardPageState
       }
     }
   }
-
-  bool _isConfirmedBooking(Map<String, dynamic> booking) =>
-      BookingStatusParser.isConfirmed(booking['status']);
-
-  bool _isPendingBooking(Map<String, dynamic> booking) =>
-      BookingStatusParser.isPending(booking['status']);
-
-  List<Map<String, dynamic>> get _todayBookings {
-    final now = DateTime.now();
-    return _bookings.where((booking) {
-      if (BookingStatusParser.isCancelled(booking['status'])) {
-        return false;
-      }
-      final value = booking['date'] ?? booking['bookingDate'];
-      final date = value is DateTime ? value : DateTime.tryParse('$value');
-      return date != null &&
-          date.year == now.year &&
-          date.month == now.month &&
-          date.day == now.day;
-    }).toList();
-  }
-
-  List<Map<String, dynamic>> get _performanceBookings {
-    if (_performancePeriod == 'All time') return _bookings;
-    final now = DateTime.now();
-    final days = switch (_performancePeriod) {
-      '7 days' => 7,
-      '30 days' => 30,
-      _ => 1,
-    };
-    final start = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).subtract(Duration(days: days - 1));
-    return _bookings.where((booking) {
-      final value = booking['date'] ?? booking['bookingDate'];
-      final date = value is DateTime ? value : DateTime.tryParse('$value');
-      return date != null &&
-          !date.isBefore(start) &&
-          !date.isAfter(DateTime(now.year, now.month, now.day));
-    }).toList();
-  }
-
-  double get _performanceRevenue => _performanceBookings
-      .where(_isConfirmedBooking)
-      .fold(0, (total, booking) => total + _number(booking['total']));
-
-  double get _estimatedPaidAmount => _performanceBookings.fold(
-    0,
-    (total, booking) => total + _bookingAmountReceived(booking),
-  );
-
-  int get _todayPendingBookings =>
-      _todayBookings.where(_isPendingBooking).length;
-
-  int get _todayParticipants => _todayBookings.fold(
-    0,
-    (total, booking) => total + _count(booking['players']),
-  );
-
-  double _number(dynamic value) =>
-      value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
-
-  double _bookingAmountReceived(Map<String, dynamic> booking) {
-    final paymentStatus = '${booking['paymentStatus'] ?? ''}'.toLowerCase();
-    final paidAmount = booking['paidAmount'];
-    if (paidAmount != null) {
-      final amount = _number(paidAmount);
-      if (amount > 0 || paymentStatus != 'paid') return amount;
-    }
-    if (paymentStatus == 'paid') return _number(booking['total']);
-    return 0;
-  }
-
-  int _count(dynamic value) =>
-      value is num ? value.toInt() : int.tryParse('$value') ?? 0;
 
   Future<void> _loadMatchNotificationSetting() async {
     try {
@@ -792,7 +723,7 @@ class _MerchantProfileDashboardPageState
                     child: Row(
                       children: [
                         Expanded(
-                          child: _MerchantSupportSettingTile(
+                          child: MerchantSupportSettingTile(
                             key: const ValueKey(
                               'merchant-settings-help-center',
                             ),
@@ -808,7 +739,7 @@ class _MerchantProfileDashboardPageState
                           ),
                         ),
                         Expanded(
-                          child: _MerchantSupportSettingTile(
+                          child: MerchantSupportSettingTile(
                             key: const ValueKey(
                               'merchant-settings-terms-of-service',
                             ),
@@ -880,7 +811,7 @@ class _MerchantProfileDashboardPageState
       case _MerchantProfileSetting.helpCenter:
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => const _MerchantSupportDetailPage(
+            builder: (_) => const MerchantSupportDetailPage(
               title: 'Help Center',
               icon: Icons.help_outline_rounded,
               message: 'Help articles and contact options will be available here soon.',
@@ -891,7 +822,7 @@ class _MerchantProfileDashboardPageState
       case _MerchantProfileSetting.termsOfService:
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => const _MerchantSupportDetailPage(
+            builder: (_) => const MerchantSupportDetailPage(
               title: 'Terms of Service',
               icon: Icons.description_outlined,
               message:
@@ -959,7 +890,7 @@ class _MerchantProfileDashboardPageState
       }
       await showDialog<void>(
         context: context,
-        builder: (_) => _MerchantCheckInQrDialog(
+        builder: (_) => MerchantCheckInQrDialog(
           api: _api,
           token: token,
           venueId: venueId,
@@ -999,7 +930,7 @@ class _MerchantProfileDashboardPageState
             ({int approvalTimeoutMinutes, int paymentTimeoutMinutes})
           >(
             context: context,
-            builder: (_) => _BookingDeadlineDialog(
+            builder: (_) => BookingDeadlineDialog(
               approvalValue: approvalMinutes.value,
               approvalUnit: approvalMinutes.unit,
               paymentValue: paymentMinutes.value,
@@ -1129,244 +1060,12 @@ class _MerchantProfileDashboardPageState
     ),
   );
 
-  Widget _performanceCard() {
-    final bookings = _todayBookings;
-    final filteredBookings = _performanceBookings;
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _profileLine),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              border: Border(bottom: BorderSide(color: _profileLine)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: AppText(
-                        _performancePeriod == 'Today'
-                            ? "Today's performance"
-                            : '$_performancePeriod performance',
-                        style: TextStyle(
-                          color: _profileInk,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        localize: true,
-                      ),
-                    ),
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        key: const ValueKey('merchant-profile-date-filter'),
-                        value: _performancePeriod,
-                        dropdownColor: AppColors.surface,
-                        iconEnabledColor: _profileMuted,
-                        style: TextStyle(
-                          color: _profileInk,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Today',
-                            child: Text('Today'),
-                          ),
-                          DropdownMenuItem(
-                            value: '7 days',
-                            child: Text('7 days'),
-                          ),
-                          DropdownMenuItem(
-                            value: '30 days',
-                            child: Text('30 days'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'All time',
-                            child: Text('All time'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _performancePeriod = value);
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                AppText(
-                  'CONFIRMED REVENUE',
-                  style: TextStyle(
-                    color: _profileMuted,
-                    fontSize: 10,
-                    letterSpacing: .8,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  localize: true,
-                ),
-                const SizedBox(height: 6),
-                AppText(
-                  '₱${_performanceRevenue.toStringAsFixed(2)}',
-                  key: const ValueKey('merchant-profile-performance-revenue'),
-                  style: TextStyle(
-                    color: _profileAccent,
-                    fontSize: 30,
-                    height: 1.1,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  localize: true,
-                ),
-                const SizedBox(height: 6),
-                AppText(
-                  _performancePeriod == 'Today'
-                      ? bookings.isEmpty
-                            ? 'No bookings scheduled today'
-                            : '${bookings.length} booking${bookings.length == 1 ? '' : 's'} scheduled today'
-                      : '${filteredBookings.length} booking${filteredBookings.length == 1 ? '' : 's'} in selected period',
-                  style: TextStyle(color: _profileMuted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final itemWidth = (constraints.maxWidth - 12) / 2;
-                return Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.event_available_rounded,
-                        "Today's bookings",
-                        '${bookings.length}',
-                        const Color(0xFF1C69C9),
-                      ),
-                    ),
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.pending_actions_rounded,
-                        'Awaiting approval',
-                        '$_todayPendingBookings',
-                        const Color(0xFFE28A16),
-                      ),
-                    ),
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.groups_rounded,
-                        'Players today',
-                        '$_todayParticipants',
-                        const Color(0xFF168B69),
-                      ),
-                    ),
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.location_city_rounded,
-                        'Active venues',
-                        '${_businesses.length}',
-                        const Color(0xFF7655C5),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: InkWell(
-              key: const ValueKey('merchant-profile-estimated-paid'),
-              onTap: () => _navigateToManagement(3),
-              borderRadius: BorderRadius.circular(14),
-              child: _metric(
-                Icons.account_balance_wallet_outlined,
-                'Estimated paid amount',
-                '₱${_estimatedPaidAmount.toStringAsFixed(2)}',
-                const Color(0xFF237A43),
-                description: 'From booking payment records; not a withdrawable balance. Tap for payment details.',
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _metric(
-    IconData icon,
-    String label,
-    String value,
-    Color color, {
-    String? description,
-  }) => Container(
-    constraints: const BoxConstraints(minHeight: 82),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: AppColors.surfaceVariant,
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: _profileLine),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Expanded(
-              child: AppText(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _profileMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        AppText(
-          value,
-          key: ValueKey('merchant-profile-metric-$label'),
-          style: TextStyle(
-            color: _profileInk,
-            fontSize: 19,
-            height: 1,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        if (description != null) ...[
-          const SizedBox(height: 6),
-          AppText(
-            description,
-            style: TextStyle(color: _profileMuted, fontSize: 10),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ],
-    ),
+  Widget _performanceCard() => MerchantProfilePerformanceCard(
+    performance: _performance,
+    period: _performancePeriod,
+    venueCount: _businesses.length,
+    onPeriodChanged: (period) => setState(() => _performancePeriod = period),
+    onEstimatedPaidTap: () => _navigateToManagement(3),
   );
 
   Widget _quickToolsCard() => _sectionCard(
@@ -1592,6 +1291,9 @@ class _MerchantProfileDashboardPageState
             images.whereType<String>().any((value) => value.trim().isNotEmpty));
   }
 
+  double _number(dynamic value) =>
+      value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
   void _navigateToManagement(int index) {
     widget.onNavigate?.call(index);
     Navigator.of(context).pop();
@@ -1603,374 +1305,4 @@ class _MerchantProfileDashboardPageState
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
-}
-
-class _MerchantSupportDetailPage extends StatelessWidget {
-  const _MerchantSupportDetailPage({
-    required this.title,
-    required this.icon,
-    required this.message,
-  });
-
-  final String title;
-  final IconData icon;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: AppColors.page,
-    appBar: AppBar(
-      backgroundColor: AppColors.page,
-      surfaceTintColor: Colors.transparent,
-      foregroundColor: AppColors.ink,
-      title: AppText(title, localize: true),
-    ),
-    body: Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: AppColors.accentForeground, size: 36),
-            const SizedBox(height: 16),
-            AppText(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, fontSize: 14),
-              localize: true,
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _MerchantSupportSettingTile extends StatelessWidget {
-  const _MerchantSupportSettingTile({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-        child: Row(
-          key: key,
-          children: [
-            Icon(icon, color: _profileAccent, size: 21),
-            const SizedBox(width: 8),
-            Expanded(
-              child: AppText(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _profileInk,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _BookingDeadlineDialog extends StatefulWidget {
-  const _BookingDeadlineDialog({
-    required this.approvalValue,
-    required this.approvalUnit,
-    required this.paymentValue,
-    required this.paymentUnit,
-  });
-
-  final String approvalValue;
-  final String approvalUnit;
-  final String paymentValue;
-  final String paymentUnit;
-
-  @override
-  State<_BookingDeadlineDialog> createState() => _BookingDeadlineDialogState();
-}
-
-class _BookingDeadlineDialogState extends State<_BookingDeadlineDialog> {
-  late final TextEditingController _approvalController;
-  late final TextEditingController _paymentController;
-  final _formKey = GlobalKey<FormState>();
-  late String _approvalUnit;
-  late String _paymentUnit;
-
-  @override
-  void initState() {
-    super.initState();
-    _approvalController = TextEditingController(text: widget.approvalValue);
-    _paymentController = TextEditingController(text: widget.paymentValue);
-    _approvalUnit = widget.approvalUnit;
-    _paymentUnit = widget.paymentUnit;
-  }
-
-  @override
-  void dispose() {
-    _approvalController.dispose();
-    _paymentController.dispose();
-    super.dispose();
-  }
-
-  int _minutes(String raw, String unit) =>
-      int.parse(raw.trim()) * (unit == 'hours' ? 60 : 1);
-
-  Widget _deadlineField({
-    required String label,
-    required TextEditingController controller,
-    required String unit,
-    required ValueChanged<String> onUnitChanged,
-  }) => Row(
-    children: [
-      Expanded(
-        child: TextFormField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: label),
-          validator: (value) {
-            final amount = int.tryParse(value?.trim() ?? '');
-            final multiplier = unit == 'hours' ? 60 : 1;
-            if (amount == null || amount < 1 || amount * multiplier > 10080) {
-              return 'Enter a whole number up to ${unit == 'hours' ? 168 : 10080}.';
-            }
-            return null;
-          },
-        ),
-      ),
-      const SizedBox(width: 10),
-      DropdownButton<String>(
-        value: unit,
-        items: const [
-          DropdownMenuItem(value: 'minutes', child: Text('Minutes')),
-          DropdownMenuItem(value: 'hours', child: Text('Hours')),
-        ],
-        onChanged: (value) {
-          if (value != null) onUnitChanged(value);
-        },
-      ),
-    ],
-  );
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    scrollable: true,
-    title: AppText(
-      appLanguageText('Booking deadlines', 'Mga deadline ng booking'),
-    ),
-    content: Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppText(
-            appLanguageText(
-              'Requests expire if they are not approved before this limit. Approved bookings must be paid before the payment limit.',
-              'Mag-e-expire ang mga request kung hindi maaaprubahan sa itinakdang oras. Dapat mabayaran ang naaprubahang booking bago matapos ang limitasyon.',
-            ),
-          ),
-          const SizedBox(height: 16),
-          _deadlineField(
-            label: 'Approval time limit',
-            controller: _approvalController,
-            unit: _approvalUnit,
-            onUnitChanged: (value) => setState(() => _approvalUnit = value),
-          ),
-          const SizedBox(height: 12),
-          _deadlineField(
-            label: 'Payment time limit',
-            controller: _paymentController,
-            unit: _paymentUnit,
-            onUnitChanged: (value) => setState(() => _paymentUnit = value),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: AppText(appLanguageText('Cancel', 'Kanselahin')),
-      ),
-      FilledButton(
-        onPressed: () {
-          if (_formKey.currentState?.validate() != true) return;
-          Navigator.pop(context, (
-            approvalTimeoutMinutes: _minutes(
-              _approvalController.text,
-              _approvalUnit,
-            ),
-            paymentTimeoutMinutes: _minutes(
-              _paymentController.text,
-              _paymentUnit,
-            ),
-          ));
-        },
-        child: AppText(appLanguageText('Save', 'I-save')),
-      ),
-    ],
-  );
-}
-
-class _MerchantCheckInQrDialog extends StatefulWidget {
-  const _MerchantCheckInQrDialog({
-    required this.api,
-    required this.token,
-    required this.venueId,
-    required this.venueName,
-  });
-
-  final AuthApi api;
-  final String token;
-  final int venueId;
-  final String venueName;
-
-  @override
-  State<_MerchantCheckInQrDialog> createState() =>
-      _MerchantCheckInQrDialogState();
-}
-
-class _MerchantCheckInQrDialogState extends State<_MerchantCheckInQrDialog> {
-  String? _qrCode;
-  String? _error;
-  int? _expiresAt;
-  bool _loading = false;
-  Timer? _refreshTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _refreshTimer = Timer.periodic(
-      const Duration(seconds: 45),
-      (_) => _loadCode(),
-    );
-    _loadCode();
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _loadCode() async {
-    if (_loading) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final result = await widget.api.merchantVenueCheckInCode(
-        token: widget.token,
-        venueId: widget.venueId,
-      );
-      final qrCode = result['qrCode'];
-      final expiresAt = result['expiresAt'];
-      if (qrCode is! String || qrCode.isEmpty || expiresAt is! num) {
-        throw const AuthApiException(
-          'The server returned an invalid check-in QR code.',
-          200,
-        );
-      }
-      if (!mounted) return;
-      setState(() {
-        _qrCode = qrCode;
-        _expiresAt = expiresAt.toInt();
-      });
-    } on Exception catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error is AuthApiException
-            ? error.userMessage
-            : 'Could not refresh the venue QR code: $error';
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: AppText(widget.venueName, localize: true),
-    content: SizedBox(
-      width: 280,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const AppText(
-            'Customers scan this code at arrival. It refreshes automatically.',
-            textAlign: TextAlign.center,
-            localize: true,
-          ),
-          const SizedBox(height: 12),
-          if (_qrCode != null && _error == null)
-            Container(
-              key: const ValueKey('merchant-check-in-qr-code'),
-              padding: const EdgeInsets.all(10),
-              color: Colors.white,
-              child: QrImageView(
-                data: _qrCode!,
-                version: QrVersions.auto,
-                size: 220,
-              ),
-            )
-          else if (_loading)
-            const SizedBox(
-              height: 220,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else
-            SizedBox(
-              height: 220,
-              child: Center(
-                child: AppText(
-                  _error ?? 'Check-in QR unavailable.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          if (_expiresAt != null && _qrCode != null && _error == null) ...[
-            const SizedBox(height: 8),
-            AppText(
-              'Code refreshes every minute · '
-              'expires ${DateTime.fromMillisecondsSinceEpoch(_expiresAt!).toLocal().toString().substring(11, 16)}',
-              style: TextStyle(color: _profileMuted, fontSize: 12),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          if (_loading && _qrCode != null) ...[
-            const SizedBox(height: 6),
-            const LinearProgressIndicator(minHeight: 2),
-          ],
-        ],
-      ),
-    ),
-    actions: [
-      if (_error != null)
-        TextButton(
-          onPressed: _loading ? null : _loadCode,
-          child: const AppText('Retry', localize: true),
-        ),
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const AppText('Close', localize: true),
-      ),
-    ],
-  );
 }

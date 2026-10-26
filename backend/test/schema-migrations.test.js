@@ -111,6 +111,20 @@ test('migration 16 creates social follows and experience posts', async () => {
     params[0] === 16 &&
     params[1] === 'social-following-and-experience-posts',
   ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_post_likes'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_saved_posts'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_post_comments'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 17 &&
+    params[1] === 'social-post-interactions',
+  ));
 });
 
 test('ensures older databases add the missing fitness coach duration column before continuing', async () => {
@@ -534,5 +548,51 @@ test('migration 15 creates account-scoped push notification devices', async () =
     sql.includes('INSERT INTO schema_migrations (version, name)') &&
     params[0] === 15 &&
     params[1] === 'booking-push-notification-devices',
+  ));
+});
+
+test('migration 18 adds customer onboarding fields and preserves existing accounts', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [[
+          { version: 1 }, { version: 2 }, { version: 3 }, { version: 4 },
+          { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 },
+          { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 },
+          { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 },
+          { version: 17 },
+        ], []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  for (const column of ['gender', 'player_type', 'onboarding_completed']) {
+    assert.ok(calls.some(({ sql }) =>
+      sql.includes(`ALTER TABLE \`users\` ADD COLUMN \`${column}\``),
+    ));
+  }
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('UPDATE users SET onboarding_completed = 1'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 18 &&
+    params[1] === 'customer-onboarding-profile',
   ));
 });

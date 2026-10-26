@@ -85,7 +85,7 @@ class _AppStartupState extends State<AppStartup> {
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) {
         return MaterialApp(
-          title: 'TinkerPro',
+          title: 'SpotGo',
           debugShowCheckedModeBanner: false,
           theme: _theme(),
           home: const _StartupLoadingScreen(),
@@ -93,7 +93,7 @@ class _AppStartupState extends State<AppStartup> {
       }
       if (snapshot.hasError) {
         return MaterialApp(
-          title: 'TinkerPro',
+          title: 'SpotGo',
           debugShowCheckedModeBanner: false,
           theme: _theme(),
           home: _StartupError(error: snapshot.error!, onRetry: _retry),
@@ -101,7 +101,7 @@ class _AppStartupState extends State<AppStartup> {
       }
       if (snapshot.hasData) return widget.appBuilder(snapshot.data);
       return MaterialApp(
-        title: 'TinkerPro',
+        title: 'SpotGo',
         debugShowCheckedModeBanner: false,
         theme: _theme(),
         home: const _StartupLoadingScreen(),
@@ -131,26 +131,13 @@ class _StartupLoadingScreen extends StatelessWidget {
                   color: AppColors.surface,
                   borderRadius: BorderRadius.circular(32),
                 ),
-                child: Image.asset(
-                  'assets/tinker_logo.png',
-                  fit: BoxFit.contain,
-                ),
+                child: const SpotGoLogo(size: 96),
               ),
               const SizedBox(height: 6),
-              AppText.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: 'Tinker',
-                      style: TextStyle(color: AppColors.navy),
-                    ),
-                    TextSpan(
-                      text: 'Pro',
-                      style: TextStyle(color: AppColors.accent),
-                    ),
-                  ],
-                ),
+              AppText(
+                'SpotGo',
                 style: const TextStyle(
+                  color: AppColors.blue,
                   fontSize: 30,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -.8,
@@ -210,7 +197,7 @@ class _StartupError extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               AppText(
-                'TinkerPro could not start',
+                'SpotGo could not start',
                 textAlign: TextAlign.center,
                 style: AppTypography.pageTitle,
                 localize: true,

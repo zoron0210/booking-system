@@ -31,7 +31,7 @@ class NotificationSettingsPage extends StatelessWidget {
             leading: const Icon(Icons.settings_outlined),
             title: const AppText('Device notification settings', localize: true),
             subtitle: const AppText(
-              'Manage TinkerPro permissions on this device.',
+              'Manage SpotGo permissions on this device.',
               localize: true,
             ),
             trailing: const Icon(Icons.open_in_new_rounded),

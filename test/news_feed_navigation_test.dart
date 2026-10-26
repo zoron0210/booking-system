@@ -116,6 +116,138 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('customer Home shows all public experience posts', (
+    tester,
+  ) async {
+    final feedRequests = <http.Request>[];
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/social/feed') {
+          feedRequests.add(request);
+          final following = request.url.queryParameters['scope'] == 'following';
+          return http.Response(
+            jsonEncode({
+              'posts': [
+                {
+                  'id': following ? 16 : 15,
+                  'userId': following ? 43 : 42,
+                  'displayName': following ? 'Taylor Player' : 'Alex Player',
+                  'caption': following
+                      ? 'A followed player experience'
+                      : 'A match-day experience',
+                  'images': [],
+                  'createdAt': '2026-10-26T08:00:00.000Z',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: homeApi)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home').first, findsOneWidget);
+    expect(find.text('A match-day experience'), findsOneWidget);
+    expect(
+      feedRequests.map((request) => request.url.queryParameters['scope']),
+      containsAll(['public', 'following']),
+    );
+    expect(
+      feedRequests.every(
+        (request) => request.headers['Authorization'] == 'Bearer test-token',
+      ),
+      isTrue,
+    );
+    expect(find.byKey(const ValueKey('customer-nav-home')), findsOneWidget);
+    expect(find.byKey(const ValueKey('customer-home-add')), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
+
+    await tester.tap(find.text('Following'));
+    await tester.pumpAndSettle();
+    expect(find.text('A followed player experience'), findsOneWidget);
+  });
+
+  testWidgets('customer Home shows skeletons then an actionable empty state', (
+    tester,
+  ) async {
+    final publicFeed = Completer<http.Response>();
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/social/feed' &&
+            request.url.queryParameters['scope'] == 'public') {
+          return publicFeed.future;
+        }
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(jsonEncode({'posts': []}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: homeApi)));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('customer-home-feed-skeleton')),
+      findsOneWidget,
+    );
+
+    publicFeed.complete(http.Response(jsonEncode({'posts': []}), 200));
+    await tester.pumpAndSettle();
+    expect(find.text('No experiences yet.'), findsOneWidget);
+    expect(find.text('Explore sports venues'), findsOneWidget);
+
+    await tester.tap(find.text('Following'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('People you follow haven’t shared experiences yet.'),
+      findsOneWidget,
+    );
+    expect(find.text('Browse For You'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Home add opens the experience composer without opening Community',
+    (tester) async {
+      final postRequests = <http.Request>[];
+      final homeApi = AuthApi(
+        client: MockClient((request) async {
+          if (request.url.path == '/api/social/feed') {
+            return http.Response(jsonEncode({'posts': []}), 200);
+          }
+          if (request.url.path == '/api/social/posts' &&
+              request.method == 'POST') {
+            postRequests.add(request);
+            return http.Response(jsonEncode({'id': 88}), 201);
+          }
+          return http.Response('{}', 404);
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: CustomerHomePage(api: homeApi)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('customer-home-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('social-post-caption')), findsOneWidget);
+      expect(find.text('Community'), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('social-post-caption')),
+        'Great match!',
+      );
+      await tester.tap(find.byKey(const ValueKey('social-post-submit')));
+      await tester.pumpAndSettle();
+      expect(postRequests, hasLength(1));
+      expect(jsonDecode(postRequests.single.body)['caption'], 'Great match!');
+    },
+  );
+
   testWidgets('News Feed and Saved skeletons fit a narrow phone width', (
     tester,
   ) async {
@@ -197,7 +329,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.textContaining('192.168.1.45'), findsNothing);
+    expect(find.textContaining('192.168.1.18'), findsNothing);
     expect(find.byKey(const ValueKey('news-feed-retry')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -1109,6 +1241,10 @@ void main() {
   testWidgets('venue feed cards use a denser image and post summary', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final venue = {
       ...venues.first,
       'imageUrls': [
@@ -1133,7 +1269,10 @@ void main() {
               'businesses': [
                 {
                   'id': 42,
+                  'businessType': 'Sports',
                   'enabled': true,
+                  'averageRating': 4.6,
+                  'reviewCount': 5,
                   'imageUrls': venue['imageUrls'],
                   'sportsSlots': [
                     {'sportType': 'Basketball'},
@@ -1160,6 +1299,16 @@ void main() {
     for (final section in ['most-popular', 'highest-rate']) {
       final miniCard = find.byKey(
         ValueKey('news-feed-$section-card-business-42'),
+      );
+      await tester.scrollUntilVisible(
+        miniCard,
+        120,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('news-feed-content-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
       );
       await tester.ensureVisible(miniCard);
       final miniImages = tester
@@ -1382,8 +1531,22 @@ void main() {
             return http.Response(
               jsonEncode({
                 'businesses': [
-                  {'id': 42, 'enabled': true},
-                  {'id': 43, 'enabled': true},
+                  {
+                    'id': 42,
+                    'businessType': 'Sports',
+                    'enabled': true,
+                    'averageRating': 4.6,
+                    'reviewCount': 5,
+                    'heartCount': 9,
+                  },
+                  {
+                    'id': 43,
+                    'businessType': 'Sports',
+                    'enabled': true,
+                    'averageRating': 4.9,
+                    'reviewCount': 2,
+                    'heartCount': 2,
+                  },
                 ],
               }),
               200,
@@ -1413,6 +1576,16 @@ void main() {
       );
       final highestBasketball = find.byKey(
         const ValueKey('news-feed-highest-rate-card-business-42'),
+      );
+      await tester.scrollUntilVisible(
+        highestTennis,
+        120,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('news-feed-content-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
       );
       expect(popularBasketball, findsOneWidget);
       expect(highestTennis, findsOneWidget);

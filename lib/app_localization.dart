@@ -4,7 +4,7 @@ enum AppPalette {
   navy('navy', Color(0xFF192B50)),
   orange('orange', Color(0xFFFF8200)),
   violet('violet', Color(0xFF8B5CF6)),
-  blue('blue', Color(0xFF3B82F6)),
+  blue('blue', Color(0xFF214A94)),
   rose('rose', Color(0xFFEC4899)),
   green('green', Color(0xFF10B981));
 
@@ -15,7 +15,7 @@ enum AppPalette {
 
   static AppPalette fromKey(String? key) => AppPalette.values.firstWhere(
     (palette) => palette.key == key,
-    orElse: () => AppPalette.orange,
+    orElse: () => AppPalette.blue,
   );
 }
 
@@ -603,6 +603,103 @@ const _additionalLanguageText = <String, Map<String, String>>{
     'ko': '피트니스 및 웰니스',
     'ja': 'フィットネスとウェルネス',
     'zh': '健身与健康',
+  },
+  'INSTANTLY BOOKABLE': {
+    'fil': 'AGAD NA MAAARING I-BOOK',
+    'ko': '즉시 예약 가능',
+    'ja': '今すぐ予約可能',
+    'zh': '可立即预订',
+  },
+  'Choose Booking Type': {
+    'fil': 'Pumili ng Uri ng Booking',
+    'ko': '예약 유형 선택',
+    'ja': '予約タイプを選択',
+    'zh': '选择预订类型',
+  },
+  'SPORTS COURTS': {
+    'fil': 'MGA SPORTS COURT',
+    'ko': '스포츠 코트',
+    'ja': 'スポーツコート',
+    'zh': '运动场地',
+  },
+  'Sports & Courts': {
+    'fil': 'Sports at mga Court',
+    'ko': '스포츠 및 코트',
+    'ja': 'スポーツとコート',
+    'zh': '运动与球场',
+  },
+  'Padel  •  Tennis  •  Football  •  Pickleball': {
+    'fil': 'Padel  •  Tennis  •  Football  •  Pickleball',
+    'ko': '패들  •  테니스  •  축구  •  피클볼',
+    'ja': 'パデル  •  テニス  •  サッカー  •  ピックルボール',
+    'zh': '板式网球  •  网球  •  足球  •  匹克球',
+  },
+  'Browse Courts': {
+    'fil': 'Mag-browse ng mga Court',
+    'ko': '코트 둘러보기',
+    'ja': 'コートを見る',
+    'zh': '浏览球场',
+  },
+  'EVENTS & EXPERIENCES': {
+    'fil': 'MGA EVENT AT KARANASAN',
+    'ko': '이벤트 및 체험',
+    'ja': 'イベント・体験',
+    'zh': '活动与体验',
+  },
+  'Events & Experiences': {
+    'fil': 'Mga Event at Karanasan',
+    'ko': '이벤트 및 체험',
+    'ja': 'イベントと体験',
+    'zh': '活动与体验',
+  },
+  'Concerts  •  DJ sets  •  Gatherings  •  Tourneys': {
+    'fil': 'Mga concert  •  DJ set  •  Pagtitipon  •  Paligsahan',
+    'ko': '콘서트  •  DJ 공연  •  모임  •  토너먼트',
+    'ja': 'コンサート  •  DJセット  •  集まり  •  大会',
+    'zh': '音乐会  •  DJ演出  •  聚会  •  锦标赛',
+  },
+  'Browse Events': {
+    'fil': 'Mag-browse ng mga Event',
+    'ko': '이벤트 둘러보기',
+    'ja': 'イベントを見る',
+    'zh': '浏览活动',
+  },
+  'FITNESS & WELLNESS': {
+    'fil': 'FITNESS AT WELLNESS',
+    'ko': '피트니스 및 웰니스',
+    'ja': 'フィットネス・ウェルネス',
+    'zh': '健身与健康',
+  },
+  'Studios & Fitness': {
+    'fil': 'Mga Studio at Fitness',
+    'ko': '스튜디오 및 피트니스',
+    'ja': 'スタジオとフィットネス',
+    'zh': '工作室与健身',
+  },
+  'Reformer  •  Sauna  •  Boxing  •  Yoga': {
+    'fil': 'Reformer  •  Sauna  •  Boxing  •  Yoga',
+    'ko': '리포머  •  사우나  •  복싱  •  요가',
+    'ja': 'リフォーマー  •  サウナ  •  ボクシング  •  ヨガ',
+    'zh': '普拉提床  •  桑拿  •  拳击  •  瑜伽',
+  },
+  'Browse Sessions': {
+    'fil': 'Mag-browse ng mga Session',
+    'ko': '세션 둘러보기',
+    'ja': 'セッションを見る',
+    'zh': '浏览课程',
+  },
+  'Selected': {'fil': 'Napili', 'ko': '선택됨', 'ja': '選択済み', 'zh': '已选择'},
+  'Browsing is open to everyone': {
+    'fil': 'Maaaring mag-browse ang lahat',
+    'ko': '누구나 둘러볼 수 있어요',
+    'ja': 'どなたでも閲覧できます',
+    'zh': '所有人均可浏览',
+  },
+  'Continue to {type}': {
+    'fil': 'Magpatuloy sa {type}',
+    'ko': '{type}(으)로 계속',
+    'ja': '{type}へ進む',
+    'zh': '继续前往{type}',
   },
   'All booking types': {
     'fil': 'Lahat ng uri ng booking',
@@ -1535,11 +1632,11 @@ const _additionalLanguageText = <String, Map<String, String>>{
     'ja': 'カメラを起動できませんでした',
     'zh': '无法启动相机',
   },
-  'Allow TinkerPro to use the camera in your phone settings, then try again.': {
-    'fil': 'Payagan ang TinkerPro na gamitin ang camera sa settings ng iyong telepono, pagkatapos ay subukan muli.',
-    'ko': '휴대전화 설정에서 TinkerPro의 카메라 사용을 허용한 다음 다시 시도하세요.',
-    'ja': 'スマートフォンの設定でTinkerProのカメラ使用を許可してから、もう一度お試しください。',
-    'zh': '请在手机设置中允许 TinkerPro 使用相机，然后重试。',
+  'Allow SpotGo to use the camera in your phone settings, then try again.': {
+    'fil': 'Payagan ang SpotGo na gamitin ang camera sa settings ng iyong telepono, pagkatapos ay subukan muli.',
+    'ko': '휴대전화 설정에서 SpotGo의 카메라 사용을 허용한 다음 다시 시도하세요.',
+    'ja': 'スマートフォンの設定でSpotGoのカメラ使用を許可してから、もう一度お試しください。',
+    'zh': '请在手机设置中允许 SpotGo 使用相机，然后重试。',
   },
   'Check that your camera is available and not being used by another app, then try again.':
       {
@@ -1865,30 +1962,114 @@ const _additionalLanguageText = <String, Map<String, String>>{
     'ja': '評価を送信しました。',
     'zh': '评分已提交。',
   },
-  'TinkerPro brings sports and events together in one marketplace. Discover local businesses, compare what they offer, and book in a few taps.':
+  'A LITTLE INSPIRATION FOR TODAY': {
+    'fil': 'KAUNTING INSPIRASYON PARA SA NGAYON',
+    'ko': '오늘을 위한 작은 영감',
+    'ja': '今日のちょっとしたひらめき',
+    'zh': '为今天寻找一点灵感',
+  },
+  'Make today\nyours.': {
+    'fil': 'Gawing iyo\nang araw na ito.',
+    'ko': '오늘을\n나만의 날로.',
+    'ja': '今日を\n自分らしく。',
+    'zh': '让今天\n属于你。',
+  },
+  'Find a court, a fitness session, or a space to celebrate something special.':
       {
-        'fil': 'Pinagsasama ng TinkerPro ang sports at mga event sa iisang marketplace. Tumuklas ng mga lokal na negosyo, ihambing ang mga alok nila, at mag-book sa ilang tap lang.',
-        'ko': 'TinkerPro는 스포츠와 이벤트를 하나의 마켓플레이스에 모았습니다. 지역 업체를 둘러보고, 제공 서비스를 비교한 뒤 몇 번의 탭으로 예약하세요.',
-        'ja': 'TinkerProはスポーツとイベントを1つのマーケットプレイスに集約。地域のお店を見つけ、内容を比較し、数回のタップで予約できます。',
-        'zh': 'TinkerPro 将体育和活动汇集于一站式平台。发现本地商家、比较服务，只需轻点几下即可预订。',
+        'fil': 'Maghanap ng court, fitness session, o lugar para ipagdiwang ang espesyal na okasyon.',
+        'ko': '코트, 피트니스 세션 또는 특별한 날을 기념할 장소를 찾아보세요.',
+        'ja': 'コート、フィットネス、特別な日を祝う場所を見つけましょう。',
+        'zh': '寻找球场、健身课程，或庆祝特别时刻的场地。',
       },
+  'Find your next place': {
+    'fil': 'Hanapin ang susunod mong lugar',
+    'ko': '다음 장소 찾아보기',
+    'ja': '次の場所を見つける',
+    'zh': '寻找下一个好去处',
+  },
+  'What sounds good?': {
+    'fil': 'Ano ang gusto mong gawin?',
+    'ko': '무엇을 하고 싶으세요?',
+    'ja': '今日は何をしたいですか？',
+    'zh': '今天想做什么？',
+  },
+  'Pick a starting point. There’s no wrong answer.': {
+    'fil': 'Pumili kung saan magsisimula. Walang maling sagot.',
+    'ko': '원하는 항목부터 골라보세요. 정답은 없어요.',
+    'ja': '気になるものから選びましょう。どれを選んでも大丈夫。',
+    'zh': '从感兴趣的类别开始，怎么选都可以。',
+  },
+  'GET ACTIVE': {'fil': 'GALAW NA', 'ko': '활동 시작', 'ja': '体を動かそう', 'zh': '动起来'},
+  'Find a court or field': {
+    'fil': 'Maghanap ng court o field',
+    'ko': '코트나 경기장 찾기',
+    'ja': 'コートや競技場を探す',
+    'zh': '寻找球场或运动场',
+  },
+  'CELEBRATE': {'fil': 'MAGDIWANG', 'ko': '축하해요', 'ja': 'お祝いしよう', 'zh': '一起庆祝'},
+  'Find a place to gather': {
+    'fil': 'Maghanap ng lugar na mapagtitipunan',
+    'ko': '모임 장소 찾아보기',
+    'ja': '集まれる場所を探す',
+    'zh': '寻找聚会场地',
+  },
+  'MOVE & RESET': {
+    'fil': 'KUMILOS AT MAGPAHINGA',
+    'ko': '움직이고 재충전하기',
+    'ja': '動いてリフレッシュ',
+    'zh': '运动并焕新',
+  },
+  'Explore fitness nearby': {
+    'fil': 'Tuklasin ang fitness na malapit sa iyo',
+    'ko': '주변 피트니스 둘러보기',
+    'ja': '近くのフィットネスを探す',
+    'zh': '探索附近的健身场所',
+  },
+  'HOW SPOTGO WORKS': {
+    'fil': 'PAANO GUMAGANA ANG SPOTGO',
+    'ko': 'SPOTGO 이용 방법',
+    'ja': 'SPOTGOの使い方',
+    'zh': 'SPOTGO 使用方式',
+  },
+  'Choose an activity, compare places, then follow the booking steps for the one you like.':
+      {
+        'fil': 'Pumili ng aktibidad, ihambing ang mga lugar, at sundin ang mga hakbang sa booking para sa gusto mo.',
+        'ko': '활동을 고르고 장소를 비교한 다음 마음에 드는 곳의 예약 단계를 따라가세요.',
+        'ja': 'アクティビティを選び、場所を比較して、気に入った場所の予約手順に進みましょう。',
+        'zh': '选择活动、比较场地，再按所选场地的预订步骤完成预约。',
+      },
+  'Choose': {'fil': 'Pumili', 'ko': '선택', 'ja': '選ぶ', 'zh': '选择'},
+  'Compare': {'fil': 'Ihambing', 'ko': '비교', 'ja': '比べる', 'zh': '比较'},
+  'Book': {'fil': 'Mag-book', 'ko': '예약', 'ja': '予約', 'zh': '预订'},
+  'Your next plan starts here': {
+    'fil': 'Dito nagsisimula ang susunod mong plano',
+    'ko': '다음 계획은 여기서 시작하세요',
+    'ja': '次のプランはここから',
+    'zh': '从这里开启你的下一个计划',
+  },
+  'Browse courts, fitness sessions, and event spaces in one place.': {
+    'fil': 'Mag-browse ng mga court, fitness session, at event space sa iisang lugar.',
+    'ko': '코트, 피트니스 세션, 이벤트 공간을 한곳에서 둘러보세요.',
+    'ja': 'コート、フィットネス、イベント会場をまとめて探せます。',
+    'zh': '一站浏览球场、健身课程和活动场地。',
+  },
+  'See every category': {
+    'fil': 'Tingnan ang lahat ng kategorya',
+    'ko': '모든 카테고리 보기',
+    'ja': 'すべてのカテゴリーを見る',
+    'zh': '查看所有类别',
+  },
   'Track sales, customers, and venue performance.': {
     'fil': 'Subaybayan ang benta, mga customer, at performance ng venue.',
     'ko': '매출, 고객 및 장소 실적을 추적하세요.',
     'ja': '売上、顧客、施設の実績を確認できます。',
     'zh': '跟踪销售额、客户和场地表现。',
   },
-  'Your sport.\nYour event.\nYour place.': {
-    'fil': 'Iyong sport.\nIyong event.\nIyong lugar.',
-    'ko': '당신의 스포츠.\n당신의 이벤트.\n당신의 장소.',
-    'ja': 'あなたのスポーツ。\nあなたのイベント。\nあなたの場所。',
-    'zh': '你的运动。\n你的活动。\n你的场地。',
-  },
-  'TinkerPro could not start': {
-    'fil': 'Hindi masimulan ang TinkerPro',
-    'ko': 'TinkerPro를 시작할 수 없습니다',
-    'ja': 'TinkerProを起動できませんでした',
-    'zh': 'TinkerPro 无法启动',
+  'SpotGo could not start': {
+    'fil': 'Hindi masimulan ang SpotGo',
+    'ko': 'SpotGo를 시작할 수 없습니다',
+    'ja': 'SpotGoを起動できませんでした',
+    'zh': 'SpotGo 无法启动',
   },
   'ACTIVE BOOKING SESSION': {
     'fil': 'AKTIBONG BOOKING SESSION',
@@ -2319,10 +2500,10 @@ const _additionalLanguageText = <String, Map<String, String>>{
   },
   'Sign in': {'ko': '로그인', 'ja': 'ログイン', 'zh': '登录'},
   'Register': {'ko': '가입하기', 'ja': '登録', 'zh': '注册'},
-  'How will you use TinkerPro?': {
-    'ko': 'TinkerPro를 어떻게 사용하시겠습니까?',
-    'ja': 'TinkerProをどのように利用しますか？',
-    'zh': '您将如何使用 TinkerPro？',
+  'How will you use SpotGo?': {
+    'ko': 'SpotGo를 어떻게 사용하시겠습니까?',
+    'ja': 'SpotGoをどのように利用しますか？',
+    'zh': '您将如何使用 SpotGo？',
   },
   'Client': {'ko': '고객', 'ja': '利用者', 'zh': '客户'},
   'Discover and book': {'ko': '둘러보고 예약하기', 'ja': '探して予約', 'zh': '发现并预订'},
@@ -2358,10 +2539,10 @@ const _additionalLanguageText = <String, Map<String, String>>{
     'ja': 'Googleで続行',
     'zh': '使用 Google 继续',
   },
-  'New to TinkerPro? Register': {
-    'ko': 'TinkerPro가 처음이신가요? 가입하기',
+  'New to SpotGo? Register': {
+    'ko': 'SpotGo가 처음이신가요? 가입하기',
     'ja': '初めてですか？登録する',
-    'zh': '初次使用 TinkerPro？立即注册',
+    'zh': '初次使用 SpotGo？立即注册',
   },
   'Already have an account? Sign in': {
     'ko': '이미 계정이 있으신가요? 로그인',

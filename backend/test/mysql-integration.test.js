@@ -61,7 +61,7 @@ test(
 
     await admin.query(`CREATE DATABASE \`${databaseName}\``);
     databaseCreated = true;
-    const schemaFile = path.join(__dirname, '..', '..', 'database', 'sports.sql');
+    const schemaFile = path.join(__dirname, '..', '..', 'database', 'booking.sql');
     const schema = (await readFile(schemaFile, 'utf8')).replaceAll(
       'tinkerpro_sports',
       databaseName,

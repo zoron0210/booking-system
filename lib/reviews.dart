@@ -320,7 +320,7 @@ class _ReviewsSheetState extends State<ReviewsSheet> {
                 : () async {
                     final token =
                         (await AppSessionService.instance.load()).apiToken;
-                    if (!mounted || token == null || token.isEmpty) return;
+              if (!mounted) return;
                     await showPublicUserProfileDialog(
                       context: context,
                       api: widget.api,

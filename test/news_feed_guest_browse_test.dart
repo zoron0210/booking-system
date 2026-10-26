@@ -118,6 +118,8 @@ void main() {
       matches(RegExp(r'^Guest #?[A-HJ-NP-Z2-9]{10}$')),
     );
     expect(find.byKey(const ValueKey('profile-guest-login')), findsNothing);
+    expect(find.byKey(const ValueKey('guest-community-entry')), findsNothing);
+    expect(find.text('Browse community'), findsNothing);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('profile-guest-name-row')),

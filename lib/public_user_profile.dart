@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 
 import 'app_text.dart';
 import 'auth_api.dart';
+import 'guest_access.dart';
+import 'features/session/application/session_service.dart';
 
 Future<void> showPublicUserProfileDialog({
   required BuildContext context,
   required AuthApi api,
-  required String token,
+  required String? token,
   required int userId,
   required Future<void> Function() onViewProfile,
   Future<void> Function()? onFollowChanged,
@@ -28,7 +30,7 @@ Future<void> showPublicUserProfileDialog({
 Future<void> showUserConnections({
   required BuildContext context,
   required AuthApi api,
-  required String token,
+  required String? token,
   required int userId,
   required String type,
   required Future<void> Function(int userId) onOpenProfile,
@@ -55,7 +57,7 @@ class _PublicUserProfileDialog extends StatefulWidget {
   });
 
   final AuthApi api;
-  final String token;
+  final String? token;
   final int userId;
   final Future<void> Function()? onFollowChanged;
 
@@ -102,17 +104,23 @@ class _PublicUserProfileDialogState extends State<_PublicUserProfileDialog> {
 
   Future<void> _toggleFollow() async {
     if (_updatingFollow || _profile == null) return;
+    var token = widget.token;
+    if (token == null || token.isEmpty) {
+      if (!await requireCustomerLogin(context) || !mounted) return;
+      token = (await AppSessionService.instance.load()).apiToken;
+      if (token == null || token.isEmpty) return;
+    }
     final wasFollowing = _profile!['isFollowing'] == true;
     setState(() => _updatingFollow = true);
     try {
       if (wasFollowing) {
         await widget.api.unfollowSocialUser(
-          token: widget.token,
+          token: token,
           userId: widget.userId,
         );
       } else {
         await widget.api.followSocialUser(
-          token: widget.token,
+          token: token,
           userId: widget.userId,
         );
       }
@@ -179,7 +187,7 @@ class _PublicUserProfileDialogState extends State<_PublicUserProfileDialog> {
                   ),
                   const SizedBox(height: 14),
                   AppText(
-                    '${_profile?['displayName'] ?? 'TinkerPro user'}',
+                    '${_profile?['displayName'] ?? 'SpotGo user'}',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 20,
@@ -242,7 +250,7 @@ class _UserConnectionsSheet extends StatefulWidget {
   });
 
   final AuthApi api;
-  final String token;
+  final String? token;
   final int userId;
   final String type;
   final Future<void> Function(int userId) onOpenProfile;
@@ -347,7 +355,7 @@ class _UserConnectionsSheetState extends State<_UserConnectionsSheet> {
                             ? const Icon(Icons.person_outline_rounded)
                             : null,
                       ),
-                      title: AppText('${user['displayName'] ?? 'TinkerPro user'}'),
+                      title: AppText('${user['displayName'] ?? 'SpotGo user'}'),
                       subtitle: AppText(
                         '${(user['followersCount'] as num?)?.toInt() ?? 0} followers',
                         localize: true,

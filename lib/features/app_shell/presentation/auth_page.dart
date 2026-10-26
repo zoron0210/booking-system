@@ -46,10 +46,14 @@ class _AuthPageState extends State<AuthPage> {
               ),
               const SizedBox(height: 6),
               Center(
-                child: Image.asset(
-                  'assets/tinker_logo.png',
-                  width: 76,
-                  height: 58,
+                child: Container(
+                  width: 66,
+                  height: 66,
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const SpotGoLogo(size: 58),
                 ),
               ),
               const SizedBox(height: 6),
@@ -68,7 +72,7 @@ class _AuthPageState extends State<AuthPage> {
                 child: AppText(
                   isLogin
                       ? 'Sign in to continue your game.'
-                      : 'Join TinkerPro and get in the game.',
+                      : 'Join SpotGo and get in the game.',
                   style: TextStyle(color: _muted, fontSize: 13),
                 ),
               ),
@@ -190,7 +194,7 @@ class _AuthPageState extends State<AuthPage> {
                 child: AppText.rich(
                   TextSpan(
                     text: isLogin
-                        ? 'New to TinkerPro? '
+                        ? 'New to SpotGo? '
                         : 'Already have an account? ',
                     style: TextStyle(color: _muted, fontSize: 13),
                     children: [

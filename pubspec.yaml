@@ -54,6 +54,7 @@ dependencies:
   mobile_scanner: ^7.4.2
   qr_flutter: ^4.1.0
   firebase_messaging: ^16.7.0
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:
@@ -78,9 +79,9 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/tinker_logo.png
     - assets/google_logo.png
     - assets/bg 1.png
+    - assets/overview/
 
     - assets/court/
     - assets/book-type/

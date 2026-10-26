@@ -76,8 +76,8 @@ class BookingNotifications {
       await android?.createNotificationChannel(
         const AndroidNotificationChannel(
           _bellChannelId,
-          'Booking alerts - TinkerPro bell',
-          description: 'Booking updates with the TinkerPro bell sound.',
+          'Booking alerts - SpotGo bell',
+          description: 'Booking updates with the SpotGo bell sound.',
           importance: Importance.max,
           sound: RawResourceAndroidNotificationSound('tinker_bell'),
         ),
@@ -294,7 +294,7 @@ class BookingNotifications {
     return NotificationDetails(
       android: AndroidNotificationDetails(
         usesBell ? _bellChannelId : _systemChannelId,
-        usesBell ? 'Booking alerts - TinkerPro bell' : 'Booking alerts',
+        usesBell ? 'Booking alerts - SpotGo bell' : 'Booking alerts',
         channelDescription: 'Booking transaction and match reminders.',
         importance: Importance.max,
         priority: Priority.high,

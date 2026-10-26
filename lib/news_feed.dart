@@ -16,6 +16,8 @@ import 'customer_bookings_page.dart';
 import 'profile_dashboard.dart';
 import 'reserve_dashboard.dart';
 import 'reviews.dart';
+import 'fitness_dashboard.dart';
+import 'event_dashboard.dart';
 import 'fitness_booking_page.dart';
 import 'event_booking_page.dart';
 import 'all_venues_page.dart';
@@ -30,6 +32,7 @@ import 'rating_widgets.dart';
 import 'skeleton_loader.dart';
 import 'core/business_type.dart';
 import 'app_preferences.dart';
+import 'social_community_page.dart';
 
 Color get _newsInk => AppColors.ink;
 Color get _newsMuted => AppColors.muted;
@@ -708,6 +711,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         : AppBottomNavigation(
             selectedIndex: widget.savedOnly ? 4 : 0,
             hideSavedDestination: true,
+            showHomeDestination: true,
             onDestinationSelected: _onNavigationSelected,
             onDestinationReselected: _refreshAndScrollToTop,
           ),
@@ -2595,6 +2599,17 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
           ),
         ),
       );
+    } else if (index == 5) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => CustomerHomePage(
+            onLogout: widget.onLogout,
+            api: _api,
+            initialUserPosition: _userPosition,
+            businessType: widget.businessType,
+          ),
+        ),
+      );
     }
   }
 
@@ -3993,4 +4008,519 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       );
 
   double _number(dynamic value) => double.tryParse('$value') ?? 0;
+}
+
+class CustomerHomePage extends StatefulWidget {
+  const CustomerHomePage({
+    super.key,
+    this.onLogout,
+    this.api,
+    this.initialUserPosition,
+    this.businessType,
+  });
+
+  final Future<void> Function(BuildContext context)? onLogout;
+  final AuthApi? api;
+  final Position? initialUserPosition;
+  final String? businessType;
+
+  @override
+  State<CustomerHomePage> createState() => _CustomerHomePageState();
+}
+
+class _CustomerHomePageState extends State<CustomerHomePage> {
+  late final AuthApi _api;
+  String? _token;
+  List<Map<String, dynamic>> _forYouPosts = [];
+  List<Map<String, dynamic>> _followingPosts = [];
+  Object? _forYouError;
+  Object? _followingError;
+  bool _loadingForYou = true;
+  bool _loadingFollowing = true;
+  bool _posting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _api = widget.api ?? AuthApi();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loadingForYou = true;
+      _loadingFollowing = true;
+      _forYouError = null;
+      _followingError = null;
+    });
+    try {
+      final session = await AppSessionService.instance.load();
+      if (!mounted) return;
+      setState(() => _token = session.apiToken);
+      await Future.wait([
+        _loadForYou(session.apiToken),
+        _loadFollowing(session.apiToken),
+      ]);
+    } on Exception catch (error) {
+      if (mounted) {
+        setState(() {
+          _forYouError = error;
+          _followingError = error;
+          _loadingForYou = false;
+          _loadingFollowing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadForYou(String? token) async {
+    setState(() {
+      _loadingForYou = true;
+      _forYouError = null;
+    });
+    try {
+      final posts = await _api.socialFeed(token, allPublicPosts: true);
+      if (mounted) setState(() => _forYouPosts = posts);
+    } on Exception catch (error) {
+      if (mounted) setState(() => _forYouError = error);
+    } finally {
+      if (mounted) setState(() => _loadingForYou = false);
+    }
+  }
+
+  Future<void> _loadFollowing(String? token) async {
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _followingPosts = [];
+          _loadingFollowing = false;
+        });
+      }
+      return;
+    }
+    setState(() {
+      _loadingFollowing = true;
+      _followingError = null;
+    });
+    try {
+      final posts = await _api.socialFeed(token, followingOnly: true);
+      if (mounted) setState(() => _followingPosts = posts);
+    } on Exception catch (error) {
+      if (mounted) setState(() => _followingError = error);
+    } finally {
+      if (mounted) setState(() => _loadingFollowing = false);
+    }
+  }
+
+  Future<void> _openPerson(Map<String, dynamic> post) async {
+    final userId = (post['userId'] as num?)?.toInt();
+    if (userId == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            SocialPersonPage(api: _api, token: _token, userId: userId),
+      ),
+    );
+  }
+
+  Future<void> _openComposer() async {
+    if (_posting) return;
+    final token = await _requireSocialToken();
+    if (token == null || !mounted) return;
+    final draft = await showSocialPostComposer(
+      context,
+      api: _api,
+      token: token,
+    );
+    if (draft == null || !mounted) return;
+    setState(() => _posting = true);
+    try {
+      await _api.createSocialPost(
+        token: token,
+        caption: draft.caption,
+        images: draft.images,
+      );
+      if (!mounted) return;
+      _showSocialMessage('Your experience has been shared.');
+      await _load();
+    } on AuthApiException catch (error) {
+      if (mounted) _showSocialMessage(error.userMessage);
+    } on Exception catch (error) {
+      if (mounted) {
+        _showSocialMessage('Could not share your experience: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
+  }
+
+  Future<String?> _requireSocialToken() async {
+    if (_token case final token? when token.isNotEmpty) return token;
+    if (!await requireCustomerLogin(context) || !mounted) return null;
+    final session = await AppSessionService.instance.load();
+    final token = session.apiToken;
+    if (token == null || token.isEmpty) {
+      _showSocialMessage('Sign in to share experiences.');
+      return null;
+    }
+    setState(() => _token = token);
+    return token;
+  }
+
+  void _showSocialMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: AppText(message, localize: true),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+  }
+
+  Future<void> _signInToFollowing() async {
+    if (!await requireCustomerLogin(context) || !mounted) return;
+    final session = await AppSessionService.instance.load();
+    if (!mounted) return;
+    setState(() => _token = session.apiToken);
+    await _loadFollowing(session.apiToken);
+  }
+
+  Widget _buildFeed({
+    required bool following,
+    required List<Map<String, dynamic>> posts,
+    required bool loading,
+    required Object? error,
+  }) {
+    if (following && (_token == null || _token!.isEmpty)) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 40),
+          const Icon(Icons.people_outline_rounded, size: 48),
+          const SizedBox(height: 12),
+          const AppText(
+            'Follow people to see their experiences here.',
+            textAlign: TextAlign.center,
+            localize: true,
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: FilledButton(
+              key: const ValueKey('customer-home-following-sign-in'),
+              onPressed: _signInToFollowing,
+              child: const AppText('Sign in to continue', localize: true),
+            ),
+          ),
+        ],
+      );
+    }
+    if (loading && posts.isEmpty) {
+      return const _CustomerFeedSkeleton();
+    }
+    if (error != null && posts.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AppText(
+                'We couldn’t load experiences. Please try again.',
+                textAlign: TextAlign.center,
+                localize: true,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: ValueKey(
+                  following
+                      ? 'customer-home-following-retry'
+                      : 'customer-home-for-you-retry',
+                ),
+                onPressed: () =>
+                    following ? _loadFollowing(_token) : _loadForYou(_token),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const AppText('Try again', localize: true),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (posts.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 40),
+          Center(
+            child: Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                color: AppColors.softOrange,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                following
+                    ? Icons.people_outline_rounded
+                    : Icons.dynamic_feed_outlined,
+                size: 42,
+                color: AppColors.accent,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          AppText(
+            following
+                ? 'People you follow haven’t shared experiences yet.'
+                : 'No experiences yet.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+            localize: true,
+          ),
+          if (following) ...[
+            const SizedBox(height: 8),
+            Center(
+              child: FilledButton.icon(
+                key: const ValueKey('customer-home-browse-for-you'),
+                onPressed: () => DefaultTabController.of(context).animateTo(0),
+                icon: const Icon(Icons.explore_outlined),
+                label: const AppText('Browse For You', localize: true),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            const AppText(
+              'Experiences from customers will show up here.',
+              textAlign: TextAlign.center,
+              localize: true,
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: FilledButton.icon(
+                key: const ValueKey('customer-home-explore-venues'),
+                onPressed: () => _onDestinationSelected(0),
+                icon: const Icon(Icons.sports_tennis_rounded),
+                label: const AppText('Explore sports venues', localize: true),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () => following ? _loadFollowing(_token) : _loadForYou(_token),
+      child: ListView.separated(
+        key: ValueKey(
+          following
+              ? 'customer-home-following-feed'
+              : 'customer-home-experience-feed',
+        ),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+        itemCount: posts.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        itemBuilder: (context, index) => SocialExperiencePostCard(
+          post: posts[index],
+          onOpenPerson: () => _openPerson(posts[index]),
+          onFollow: null,
+          api: _api,
+          token: _token,
+          onRequireToken: _requireSocialToken,
+          onPostChanged: () {
+            if (following) {
+              _loadFollowing(_token);
+            } else {
+              _loadForYou(_token);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  void _onDestinationSelected(int index) {
+    final Widget? destination = switch (index) {
+      0 => switch (BusinessTypeParser.parse(widget.businessType)) {
+        BusinessType.event => EventDashboardPage(
+          onLogout: widget.onLogout,
+          api: _api,
+          initialUserPosition: widget.initialUserPosition,
+        ),
+        BusinessType.fitness => FitnessDashboardPage(
+          onLogout: widget.onLogout,
+          api: _api,
+          initialUserPosition: widget.initialUserPosition,
+        ),
+        _ => NewsFeedPage(
+          onLogout: widget.onLogout,
+          api: _api,
+          initialUserPosition: widget.initialUserPosition,
+          businessType: widget.businessType ?? 'Sports',
+        ),
+      },
+      2 => MessagesDashboardPage(
+        initialUserPosition: widget.initialUserPosition,
+        api: _api,
+        businessType: widget.businessType,
+      ),
+      3 => CustomerBookingsPage(
+        onLogout: widget.onLogout,
+        api: _api,
+        initialUserPosition: widget.initialUserPosition,
+        businessType: widget.businessType,
+      ),
+      4 => ProfileDashboardPage(
+        onLogout: widget.onLogout,
+        api: _api,
+        initialUserPosition: widget.initialUserPosition,
+        businessType: widget.businessType,
+      ),
+      _ => null,
+    };
+    if (destination == null) return;
+    Navigator.of(context)
+        .pushReplacement(MaterialPageRoute<void>(builder: (_) => destination));
+  }
+
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 2,
+    child: Scaffold(
+      backgroundColor: _newsPage,
+      appBar: AppBar(
+        title: const AppText('Home', localize: true),
+        backgroundColor: AppColors.surface,
+        foregroundColor: _newsInk,
+        actions: [
+          IconButton(
+            key: const ValueKey('customer-home-add'),
+            tooltip: appLanguageText(
+              'Share experience',
+              'Ibahagi ang karanasan',
+            ),
+            onPressed: _openComposer,
+            icon: const Icon(Icons.add_rounded),
+          ),
+        ],
+        bottom: const TabBar(
+          tabs: [
+            Tab(child: AppText('For You', localize: true)),
+            Tab(child: AppText('Following', localize: true)),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        children: [
+          _buildFeed(
+            following: false,
+            posts: _forYouPosts,
+            loading: _loadingForYou,
+            error: _forYouError,
+          ),
+          _buildFeed(
+            following: true,
+            posts: _followingPosts,
+            loading: _loadingFollowing,
+            error: _followingError,
+          ),
+        ],
+      ),
+      bottomNavigationBar: AppBottomNavigation(
+        selectedIndex: 5,
+        hideSavedDestination: true,
+        showHomeDestination: true,
+        onDestinationSelected: _onDestinationSelected,
+        onDestinationReselected: _load,
+      ),
+    ),
+  );
+}
+
+class _CustomerFeedSkeleton extends StatelessWidget {
+  const _CustomerFeedSkeleton();
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: 'Loading experiences',
+    liveRegion: true,
+    child: SkeletonPulse(
+      child: ListView.separated(
+        key: const ValueKey('customer-home-feed-skeleton'),
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+        itemCount: 2,
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        itemBuilder: (context, index) => Card(
+          margin: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    const SkeletonBlock(
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SkeletonBlock(
+                            width: index == 0 ? 142 : 116,
+                            height: 13,
+                          ),
+                          const SizedBox(height: 8),
+                          const SkeletonBlock(width: 86, height: 10),
+                        ],
+                      ),
+                    ),
+                    const SkeletonBlock(
+                      width: 28,
+                      height: 28,
+                      borderRadius: 14,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBlock(
+                      width: index == 0 ? double.infinity : 232,
+                      height: 12,
+                    ),
+                    const SizedBox(height: 7),
+                    if (index == 0) const SkeletonBlock(width: 174, height: 12),
+                  ],
+                ),
+              ),
+              SkeletonBlock(height: 190, borderRadius: 0),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    const SkeletonBlock(width: 58, height: 22),
+                    const SizedBox(width: 12),
+                    const SkeletonBlock(width: 58, height: 22),
+                    const Spacer(),
+                    SkeletonBlock(width: index == 0 ? 74 : 52, height: 22),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }

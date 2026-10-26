@@ -154,6 +154,22 @@ class AuthApi {
     headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
   );
 
+  Future<Map<String, dynamic>> completeCustomerOnboarding({
+    required String token,
+    required String gender,
+    String? playerType,
+    required String hobby,
+  }) => _request(
+    'PUT',
+    '/api/auth/onboarding',
+    body: {
+      'gender': gender,
+      'playerType': playerType,
+      'hobby': hobby,
+    },
+    headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+  );
+
   Future<Map<String, dynamic>> saveMerchantProfile({
     required String token,
     required Map<String, dynamic> profile,

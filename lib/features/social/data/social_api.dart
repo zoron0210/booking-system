@@ -1,21 +1,31 @@
 part of '../../../auth_api.dart';
 
-// Keep these implementations available while their customer-facing UI is on hold.
-const bool socialPostingEnabled = false;
-const bool socialProfileUiEnabled = false;
+const bool socialPostingEnabled = true;
+const bool socialProfileUiEnabled = true;
 
 extension AuthApiSocialOperations on AuthApi {
-  Future<List<Map<String, dynamic>>> socialFeed(String token) async {
-    final response = await _request(
-      'GET',
-      '/api/social/feed',
-      headers: _authHeaders(token),
-    );
+  Future<List<Map<String, dynamic>>> socialFeed(
+    String? token, {
+    bool allPublicPosts = false,
+    bool followingOnly = false,
+  }) async {
+    if (allPublicPosts && followingOnly) {
+      throw ArgumentError('Choose either the public or following feed.');
+    }
+    final scope = allPublicPosts
+        ? 'public'
+        : followingOnly
+        ? 'following'
+        : null;
+    final path = scope == null
+        ? '/api/social/feed'
+        : '/api/social/feed?scope=$scope';
+    final response = await _request('GET', path, headers: _authHeaders(token));
     return _socialMapList(response['posts']);
   }
 
   Future<List<Map<String, dynamic>>> searchSocialUsers(
-    String token, {
+    String? token, {
     String query = '',
   }) async {
     final path = query.trim().isEmpty
@@ -26,7 +36,7 @@ extension AuthApiSocialOperations on AuthApi {
   }
 
   Future<Map<String, dynamic>> socialUserProfile({
-    required String token,
+    required String? token,
     required int userId,
   }) async {
     final response = await _request(
@@ -42,7 +52,7 @@ extension AuthApiSocialOperations on AuthApi {
   }
 
   Future<List<Map<String, dynamic>>> socialUserConnections({
-    required String token,
+    required String? token,
     required int userId,
     required String type,
   }) async {
@@ -65,15 +75,72 @@ extension AuthApiSocialOperations on AuthApi {
     required String token,
     required String caption,
     required List<String> images,
+  }) => _request(
+    'POST',
+    '/api/social/posts',
+    body: {'caption': caption, 'images': images},
+    headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+  );
+
+  Future<List<Map<String, dynamic>>> searchSocialGifs(
+    String query, {
+    String? token,
   }) async {
-    if (!socialPostingEnabled) {
-      throw StateError('Social posting is currently disabled.');
-    }
-    return _request(
+    final response = await _request(
+      'GET',
+      '/api/social/gifs?q=${Uri.encodeQueryComponent(query.trim())}',
+      headers: _authHeaders(token),
+    );
+    return _socialMapList(response['gifs']);
+  }
+
+  Future<List<Map<String, dynamic>>> socialPostComments({
+    required String? token,
+    required int postId,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/api/social/posts/$postId/comments',
+      headers: _authHeaders(token),
+    );
+    return _socialMapList(response['comments']);
+  }
+
+  Future<void> createSocialPostComment({
+    required String token,
+    required int postId,
+    required String text,
+    String? gifUrl,
+  }) async {
+    await _request(
       'POST',
-      '/api/social/posts',
-      body: {'caption': caption, 'images': images},
+      '/api/social/posts/$postId/comments',
+      body: {'text': text, 'gifUrl': gifUrl},
       headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    );
+  }
+
+  Future<void> setSocialPostLiked({
+    required String token,
+    required int postId,
+    required bool liked,
+  }) async {
+    await _request(
+      liked ? 'POST' : 'DELETE',
+      '/api/social/posts/$postId/likes',
+      headers: _authHeaders(token),
+    );
+  }
+
+  Future<void> setSocialPostSaved({
+    required String token,
+    required int postId,
+    required bool saved,
+  }) async {
+    await _request(
+      saved ? 'POST' : 'DELETE',
+      '/api/social/posts/$postId/saves',
+      headers: _authHeaders(token),
     );
   }
 

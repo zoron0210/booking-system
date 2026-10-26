@@ -2,7 +2,7 @@
   "name": "tinkerpro-sports-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Node.js API for TinkerPro Sports authentication",
+  "description": "Node.js API for SpotGo Sports authentication",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

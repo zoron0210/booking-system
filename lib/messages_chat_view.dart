@@ -15,12 +15,15 @@ class MessagesChatView extends StatelessWidget {
     required this.blocked,
     required this.composer,
     required this.pendingImageData,
+    this.pendingGifUrl,
     required this.sending,
     this.composerError,
     this.onComposerChanged,
     required this.onDeleteMessage,
     required this.onPickImage,
     required this.onRemovePendingImage,
+    this.onPickGif,
+    this.onInsertEmoji,
     required this.onSend,
     this.scrollController,
   });
@@ -30,12 +33,15 @@ class MessagesChatView extends StatelessWidget {
   final bool blocked;
   final TextEditingController composer;
   final String? pendingImageData;
+  final String? pendingGifUrl;
   final bool sending;
   final String? composerError;
   final ValueChanged<String>? onComposerChanged;
   final ValueChanged<Map<String, dynamic>> onDeleteMessage;
   final VoidCallback onPickImage;
   final VoidCallback onRemovePendingImage;
+  final VoidCallback? onPickGif;
+  final VoidCallback? onInsertEmoji;
   final Future<void> Function() onSend;
   final ScrollController? scrollController;
 
@@ -189,7 +195,8 @@ class MessagesChatView extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if ((attachment != null &&
-                                safeString(attachment['type']) == 'image'))
+                                (safeString(attachment['type']) == 'image' ||
+                                    safeString(attachment['type']) == 'gif')))
                               MessagesImageAttachment(attachment),
                             if (body.isNotEmpty)
                               Padding(
@@ -301,12 +308,52 @@ class MessagesChatView extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (pendingGifUrl case final gifUrl?)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Stack(
+                      children: [
+                        Image.network(
+                          gifUrl,
+                          width: 110,
+                          height: 84,
+                          fit: BoxFit.cover,
+                        ),
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: IconButton(
+                            visualDensity: VisualDensity.compact,
+                            onPressed: onRemovePendingImage,
+                            icon: const Icon(Icons.close_rounded),
+                            style: IconButton.styleFrom(
+                              backgroundColor: AppColors.surface,
+                              foregroundColor: messageNavy,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Row(
                 children: [
                   IconButton(
                     tooltip: appLanguageText('Attach image', 'Attach image'),
                     onPressed: sending || blocked ? null : onPickImage,
                     icon: const Icon(Icons.image_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Add emoji',
+                    onPressed: sending || blocked ? null : onInsertEmoji,
+                    icon: const Icon(Icons.emoji_emotions_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Add GIF',
+                    onPressed: sending || blocked ? null : onPickGif,
+                    icon: const Icon(Icons.gif_box_outlined),
                   ),
                   Expanded(
                     child: TextField(

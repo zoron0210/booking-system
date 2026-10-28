@@ -4,17 +4,29 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:myapp/app_design_system.dart';
 import 'package:myapp/app_preferences.dart';
 import 'package:myapp/app_session.dart';
+import 'package:myapp/auth_api.dart';
 import 'package:myapp/event_dashboard.dart';
+import 'package:myapp/news_feed.dart';
 import 'package:myapp/reserve_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:myapp/main.dart';
+
+AuthApi _emptySocialApi() => AuthApi(
+  client: MockClient(
+    (_) async => http.Response(jsonEncode({'posts': []}), 200),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -24,10 +36,40 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
   });
 
+  testWidgets('SpotGo launches the reference-style customer Home feed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MyApp(homeApi: _emptySocialApi()));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CustomerHomePage), findsOneWidget);
+    expect(find.text('SpotGO'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('customer-home-player-rail')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Share your session, drop an invite, or post a highlight'),
+      findsOneWidget,
+    );
+    expect(find.text('For You'), findsOneWidget);
+    expect(find.text('Following'), findsOneWidget);
+    expect(find.text('Nearby Venues'), findsNothing);
+    expect(find.text('Looking for'), findsNothing);
+    expect(find.text('+2 Needed'), findsNothing);
+    expect(find.byKey(const ValueKey('customer-nav-home')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('overview supports native pull-to-refresh', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(initialPage: OverviewPage()));
     await tester.pumpAndSettle();
 
     expect(find.byType(RefreshIndicator), findsOneWidget);
@@ -46,7 +88,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(initialPage: OverviewPage()));
     await tester.pumpAndSettle();
 
     final brand = find.byKey(const ValueKey('overview-brand'));
@@ -71,7 +113,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const MyApp());
+      await tester.pumpWidget(const MyApp(initialPage: OverviewPage()));
       await tester.pumpAndSettle();
 
       final app = tester.widget<MaterialApp>(find.byType(MaterialApp).first);
@@ -132,7 +174,9 @@ void main() {
     final session = await AppSession.load();
     await session.setLastBookingType('Event');
 
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(
+      MyApp(session: session, initialPage: const OverviewPage()),
+    );
     await tester.pumpAndSettle();
 
     final exploreAll = find.byKey(const ValueKey('overview-bottom-explore'));
@@ -188,7 +232,7 @@ void main() {
 
     expect(find.byType(ReserveDashboardPage), findsOneWidget);
     expect(find.byType(OverviewPage), findsNothing);
-    expect(find.text('Choose your booking type'), findsOneWidget);
+    expect(find.text('Choose Booking Type'), findsOneWidget);
     expect((await AppSession.load()).lastBookingType, isNull);
     expect(tester.takeException(), isNull);
   });
@@ -196,7 +240,7 @@ void main() {
   testWidgets('Marketplace overview renders the booking experience', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(initialPage: OverviewPage()));
     await tester.pumpAndSettle();
 
     expect(find.text('Make today\nyours.'), findsOneWidget);
@@ -226,11 +270,11 @@ void main() {
     await tester.tap(find.text('Find your next place'));
     await tester.pumpAndSettle();
     expect(find.byType(ReserveDashboardPage), findsOneWidget);
-    expect(find.text('Reserve experience'), findsOneWidget);
-    expect(find.text('Choose type'), findsOneWidget);
+    expect(find.text('Choose Booking Type'), findsOneWidget);
+    expect(find.text('SPORTS COURTS'), findsOneWidget);
     expect(find.text('Continue to Fitness & Wellness'), findsOneWidget);
 
-    await tester.tap(find.text('Sports').first);
+    await tester.tap(find.byKey(const ValueKey('reserve-option-sports')));
     await tester.pumpAndSettle();
     expect(find.text('Continue to Sports'), findsOneWidget);
   });
@@ -241,7 +285,7 @@ void main() {
     await AppPreferences.instance.update(darkMode: true);
     addTearDown(() => AppPreferences.instance.update(darkMode: false));
 
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(initialPage: OverviewPage()));
     await tester.pumpAndSettle();
 
     final scrollable = find.byType(Scrollable).first;

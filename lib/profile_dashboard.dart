@@ -1207,19 +1207,6 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
       token: token,
       userId: userId,
       type: type,
-      onOpenProfile: (otherUserId) async {
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => SocialPersonPage(
-              api: _api,
-              token: token,
-              userId: otherUserId,
-              onFollowChanged: _loadProfile,
-            ),
-          ),
-        );
-        if (mounted) await _refreshProfile();
-      },
     );
   }
 

@@ -127,6 +127,48 @@ test('migration 16 creates social follows and experience posts', async () => {
   ));
 });
 
+test('migration 20 creates recipient-scoped social activity notifications', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 19 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  const notificationsTable = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_notifications'),
+  );
+  assert.ok(notificationsTable);
+  assert.match(notificationsTable.sql, /recipient_user_id BIGINT UNSIGNED NOT NULL/);
+  assert.match(notificationsTable.sql, /type ENUM\('like', 'comment', 'follow', 'post'\)/);
+  assert.match(notificationsTable.sql, /UNIQUE KEY uq_social_notifications_event/);
+  assert.match(notificationsTable.sql, /FOREIGN KEY \(recipient_user_id\)/);
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 20 &&
+    params[1] === 'social-activity-notifications',
+  ));
+});
+
 test('ensures older databases add the missing fitness coach duration column before continuing', async () => {
   const calls = [];
   const connection = {

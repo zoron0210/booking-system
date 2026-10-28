@@ -8,17 +8,21 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'auth_api.dart';
 import 'features/session/application/session_service.dart';
+import 'features/social/presentation/social_home_palette.dart';
+import 'features/social/presentation/social_notifications_page.dart';
 import 'sports.dart';
 import 'saved_items.dart';
 import 'saved_icons.dart';
 import 'messages_dashboard.dart';
 import 'customer_bookings_page.dart';
 import 'profile_dashboard.dart';
+import 'public_user_profile.dart';
 import 'reserve_dashboard.dart';
 import 'reviews.dart';
 import 'fitness_dashboard.dart';
 import 'event_dashboard.dart';
 import 'fitness_booking_page.dart';
+import 'fitness_booking_calendar.dart';
 import 'event_booking_page.dart';
 import 'all_venues_page.dart';
 import 'merchant_business_status.dart';
@@ -136,6 +140,27 @@ class _NewsImageCarouselState extends State<_NewsImageCarousel> {
   }
 }
 
+Color get _venueCanvas => AppPreferences.instance.darkMode
+    ? const Color(0xFF0B1326)
+    : const Color(0xFFF5F6FA);
+Color get _venueSurface =>
+    AppPreferences.instance.darkMode ? const Color(0xFF131B2E) : Colors.white;
+Color get _venueCard =>
+    AppPreferences.instance.darkMode ? const Color(0xFF171F33) : Colors.white;
+Color get _venueOutline => AppPreferences.instance.darkMode
+    ? const Color(0xFF30394E)
+    : const Color(0xFFD8DEEA);
+const _venuePrimary = Color(0xFF5752E8);
+Color get _venueMint => AppPreferences.instance.darkMode
+    ? const Color(0xFF55DDA4)
+    : const Color(0xFF087F5B);
+Color get _venueText => AppPreferences.instance.darkMode
+    ? const Color(0xFFF4F3FF)
+    : const Color(0xFF182238);
+Color get _venueMuted => AppPreferences.instance.darkMode
+    ? const Color(0xFFAAA9BA)
+    : const Color(0xFF647089);
+
 class NewsFeedPage extends StatefulWidget {
   const NewsFeedPage({
     super.key,
@@ -190,9 +215,10 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
   final Set<String> _heartUpdatesInProgress = <String>{};
   final Map<String, int> _heartCounts = <String, int>{};
   final MapController _courtMapController = MapController();
+  final Map<String, int> _featuredImageIndexes = <String, int>{};
   late Future<List<VenueBusiness>> _businesses;
+  var _feedGeneration = 0;
   var _courtMapExpanded = false;
-  var _feedIntroVisible = true;
   Position? _userPosition;
   var _locationLoading = false;
   String _feedArea = 'All areas';
@@ -201,6 +227,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
   String _feedAvailability = 'Any';
   String _feedPriceSort = 'Recommended';
   double? _feedMaxPrice;
+  double? _feedMinimumRating;
   final Set<String> _feedAmenities = <String>{};
 
   String get _categoryAllLabel => widget.businessType.toLowerCase() == 'sports'
@@ -208,6 +235,10 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       : 'All types';
   bool get _isSportsFeed =>
       BusinessTypeParser.parse(widget.businessType) == BusinessType.sports;
+  bool get _isEventFeed =>
+      BusinessTypeParser.parse(widget.businessType) == BusinessType.event;
+  bool get _isFitnessFeed =>
+      BusinessTypeParser.parse(widget.businessType) == BusinessType.fitness;
 
   String get _facilityAllLabel => 'All';
 
@@ -226,12 +257,49 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
     _loadSavedKeys();
   }
 
+  @override
+  void didUpdateWidget(covariant NewsFeedPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final bookingTypeChanged =
+        BusinessTypeParser.parse(oldWidget.businessType) !=
+        BusinessTypeParser.parse(widget.businessType);
+    final savedTypeChanged =
+        oldWidget.savedItemType.toLowerCase() !=
+        widget.savedItemType.toLowerCase();
+    if (!bookingTypeChanged && !savedTypeChanged) return;
+
+    _feedGeneration++;
+    _searchController.clear();
+    _feedArea = 'All areas';
+    _feedSport = _categoryAllLabel;
+    _feedCourtType = _facilityAllLabel;
+    _feedAvailability = 'Any';
+    _feedPriceSort = 'Recommended';
+    _feedMaxPrice = null;
+    _feedMinimumRating = null;
+    _feedAmenities.clear();
+    _savedKeys.clear();
+    _heartedVenueKeys.clear();
+    _heartUpdatesInProgress.clear();
+    _heartCounts.clear();
+    if (bookingTypeChanged) _userPosition = widget.initialUserPosition;
+    _businesses = _venueCatalog.customerBusinesses(
+      includeDisabledEvents: _isEventFeed,
+    );
+    _posts = _loadFeed();
+    _loadSavedKeys();
+  }
+
   Future<List<Map<String, dynamic>>> _loadFeed() async {
+    final generation = _feedGeneration;
+    final businessType = widget.businessType;
+    final businessesFuture = _businesses;
     final session = await AppSessionService.instance.load();
     final token = session.apiToken;
     final isEventFeed =
-        BusinessTypeParser.parse(widget.businessType) == BusinessType.event;
-    final businesses = await _businesses;
+        BusinessTypeParser.parse(businessType) == BusinessType.event;
+    final businesses = await businessesFuture;
+    if (generation != _feedGeneration) return [];
     if (token == null || token.isEmpty) {
       final posts = businesses
           .map((businessModel) {
@@ -245,7 +313,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
               'id': businessId,
               'businessId': businessId,
               'businessName': name,
-              'businessType': business['businessType'] ?? widget.businessType,
+              'businessType': business['businessType'] ?? businessType,
               'category': eventTypes.isEmpty
                   ? '${business['category'] ?? ''}'
                   : eventTypes.join(', '),
@@ -263,7 +331,9 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                 .toInt();
             return post;
           })
-          .where((post) => _matchesBusinessType(post['businessType']))
+          .where(
+            (post) => _matchesBusinessType(post['businessType'], businessType),
+          )
           .toList();
       if (widget.savedOnly) return [];
       return posts;
@@ -272,8 +342,9 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         ? <Map<String, dynamic>>[]
         : (await _api.venues.newsFeed(
             token,
-            businessType: widget.businessType,
+            businessType: businessType,
           )).map((post) => post.toViewData()).toList();
+    if (generation != _feedGeneration) return [];
     for (final post in feedPosts) {
       final key = _postHeartKey(post);
       if (key.isEmpty) continue;
@@ -291,6 +362,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         final heartedBusinessIds = await _api.venues.customerHeartedBusinessIds(
           token,
         );
+        if (generation != _feedGeneration) return [];
         _heartedVenueKeys
           ..clear()
           ..addAll(heartedBusinessIds.map((id) => '$id'));
@@ -344,8 +416,11 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
             'businessEnabled': enabled,
           };
         })
-        .where((post) => _matchesBusinessType(post['businessType']))
+        .where(
+          (post) => _matchesBusinessType(post['businessType'], businessType),
+        )
         .toList();
+    if (generation != _feedGeneration) return [];
     if (isEventFeed) {
       final listedBusinessIds = posts
           .map((post) => int.tryParse('${post['businessId'] ?? ''}'))
@@ -430,8 +505,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         .toList();
   }
 
-  bool _matchesBusinessType(Object? value) {
-    final selectedType = BusinessTypeParser.parse(widget.businessType);
+  bool _matchesBusinessType(Object? value, String businessType) {
+    final selectedType = BusinessTypeParser.parse(businessType);
     return selectedType != BusinessType.unknown &&
         BusinessTypeParser.parse(value) == selectedType;
   }
@@ -465,26 +540,15 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
     }
   }
 
-  bool _handleFeedScroll(ScrollNotification notification) {
-    if (widget.savedOnly ||
-        notification.depth != 0 ||
-        notification.metrics.axis != Axis.vertical) {
-      return false;
-    }
-    final visible = notification.metrics.pixels <= 0;
-    if (_feedIntroVisible != visible) {
-      setState(() => _feedIntroVisible = visible);
-    }
-    return false;
-  }
-
   Future<void> _loadSavedKeys() async {
+    final generation = _feedGeneration;
+    final savedItemType = widget.savedItemType.toLowerCase();
     try {
       final session = await AppSessionService.instance.load();
       final token = session.apiToken;
       if (token == null || token.isEmpty) return;
       final saved = await SavedItemStore.list(api: _api);
-      if (!mounted) return;
+      if (!mounted || generation != _feedGeneration) return;
       setState(() {
         _savedKeys
           ..clear()
@@ -493,7 +557,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                 .where(
                   (item) =>
                       '${item['itemType'] ?? ''}'.toLowerCase() ==
-                      widget.savedItemType.toLowerCase(),
+                      savedItemType,
                 )
                 .map((item) => '${item['itemKey'] ?? ''}'),
           );
@@ -512,12 +576,14 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: _newsPage,
+    backgroundColor: widget.savedOnly ? _newsPage : _venueCanvas,
     appBar: widget.hideAppBar
         ? null
         : AppBar(
-            backgroundColor: AppColors.surface,
-            foregroundColor: _newsInk,
+            backgroundColor: widget.savedOnly
+                ? AppColors.surface
+                : _venueCanvas,
+            foregroundColor: widget.savedOnly ? _newsInk : _venueText,
             leading: IconButton(
               key: const ValueKey('news-feed-back'),
               tooltip: appLanguageText(
@@ -542,21 +608,63 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
               icon: const Icon(Icons.arrow_back_rounded),
               style: IconButton.styleFrom(
                 shape: const CircleBorder(),
-                backgroundColor: AppColors.page,
-                foregroundColor: _newsInk,
+                backgroundColor: widget.savedOnly
+                    ? AppColors.page
+                    : _venueSurface,
+                foregroundColor: widget.savedOnly ? _newsInk : _venueText,
               ),
             ),
-            title: AppText(
-              widget.savedOnly ? 'Saved venues' : widget.pageTitle,
-              style: AppTypography.pageTitle.copyWith(color: _newsInk),
-            ),
+            title: widget.savedOnly
+                ? AppText(
+                    'Saved venues',
+                    style: AppTypography.pageTitle.copyWith(color: _newsInk),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AppText(
+                        'SpotGo',
+                        style: TextStyle(
+                          color: _venueText,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          height: 1.1,
+                        ),
+                      ),
+                      AppText(
+                        widget.pageTitle,
+                        style: TextStyle(
+                          color: _venueMuted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+            titleSpacing: 4,
             actions: [
               if (!widget.savedOnly) _courtMapHeaderControl(),
-              FilterPanelButton(
-                key: const ValueKey('news-feed-open-filters'),
-                activeCount: _activeFeedFilterCount,
-                onPressed: _openSportsFilters,
-              ),
+              if (!widget.savedOnly)
+                IconButton(
+                  key: const ValueKey('news-feed-open-filters'),
+                  tooltip: _activeFeedFilterCount == 0
+                      ? 'Filter venues'
+                      : 'Filter venues ($_activeFeedFilterCount active)',
+                  onPressed: _openSportsFilters,
+                  style: IconButton.styleFrom(
+                    shape: const CircleBorder(),
+                    backgroundColor: _venueSurface,
+                    foregroundColor: _venueText,
+                  ),
+                  icon: Badge(
+                    isLabelVisible: _activeFeedFilterCount > 0,
+                    backgroundColor: _venuePrimary,
+                    label: AppText('$_activeFeedFilterCount'),
+                    child: const Icon(Icons.tune_rounded),
+                  ),
+                ),
             ],
           ),
     body: _courtMapExpanded && !widget.savedOnly
@@ -570,15 +678,6 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
               ),
               child: Column(
                 children: [
-                  if (!widget.savedOnly)
-                    AnimatedSize(
-                      duration: const Duration(milliseconds: 180),
-                      alignment: Alignment.topCenter,
-                      curve: Curves.easeInOut,
-                      child: _feedIntroVisible
-                          ? _feedIntro()
-                          : const SizedBox(),
-                    ),
                   if (!widget.savedOnly) _mainSearchBar(),
                   if (!widget.savedOnly && _isSportsFeed)
                     FutureBuilder<List<Map<String, dynamic>>>(
@@ -590,114 +689,97 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                         );
                       },
                     ),
+                  if (!widget.savedOnly && _isSportsFeed) _quickFilterRow(),
                   Expanded(
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: _handleFeedScroll,
-                      child: RefreshIndicator(
-                        key: _feedRefreshKey,
-                        onRefresh: _reload,
-                        child: FutureBuilder<List<Map<String, dynamic>>>(
-                          future: _posts,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                              return ListView(
-                                key: const ValueKey(
-                                  'news-feed-loading-skeleton',
+                    child: RefreshIndicator(
+                      key: _feedRefreshKey,
+                      onRefresh: _reload,
+                      child: FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _posts,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return ListView(
+                              key: const ValueKey('news-feed-loading-skeleton'),
+                              controller: _feedScrollController,
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                16,
+                                16,
+                                24,
+                              ),
+                              children: [
+                                const SkeletonBlock(height: 18, width: 150),
+                                const SizedBox(height: 10),
+                                const SkeletonBlock(
+                                  height: 230,
+                                  borderRadius: 20,
                                 ),
-                                controller: _feedScrollController,
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  6,
-                                  16,
-                                  24,
+                                const SizedBox(height: 18),
+                                const SkeletonBlock(height: 18, width: 170),
+                                const SizedBox(height: 10),
+                                const SkeletonBlock(
+                                  height: 122,
+                                  borderRadius: 16,
                                 ),
-                                children: [
-                                  const SkeletonBlock(height: 18, width: 150),
-                                  const SizedBox(height: 6),
-                                  const Row(
-                                    children: [
-                                      Expanded(
-                                        child: SkeletonBlock(
-                                          height: 122,
-                                          borderRadius: 16,
-                                        ),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Expanded(
-                                        child: SkeletonBlock(
-                                          height: 122,
-                                          borderRadius: 16,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  const SkeletonBlock(height: 18, width: 170),
-                                  const SizedBox(height: 6),
-                                  const SkeletonBlock(
-                                    height: 180,
-                                    borderRadius: 18,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  const SkeletonBlock(
-                                    height: 180,
-                                    borderRadius: 18,
-                                  ),
-                                ],
-                              );
-                            }
-                            if (snapshot.hasError) {
-                              final error = snapshot.error;
-                              return _message(
-                                error is AuthApiException ? error.userMessage : 'We couldn’t load the latest updates. Please check your connection and try again.',
-                                action: TextButton.icon(
-                                  key: const ValueKey('news-feed-retry'),
-                                  onPressed: () {
-                                    setState(() {
-                                      _posts = _loadFeed();
-                                    });
-                                  },
-                                  icon: const Icon(Icons.refresh_rounded),
-                                  label: const AppText(
-                                    'Try again',
-                                    localize: true,
-                                  ),
+                                const SizedBox(height: 8),
+                                const SkeletonBlock(
+                                  height: 122,
+                                  borderRadius: 16,
                                 ),
-                              );
-                            }
-                            final posts = _filteredPosts(
-                              snapshot.data ?? const [],
+                              ],
                             );
-                            if (posts.isEmpty) {
-                              return _message(
-                                widget.savedOnly
-                                    ? snapshot.data?.isEmpty == true
-                                          ? 'You have no saved venues yet.'
-                                          : 'No saved venues match your filters or search.'
-                                    : snapshot.data?.isEmpty == true
-                                    ? 'No venue news has been posted yet.'
-                                    : 'No ${widget.venueNoun} match your search.',
-                                action: snapshot.data?.isNotEmpty == true
-                                    ? TextButton.icon(
-                                        key: const ValueKey(
-                                          'news-feed-clear-search-and-filters',
-                                        ),
-                                        onPressed: _clearSearchAndFilters,
-                                        icon: const Icon(Icons.filter_alt_off),
-                                        label: const AppText(
-                                          'Clear search and filters',
-                                          localize: true,
-                                        ),
-                                      )
-                                    : null,
-                              );
-                            }
-                            return widget.savedOnly
-                                ? _savedCardList(posts)
-                                : _feedContent(posts);
-                          },
-                        ),
+                          }
+                          if (snapshot.hasError) {
+                            final error = snapshot.error;
+                            return _message(
+                              error is AuthApiException ? error.userMessage : 'We couldn’t load the latest updates. Please check your connection and try again.',
+                              action: TextButton.icon(
+                                key: const ValueKey('news-feed-retry'),
+                                onPressed: () {
+                                  setState(() {
+                                    _posts = _loadFeed();
+                                  });
+                                },
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const AppText(
+                                  'Try again',
+                                  localize: true,
+                                ),
+                              ),
+                            );
+                          }
+                          final posts = _filteredPosts(
+                            snapshot.data ?? const [],
+                          );
+                          if (posts.isEmpty) {
+                            return _message(
+                              widget.savedOnly
+                                  ? snapshot.data?.isEmpty == true
+                                        ? 'You have no saved venues yet.'
+                                        : 'No saved venues match your filters or search.'
+                                  : snapshot.data?.isEmpty == true
+                                  ? 'No venue news has been posted yet.'
+                                  : 'No ${widget.venueNoun} match your search.',
+                              action: snapshot.data?.isNotEmpty == true
+                                  ? TextButton.icon(
+                                      key: const ValueKey(
+                                        'news-feed-clear-search-and-filters',
+                                      ),
+                                      onPressed: _clearSearchAndFilters,
+                                      icon: const Icon(Icons.filter_alt_off),
+                                      label: const AppText(
+                                        'Clear search and filters',
+                                        localize: true,
+                                      ),
+                                    )
+                                  : null,
+                            );
+                          }
+                          return widget.savedOnly
+                              ? _savedCardList(posts)
+                              : _feedContent(posts);
+                        },
                       ),
                     ),
                   ),
@@ -712,6 +794,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
             selectedIndex: widget.savedOnly ? 4 : 0,
             hideSavedDestination: true,
             showHomeDestination: true,
+            venueDiscoveryStyle: !widget.savedOnly,
             onDestinationSelected: _onNavigationSelected,
             onDestinationReselected: _refreshAndScrollToTop,
           ),
@@ -850,6 +933,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                         _feedAvailability = 'Any';
                                         _feedPriceSort = 'Recommended';
                                         _feedMaxPrice = null;
+                                        _feedMinimumRating = null;
                                         _feedAmenities.clear();
                                         _userPosition = null;
                                       });
@@ -1003,6 +1087,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                         'Restroom',
                                         'Shower',
                                         'Store',
+                                        'Indoor / AC',
                                       ])
                                         FilterChip(
                                           key: ValueKey(
@@ -1028,6 +1113,34 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                   const SizedBox(
                                     height: filterPanelSectionSpacing,
                                   ),
+                                  _filterLabel('Minimum rating'),
+                                  Wrap(
+                                    spacing: 6,
+                                    children: [
+                                      for (final (label, rating)
+                                          in const <(String, double?)>[
+                                            ('Any rating', null),
+                                            ('4.5+', 4.5),
+                                          ])
+                                        ChoiceChip(
+                                          key: ValueKey(
+                                            'news-feed-filter-rating-$label',
+                                          ),
+                                          label: AppText(label),
+                                          selected:
+                                              _feedMinimumRating == rating,
+                                          onSelected: (_) {
+                                            setState(
+                                              () => _feedMinimumRating = rating,
+                                            );
+                                            setSheetState(() {});
+                                          },
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(
+                                    height: filterPanelSectionSpacing,
+                                  ),
                                   _filterLabel('Availability'),
                                   Wrap(
                                     spacing: 6,
@@ -1035,6 +1148,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                     children: [
                                       for (final value in const [
                                         'Any',
+                                        'Available today',
                                         'Open 24 hours',
                                       ])
                                         ChoiceChip(
@@ -1149,6 +1263,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       (_feedAvailability == 'Any' ? 0 : 1) +
       (_feedPriceSort == 'Recommended' ? 0 : 1) +
       (_feedMaxPrice == null ? 0 : 1) +
+      (_feedMinimumRating == null ? 0 : 1) +
       _feedAmenities.length +
       (_userPosition == null ? 0 : 1);
 
@@ -1234,44 +1349,6 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
     ),
   );
 
-  Widget _feedIntro() => SizedBox(
-    key: const ValueKey('news-feed-intro'),
-    width: double.infinity,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.max,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Flexible(
-                child: AppText(
-                  'Discover what’s new',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.sectionTitle.copyWith(
-                    color: _newsInk,
-                    letterSpacing: -.5,
-                    height: 1.1,
-                  ),
-                  localize: true,
-                ),
-              ),
-              _subtitleInfoButton(
-                key: 'news-feed-intro-info',
-                title: 'Discover what’s new',
-                subtitle:
-                    'Fresh updates, offers, and stories from local venues.',
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
-
   Widget _subtitleInfoButton({
     required String key,
     required String title,
@@ -1283,7 +1360,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
     alignment: Alignment.bottomCenter,
     padding: AppSpacing.buttonPadding,
     constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-    icon: Icon(Icons.info_outline_rounded, size: 18, color: _newsMuted),
+    icon: Icon(Icons.info_outline_rounded, size: 18, color: _venueMuted),
     onPressed: () => showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1312,8 +1389,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
     ),
     style: IconButton.styleFrom(
       shape: const CircleBorder(),
-      backgroundColor: AppColors.page,
-      foregroundColor: _courtMapExpanded ? _newsAccentForeground : _newsInk,
+      backgroundColor: _venueSurface,
+      foregroundColor: _courtMapExpanded ? _venuePrimary : _venueText,
     ),
   );
 
@@ -1359,6 +1436,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
           .where(
             (business) => _matchesBusinessType(
               business['businessType'] ?? business['business_type'],
+              widget.businessType,
             ),
           )
           .toList();
@@ -1526,7 +1604,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
               AppText(
                 category,
                 style: TextStyle(
-                  color: _newsMuted,
+                  color: _venueMuted,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1547,7 +1625,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                     child: AppText(
                       address,
                       style: TextStyle(
-                        color: _newsInk,
+                        color: _venueText,
                         fontSize: 13,
                         height: 1.35,
                       ),
@@ -1602,7 +1680,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         AppText(
           label,
           style: TextStyle(
-            color: _newsInk,
+            color: _venueText,
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
@@ -1709,17 +1787,18 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
 
   Widget _mainSearchBar() => Container(
     key: const ValueKey('news-feed-search-container'),
-    color: _newsPage,
-    padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+    color: _venueCanvas,
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
     child: TextField(
       key: const ValueKey('news-feed-search'),
       controller: _searchController,
       onChanged: (_) => setState(() {}),
       textInputAction: TextInputAction.search,
+      style: TextStyle(color: _venueText, fontSize: 14),
       decoration: InputDecoration(
         hintText: appLanguageText(widget.searchHint, widget.searchHint),
-        hintStyle: const TextStyle(fontSize: 13),
-        prefixIcon: const Icon(Icons.search, size: 17),
+        hintStyle: TextStyle(color: _venueMuted, fontSize: 13),
+        prefixIcon: const Icon(Icons.search, size: 18),
         prefixIconConstraints: const BoxConstraints(
           minWidth: 40,
           minHeight: 40,
@@ -1740,21 +1819,22 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
           minHeight: 40,
         ),
         filled: true,
-        fillColor: AppColors.surface,
+        fillColor: _venueSurface,
         isDense: true,
-        prefixIconColor: _newsAccentForeground,
+        prefixIconColor: _venueMuted,
+        suffixIconColor: _venueMuted,
         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(24),
-          borderSide: BorderSide(color: AppColors.border),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: _venueOutline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(24),
-          borderSide: BorderSide(color: AppColors.border),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: _venueOutline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(24),
-          borderSide: BorderSide(color: _newsAccentForeground, width: 1.4),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: _venuePrimary, width: 1.4),
         ),
       ),
     ),
@@ -1762,12 +1842,21 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
 
   Widget _sportTypeFilterBar(List<String> sports) => Container(
     key: const ValueKey('news-feed-sport-filter-bar'),
-    color: _newsPage,
-    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+    color: _venueCanvas,
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _filterLabel(widget.categoryFilterLabel),
+        AppText(
+          widget.categoryFilterLabel.toUpperCase(),
+          style: TextStyle(
+            color: _venueMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 8),
         SingleChildScrollView(
           key: const ValueKey('news-feed-sport-filter-scroll'),
           scrollDirection: Axis.horizontal,
@@ -1785,11 +1874,17 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 4),
-                  selectedColor: _newsOrange,
+                  selectedColor: _venuePrimary,
+                  backgroundColor: _venueSurface,
+                  side: BorderSide(
+                    color: _feedSport == sports[index]
+                        ? _venuePrimary
+                        : _venueOutline,
+                  ),
                   labelStyle: TextStyle(
                     color: _feedSport == sports[index]
-                        ? AppColors.onAccent
-                        : _newsInk,
+                        ? Colors.white
+                        : _venueMuted,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1818,7 +1913,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                 ? byRating
                 : '${a['businessName']}'.compareTo('${b['businessName']}');
           });
-    final featured = popular.take(6).toList();
+    final featured = popular.take(1).toList();
     final rated = highestRated.take(6).toList();
 
     return ListView(
@@ -1826,17 +1921,27 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       controller: _feedScrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
-        _sectionHeader('Most popular', 'Most hearts from users', popular),
+        const SizedBox(height: 18),
+        if (_isEventFeed || _isFitnessFeed) ...[
+          _bookingTypeHomeIntro(),
+          const SizedBox(height: 20),
+        ],
+        _sectionHeader(
+          _popularSectionTitle,
+          _popularSectionDescription,
+          popular,
+          featured: true,
+        ),
         if (featured.isEmpty)
           Padding(
             key: ValueKey('news-feed-most-popular-empty'),
-            padding: EdgeInsets.symmetric(vertical: 20),
+            padding: const EdgeInsets.symmetric(vertical: 20),
             child: AppText(
               'No popular venues available yet.',
               style: TextStyle(
-                color: _newsMuted,
+                color: _venueMuted,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -1844,68 +1949,1536 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
             ),
           )
         else
-          _horizontalVenues(featured, identifier: 'most-popular'),
-        const SizedBox(height: 6),
-        _sectionHeader(
-          widget.highestRatedSectionTitle,
-          'Highest average review rating',
-          highestRated,
-        ),
-        if (rated.isEmpty)
-          Padding(
-            key: ValueKey('news-feed-highest-rated-empty'),
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: AppText(
-              'No highest-rated venues available yet.',
-              style: TextStyle(
-                color: _newsMuted,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-              localize: true,
-            ),
-          )
-        else
-          _horizontalVenues(
-            rated,
-            identifier: widget.highestRatedSectionTitle
-                .toLowerCase()
-                .replaceAll(' ', '-'),
+          _featuredVenueCard(featured.first, section: 'popular'),
+        if (!_isSportsFeed) ...[
+          const SizedBox(height: 20),
+          _sectionHeader(
+            widget.highestRatedSectionTitle,
+            'Highest average review rating',
+            highestRated,
+            featured: true,
           ),
-        const SizedBox(height: 6),
+          if (rated.isEmpty)
+            Padding(
+              key: const ValueKey('news-feed-highest-rated-empty'),
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: AppText(
+                'No highest-rated venues available yet.',
+                style: TextStyle(
+                  color: _venueMuted,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                localize: true,
+              ),
+            )
+          else
+            _horizontalVenues(
+              rated,
+              identifier: widget.highestRatedSectionTitle
+                  .toLowerCase()
+                  .replaceAll(' ', '-'),
+              featured: true,
+            ),
+        ],
+        const SizedBox(height: 20),
         Row(
           children: [
             Expanded(
-              child: AppText(
-                widget.allVenuesHeading,
-                style: AppTypography.sectionTitle.copyWith(color: _newsInk),
+              child: Row(
+                children: [
+                  Flexible(
+                    child: AppText(
+                      widget.allVenuesHeading,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.sectionTitle.copyWith(
+                        color: _venueText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  AppText(
+                    '(${posts.length} venues)',
+                    style: TextStyle(
+                      color: _venueMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    localize: true,
+                  ),
+                ],
               ),
             ),
-            AppText(
-              '${posts.length} venues',
-              style: TextStyle(
-                color: _newsMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+            PopupMenuButton<String>(
+              key: const ValueKey('news-feed-all-venues-sort'),
+              tooltip: 'Sort venues',
+              initialValue: _feedPriceSort,
+              onSelected: (value) => setState(() => _feedPriceSort = value),
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'Recommended',
+                  child: AppText('Recommended'),
+                ),
+                PopupMenuItem(
+                  value: 'Lowest to highest',
+                  child: AppText('Price: low to high'),
+                ),
+                PopupMenuItem(
+                  value: 'Highest to lowest',
+                  child: AppText('Price: high to low'),
+                ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.sort_rounded, size: 17, color: _venueMuted),
+                    const SizedBox(width: 3),
+                    AppText(
+                      _feedPriceSort == 'Lowest to highest'
+                          ? 'Price: low to high'
+                          : _feedPriceSort == 'Highest to lowest'
+                          ? 'Price: high to low'
+                          : 'Recommended',
+                      style: TextStyle(
+                        color: _venueMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 17,
+                      color: _venueMuted,
+                    ),
+                  ],
+                ),
               ),
-              localize: true,
             ),
           ],
         ),
         const SizedBox(height: 6),
         for (final post in posts) ...[
-          _postCard(post),
-          const SizedBox(height: 6),
+          _listedVenueCard(post),
+          const SizedBox(height: 10),
         ],
       ],
     );
   }
 
+  String get _popularSectionTitle =>
+      switch (BusinessTypeParser.parse(widget.businessType)) {
+        BusinessType.sports => 'Most popular',
+        BusinessType.event => 'Popular event venues',
+        BusinessType.fitness => 'Popular fitness spaces',
+        BusinessType.unknown => 'Popular venues',
+      };
+
+  String get _popularSectionDescription =>
+      switch (BusinessTypeParser.parse(widget.businessType)) {
+        BusinessType.sports => 'Most hearts from users',
+        BusinessType.event => 'Spaces with the most hearts from users',
+        BusinessType.fitness => 'Studios and wellness spaces users love',
+        BusinessType.unknown => 'Venues users love',
+      };
+
+  Widget _bookingTypeHomeIntro() {
+    final isEvent = _isEventFeed;
+    final accent = isEvent ? const Color(0xFFFFC56E) : const Color(0xFF61D8B0);
+    final icon = isEvent
+        ? Icons.celebration_rounded
+        : Icons.self_improvement_rounded;
+    final title = isEvent
+        ? 'Find a space for your next event'
+        : 'Find a space for your next workout';
+    final description = isEvent
+        ? 'Explore event venues for celebrations, gatherings, and special occasions.'
+        : 'Explore fitness studios and wellness spaces for your routine.';
+    final typeKey = isEvent ? 'event' : 'fitness';
+
+    return Container(
+      key: ValueKey('news-feed-booking-type-intro-$typeKey'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accent.withValues(alpha: .28)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [accent.withValues(alpha: .18), _venueSurface],
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: .16),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Icon(icon, color: accent, size: 25),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppText(
+                  title,
+                  style: TextStyle(
+                    color: _venueText,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                AppText(
+                  description,
+                  style: TextStyle(
+                    color: _venueMuted,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickFilterRow() => SingleChildScrollView(
+    key: const ValueKey('news-feed-quick-filters'),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: [
+        _quickFilter(
+          key: 'news-feed-quick-filter-available',
+          label: 'Available today',
+          icon: Icons.schedule_rounded,
+          selected: _feedAvailability == 'Available today',
+          onTap: () => setState(
+            () => _feedAvailability = _feedAvailability == 'Available today'
+                ? 'Any'
+                : 'Available today',
+          ),
+        ),
+        const SizedBox(width: 8),
+        _quickFilter(
+          key: 'news-feed-quick-filter-rating',
+          label: '4.5+',
+          icon: Icons.star_rounded,
+          selected: _feedMinimumRating != null,
+          onTap: () => setState(
+            () => _feedMinimumRating = _feedMinimumRating == null ? 4.5 : null,
+          ),
+        ),
+        const SizedBox(width: 8),
+        _quickFilter(
+          key: 'news-feed-quick-filter-indoor',
+          label: 'Indoor / AC',
+          icon: Icons.ac_unit_rounded,
+          selected: _feedAmenities.contains('Indoor / AC'),
+          onTap: () => setState(() {
+            if (!_feedAmenities.add('Indoor / AC')) {
+              _feedAmenities.remove('Indoor / AC');
+            }
+          }),
+        ),
+        const SizedBox(width: 8),
+      ],
+    ),
+  );
+
+  Widget _quickFilter({
+    required String key,
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) => Material(
+    color: selected ? _venuePrimary : _venueSurface,
+    borderRadius: BorderRadius.circular(20),
+    child: InkWell(
+      key: ValueKey(key),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? _venuePrimary : _venueOutline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: selected ? Colors.white : _venueMuted),
+            const SizedBox(width: 6),
+            AppText(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : _venueMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _featuredVenueCard(
+    Map<String, dynamic> post, {
+    required String section,
+  }) {
+    final businessValue = post['business'];
+    final business = businessValue is Map
+        ? Map<String, dynamic>.from(businessValue)
+        : const <String, dynamic>{};
+    final images = _imageListValue([
+      post['imageUrls'],
+      post['image_urls'],
+      post['imageUrl'],
+      post['image_url'],
+      post['businessImageUrl'],
+      post['business_image_url'],
+      post['images'],
+      business['imageUrls'],
+      business['image_urls'],
+      business['imageUrl'],
+      business['image_url'],
+      business['images'],
+    ]);
+    final name = _stringValue([
+      post['businessName'],
+      post['name'],
+      business['name'],
+      business['businessName'],
+      'Venue',
+    ]);
+    final address = _stringValue([
+      post['address'],
+      post['location'],
+      business['address'],
+      business['location'],
+    ]);
+    final category = _stringValue([
+      post['category'],
+      post['sportTypes'],
+      post['eventTypes'],
+      post['facilityType'],
+      business['category'],
+      business['sportTypes'],
+      business['eventTypes'],
+      business['facilityType'],
+    ]);
+    final identifier = _venueIdentifier(post);
+    final idPrefix = section == 'popular' ? 'featured' : section;
+    final distance = _distanceLabel(post);
+    final rating = _number(post['averageRating']);
+    final reviewCount = _number(post['reviewCount']).toInt();
+    final price = _priceLabel(post);
+    final unavailable = _isMerchantDisabled(post);
+    final hearted = _isHearted(post);
+    final heartCount = _postHeartCount(post);
+    final isSaved = _savedKeys.contains(_postSaveKey(post));
+    final availableToday = _isVenueAvailableToday(post);
+    final slots = _venueAvailableSlotLabels(post, business);
+    final availableLabel = slots.isNotEmpty
+        ? 'Available · ${slots.first}'
+        : availableToday
+        ? 'Available today'
+        : '';
+    final verified =
+        post['isVerified'] == true ||
+        post['verified'] == true ||
+        business['isVerified'] == true ||
+        business['verified'] == true;
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part[0].toUpperCase())
+        .join();
+    final imageIndex = (_featuredImageIndexes[identifier] ?? 0).clamp(
+      0,
+      images.isEmpty ? 0 : images.length - 1,
+    );
+    final cardKey = section == 'popular'
+        ? 'news-feed-most-popular-card-$identifier'
+        : 'news-feed-$section-card-$identifier';
+    final bookingLabel = _isSportsFeed
+        ? 'Instant Book Court'
+        : _isEventFeed
+        ? 'Book this venue'
+        : 'Book a session';
+
+    return Semantics(
+      key: ValueKey('news-feed-mini-$identifier'),
+      button: true,
+      enabled: !unavailable,
+      label: unavailable
+          ? '$name. Unavailable. Booking disabled.'
+          : '$name. ${section == 'popular' ? 'Popular' : 'Highest rated'} venue. Open venue details.',
+      child: Material(
+        key: ValueKey(cardKey),
+        color: _venueCard,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: unavailable ? null : () => _openBookingType(post),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 205,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    images.isEmpty
+                        ? _miniImageFallback()
+                        : _miniImage(images[imageIndex]),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0x7208111F),
+                            Color(0x0008111F),
+                            Color(0x0008111F),
+                            Color(0x6608111F),
+                          ],
+                          stops: [0, .26, .68, 1],
+                        ),
+                      ),
+                    ),
+                    if (unavailable) const ColoredBox(color: Color(0x55000000)),
+                    if (category.isNotEmpty)
+                      Positioned(
+                        top: 14,
+                        left: 14,
+                        child: _venueImageTag(category),
+                      ),
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Row(
+                        children: [
+                          _featuredImageAction(
+                            key: 'news-feed-$idPrefix-heart-$identifier',
+                            legacyKey: section == 'popular'
+                                ? 'news-feed-mini-heart-$identifier'
+                                : null,
+                            icon: hearted
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            tooltip: hearted ? 'Remove heart' : 'Heart venue',
+                            color: hearted
+                                ? const Color(0xFFFF6B82)
+                                : _venueText,
+                            onPressed: () => _toggleHeart(post),
+                          ),
+                          const SizedBox(width: 6),
+                          _featuredImageAction(
+                            key: 'news-feed-$idPrefix-save-$identifier',
+                            legacyKey: section == 'popular'
+                                ? 'news-feed-featured-save-$identifier'
+                                : null,
+                            icon: isSaved
+                                ? Icons.bookmark_rounded
+                                : Icons.bookmark_border_rounded,
+                            tooltip: isSaved
+                                ? 'Remove saved venue'
+                                : 'Save venue',
+                            color: isSaved ? _venuePrimary : _venueText,
+                            onPressed: () => _toggleSaved(post),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (images.length > 1)
+                      Positioned(
+                        bottom: 10,
+                        left: 0,
+                        right: 0,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (
+                              var index = 0;
+                              index < images.length;
+                              index++
+                            ) ...[
+                              if (index > 0) const SizedBox(width: 5),
+                              GestureDetector(
+                                key: ValueKey(
+                                  'news-feed-$idPrefix-image-dot-$identifier-$index',
+                                ),
+                                onTap: () => setState(
+                                  () =>
+                                      _featuredImageIndexes[identifier] = index,
+                                ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 160),
+                                  width: index == imageIndex ? 15 : 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: index == imageIndex
+                                        ? _venuePrimary
+                                        : Colors.white70,
+                                    borderRadius: BorderRadius.circular(99),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _venueSurface,
+                            border: Border.all(color: _venuePrimary),
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: AppText(
+                            initials,
+                            style: TextStyle(
+                              color: _venuePrimary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: AppText(
+                                  name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _venueText,
+                                    fontSize: 15,
+                                    height: 1.15,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              if (verified) ...[
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.verified_rounded,
+                                  color: Color(0xFF42B8E9),
+                                  size: 15,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (price != 'Price not listed') ...[
+                          const SizedBox(width: 8),
+                          AppText(
+                            price,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: _venueMint,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (address.isNotEmpty || distance != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            color: _venueMuted,
+                            size: 15,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: AppText(
+                              [
+                                if (address.isNotEmpty) address,
+                                ?distance,
+                              ].join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _venueMuted,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            key: ValueKey(
+                              'news-feed-$idPrefix-reviews-$identifier',
+                            ),
+                            onTap: int.tryParse('${post['businessId']}') == null
+                                ? null
+                                : () => _showReviews(
+                                    post,
+                                    int.parse('${post['businessId']}'),
+                                  ),
+                            borderRadius: BorderRadius.circular(9),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _venueSurface,
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    color: Color(0xFFFFCB66),
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  AppText(
+                                    rating == 0
+                                        ? 'New'
+                                        : rating.toStringAsFixed(1),
+                                    style: TextStyle(
+                                      color: _venueText,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Expanded(
+                                    child: AppText(
+                                      '($reviewCount reviews)',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: _venueMuted,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (unavailable)
+                          Flexible(
+                            child: _featuredStatusPill(
+                              'Unavailable',
+                              const Color(0xFFD14343),
+                            ),
+                          )
+                        else if (availableLabel.isNotEmpty)
+                          Flexible(
+                            child: _featuredStatusPill(
+                              availableLabel,
+                              _venueMint,
+                            ),
+                          ),
+                        const SizedBox(width: 6),
+                        AppText(
+                          '$heartCount',
+                          key: ValueKey(
+                            section == 'popular'
+                                ? 'news-feed-mini-heart-count-$identifier'
+                                : 'news-feed-$idPrefix-heart-count-$identifier',
+                          ),
+                          style: TextStyle(
+                            color: _venueMuted,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 42,
+                      child: FilledButton.icon(
+                        key: ValueKey('news-feed-$idPrefix-book-$identifier'),
+                        onPressed: unavailable
+                            ? null
+                            : () => _openBookingType(post),
+                        iconAlignment: IconAlignment.end,
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 17),
+                        label: AppText(
+                          unavailable ? 'Currently unavailable' : bookingLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _venuePrimary,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: _venueOutline,
+                          disabledForegroundColor: _venueMuted,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _featuredImageAction({
+    required String key,
+    String? legacyKey,
+    required IconData icon,
+    required String tooltip,
+    required Color color,
+    required VoidCallback onPressed,
+  }) => IconButton(
+    key: ValueKey(legacyKey ?? key),
+    tooltip: tooltip,
+    onPressed: onPressed,
+    constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+    padding: EdgeInsets.zero,
+    style: IconButton.styleFrom(
+      backgroundColor: _venueCanvas.withValues(alpha: .92),
+      foregroundColor: color,
+      shape: const CircleBorder(),
+    ),
+    icon: Icon(icon, size: 18),
+  );
+
+  Widget _featuredStatusPill(String label, Color color) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: .12),
+      border: Border.all(color: color.withValues(alpha: .25)),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 7, color: color),
+          const SizedBox(width: 4),
+          Flexible(
+            child: AppText(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _listedVenueCard(Map<String, dynamic> post) {
+    if (_isSportsFeed || _isEventFeed || _isFitnessFeed) {
+      return _referenceVenueCard(post);
+    }
+
+    final businessValue = post['business'];
+    final business = businessValue is Map
+        ? Map<String, dynamic>.from(businessValue)
+        : const <String, dynamic>{};
+    final name = _stringValue([
+      post['businessName'],
+      post['name'],
+      business['name'],
+      business['businessName'],
+      'Venue',
+    ]);
+    final address = _stringValue([
+      post['address'],
+      post['location'],
+      business['address'],
+      business['location'],
+    ]);
+    final category = _stringValue([
+      post['category'],
+      post['facilityType'],
+      business['category'],
+      business['facilityType'],
+    ]);
+    final image = _miniVenueImageUrl(post, business);
+    final businessId = int.tryParse('${post['businessId']}');
+    final rating = _number(post['averageRating']);
+    final reviewCount = _number(post['reviewCount']).toInt();
+    final hearted = _isHearted(post);
+    final heartCount = _postHeartCount(post);
+    final price = _priceLabel(post);
+    final unavailable = _isMerchantDisabled(post);
+    final saveKey = _postSaveKey(post);
+    final isSaved = _savedKeys.contains(saveKey);
+
+    return Semantics(
+      key: ValueKey('news-feed-mini-${_venueIdentifier(post)}'),
+      button: true,
+      enabled: !unavailable,
+      label: unavailable
+          ? '$name. Unavailable. Booking disabled.'
+          : '$name. Open venue details.',
+      child: Material(
+        key: ValueKey('news-feed-card-${_venueIdentifier(post)}'),
+        color: _venueCard,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: unavailable ? null : () => _openBookingType(post),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    key: ValueKey('news-feed-image-${_venueIdentifier(post)}'),
+                    width: 96,
+                    height: 102,
+                    child: image.isEmpty
+                        ? _miniImageFallback()
+                        : _miniImage(image),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AppText(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _venueText,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            key: ValueKey(
+                              'news-feed-save-${_venueIdentifier(post)}',
+                            ),
+                            tooltip: isSaved
+                                ? 'Remove saved venue'
+                                : 'Save venue',
+                            onPressed: () => _toggleSaved(post),
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 32,
+                              height: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                            icon: Icon(
+                              isSaved
+                                  ? Icons.bookmark_rounded
+                                  : Icons.bookmark_border_rounded,
+                              color: isSaved ? _venuePrimary : _venueMuted,
+                              size: 19,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (category.isNotEmpty || address.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            if (category.isNotEmpty)
+                              Flexible(
+                                child: AppText(
+                                  category,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _venueMuted,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            if (category.isNotEmpty && address.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: Icon(
+                                  Icons.circle,
+                                  size: 3,
+                                  color: _venueMuted,
+                                ),
+                              ),
+                            if (address.isNotEmpty) ...[
+                              Icon(
+                                Icons.location_on_outlined,
+                                color: _venueMuted,
+                                size: 12,
+                              ),
+                              const SizedBox(width: 2),
+                            ],
+                            Expanded(
+                              child: AppText(
+                                address,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: _venueMuted,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: InkWell(
+                              key: ValueKey(
+                                'news-feed-reviews-${_venueIdentifier(post)}',
+                              ),
+                              onTap: businessId == null
+                                  ? null
+                                  : () => _showReviews(post, businessId),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 3,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.star_rounded,
+                                      color: Color(0xFFFFCB66),
+                                      size: 15,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Flexible(
+                                      child: AppText(
+                                        '${rating == 0 ? 'New' : rating.toStringAsFixed(1)} · $reviewCount Reviews',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: _venueText,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            key: ValueKey(
+                              'news-feed-heart-${_venueIdentifier(post)}',
+                            ),
+                            tooltip: hearted ? 'Remove heart' : 'Heart venue',
+                            onPressed: () => _toggleHeart(post),
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 28,
+                              height: 28,
+                            ),
+                            padding: EdgeInsets.zero,
+                            icon: Icon(
+                              hearted
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: hearted
+                                  ? const Color(0xFFFF6B82)
+                                  : _venueMuted,
+                              size: 15,
+                            ),
+                          ),
+                          AppText(
+                            '$heartCount',
+                            key: ValueKey(
+                              'news-feed-heart-count-${_venueIdentifier(post)}',
+                            ),
+                            style: TextStyle(
+                              color: _venueMuted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (price != 'Price not listed') ...[
+                        const SizedBox(height: 3),
+                        AppText(
+                          price,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _venueMint,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                      if (unavailable) ...[
+                        const SizedBox(height: 4),
+                        const AppText(
+                          'UNAVAILABLE · Booking disabled',
+                          style: TextStyle(
+                            color: Color(0xFFFF7B7B),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          localize: true,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _referenceVenueCard(Map<String, dynamic> post) {
+    final businessValue = post['business'];
+    final business = businessValue is Map
+        ? Map<String, dynamic>.from(businessValue)
+        : const <String, dynamic>{};
+    final name = _stringValue([
+      post['businessName'],
+      post['name'],
+      business['name'],
+      business['businessName'],
+      'Venue',
+    ]);
+    final address = _stringValue([
+      post['address'],
+      post['location'],
+      business['address'],
+      business['location'],
+    ]);
+    final category = _stringValue([
+      post['category'],
+      business['category'],
+      post['sportTypes'],
+      business['sportTypes'],
+    ]);
+    final facility = _stringValue([
+      post['facilityType'],
+      business['facilityType'],
+    ]);
+    final image = _miniVenueImageUrl(post, business);
+    final businessId = int.tryParse('${post['businessId']}');
+    final identifier = _venueIdentifier(post);
+    final rating = _number(post['averageRating']);
+    final reviewCount = _number(post['reviewCount']).toInt();
+    final hearted = _isHearted(post);
+    final heartCount = _postHeartCount(post);
+    final price = _priceLabel(post);
+    final unavailable = _isMerchantDisabled(post);
+    final isSaved = _savedKeys.contains(_postSaveKey(post));
+    final distance = _distanceLabel(post);
+    final availableToday = _isVenueAvailableToday(post);
+    final slots = _venueAvailableSlotLabels(post, business);
+    final verified =
+        post['isVerified'] == true ||
+        post['verified'] == true ||
+        business['isVerified'] == true ||
+        business['verified'] == true;
+    final location = [if (address.isNotEmpty) address, ?distance].join(' · ');
+
+    return Semantics(
+      key: ValueKey('news-feed-mini-$identifier'),
+      button: true,
+      enabled: !unavailable,
+      label: unavailable
+          ? '$name. Unavailable. Booking disabled.'
+          : '$name. Open venue details.',
+      child: Material(
+        key: ValueKey('news-feed-card-$identifier'),
+        color: _venueCard,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: unavailable ? null : () => _openBookingType(post),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                key: ValueKey('news-feed-image-$identifier'),
+                height: 174,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    image.isEmpty ? _miniImageFallback() : _miniImage(image),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0xA908111F),
+                            Color(0x0008111F),
+                            Color(0x0008111F),
+                            Color(0xB808111F),
+                          ],
+                          stops: [0, .35, .58, 1],
+                        ),
+                      ),
+                    ),
+                    if (category.isNotEmpty || facility.isNotEmpty)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Wrap(
+                          spacing: 6,
+                          children: [
+                            if (category.isNotEmpty) _venueImageTag(category),
+                            if (facility.isNotEmpty)
+                              _venueImageTag(
+                                facility.toLowerCase().contains('indoor') ||
+                                        facility.toLowerCase().contains('a/c')
+                                    ? 'Indoor AC'
+                                    : facility,
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (unavailable || availableToday)
+                      Positioned(
+                        right: 10,
+                        bottom: 10,
+                        child: _availabilityImageTag(
+                          unavailable ? 'Unavailable' : 'Available Today',
+                          unavailable: unavailable,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: AppText(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _venueText,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              if (verified) ...[
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.verified_rounded,
+                                  color: Color(0xFF42B8E9),
+                                  size: 16,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (price != 'Price not listed') ...[
+                          const SizedBox(width: 8),
+                          AppText(
+                            price,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: _venueMint,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    InkWell(
+                      key: ValueKey('news-feed-reviews-$identifier'),
+                      onTap: businessId == null
+                          ? null
+                          : () => _showReviews(post, businessId),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.star_rounded,
+                            color: Color(0xFFFFCB66),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 3),
+                          AppText(
+                            rating == 0 ? 'New' : rating.toStringAsFixed(1),
+                            style: TextStyle(
+                              color: _venueText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: AppText(
+                              '$reviewCount Reviews',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _venueMuted,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.location_on_outlined,
+                          color: _venueMuted,
+                          size: 15,
+                        ),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: AppText(
+                            location.isEmpty ? 'Location not listed' : location,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _venueMuted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _venueActionButton(
+                          key: 'news-feed-heart-$identifier',
+                          icon: hearted
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          selected: hearted,
+                          tooltip: hearted ? 'Remove heart' : 'Heart venue',
+                          onPressed: () => _toggleHeart(post),
+                        ),
+                        const SizedBox(width: 4),
+                        AppText(
+                          '$heartCount',
+                          key: ValueKey('news-feed-heart-count-$identifier'),
+                          style: TextStyle(
+                            color: _venueMuted,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _venueActionButton(
+                          key: 'news-feed-save-$identifier',
+                          icon: isSaved
+                              ? Icons.bookmark_rounded
+                              : Icons.bookmark_border_rounded,
+                          selected: isSaved,
+                          selectedColor: _venuePrimary,
+                          tooltip: isSaved
+                              ? 'Remove saved venue'
+                              : 'Save venue',
+                          onPressed: () => _toggleSaved(post),
+                        ),
+                      ],
+                    ),
+                    if (unavailable) ...[
+                      const SizedBox(height: 8),
+                      const AppText(
+                        'UNAVAILABLE · Booking disabled',
+                        style: TextStyle(
+                          color: Color(0xFFD32F2F),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                        localize: true,
+                      ),
+                    ],
+                    if (slots.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.schedule_rounded,
+                            size: 14,
+                            color: _venueMint,
+                          ),
+                          const SizedBox(width: 5),
+                          AppText(
+                            'Slots:',
+                            style: TextStyle(
+                              color: _venueMuted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              key: ValueKey(
+                                'news-feed-available-slots-$identifier',
+                              ),
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (
+                                    var index = 0;
+                                    index < slots.length;
+                                    index++
+                                  ) ...[
+                                    if (index > 0) const SizedBox(width: 6),
+                                    _venueSlotChip(slots[index]),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _venueImageTag(String label) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: const Color(0xD908111F),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      child: AppText(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
+
+  Widget _availabilityImageTag(String label, {required bool unavailable}) =>
+      DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xE608111F),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.circle,
+                size: 7,
+                color: unavailable ? const Color(0xFFFF7777) : _venueMint,
+              ),
+              const SizedBox(width: 5),
+              AppText(
+                label,
+                style: TextStyle(
+                  color: unavailable ? const Color(0xFFFFAAAA) : _venueMint,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _venueActionButton({
+    required String key,
+    required IconData icon,
+    required bool selected,
+    required String tooltip,
+    required VoidCallback onPressed,
+    Color? selectedColor,
+  }) => IconButton(
+    key: ValueKey(key),
+    tooltip: tooltip,
+    onPressed: onPressed,
+    visualDensity: VisualDensity.compact,
+    constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+    padding: EdgeInsets.zero,
+    style: IconButton.styleFrom(
+      backgroundColor: _venueSurface,
+      side: BorderSide(color: _venueOutline),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+    ),
+    icon: Icon(
+      icon,
+      color: selected ? selectedColor ?? const Color(0xFFFF6B82) : _venueMuted,
+      size: 17,
+    ),
+  );
+
+  Widget _venueSlotChip(String label) => DecoratedBox(
+    key: ValueKey('news-feed-available-slot-$label'),
+    decoration: BoxDecoration(
+      color: _venueSurface,
+      border: Border.all(color: _venueOutline),
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      child: AppText(
+        label,
+        style: TextStyle(
+          color: _venueText,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+
+  List<String> _venueAvailableSlotLabels(
+    Map<String, dynamic> post,
+    Map<String, dynamic> business,
+  ) {
+    final rawSlots =
+        post['availableSlots'] ??
+        post['available_slots'] ??
+        post['timeSlots'] ??
+        post['time_slots'] ??
+        business['availableSlots'] ??
+        business['available_slots'] ??
+        business['timeSlots'] ??
+        business['time_slots'];
+    if (rawSlots is! List) return const [];
+    return rawSlots
+        .map((slot) {
+          if (slot is String) return slot.trim();
+          if (slot is! Map) return '';
+          return _stringValue([
+            slot['label'],
+            slot['time'],
+            slot['startTime'],
+            slot['start_time'],
+            slot['start'],
+          ]);
+        })
+        .where((slot) => slot.isNotEmpty)
+        .take(5)
+        .toList();
+  }
+
+  Widget _venueBadge(String label, Color color) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(30),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: AppText(
+        label,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          letterSpacing: .5,
+        ),
+      ),
+    ),
+  );
+
   Widget _sectionHeader(
     String title,
     String subtitle,
-    List<Map<String, dynamic>> sectionPosts,
-  ) => Row(
+    List<Map<String, dynamic>> sectionPosts, {
+    bool featured = false,
+  }) => Row(
     crossAxisAlignment: CrossAxisAlignment.end,
     children: [
       Expanded(
@@ -1919,9 +3492,15 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                 Flexible(
                   child: AppText(
                     title,
-                    style: AppTypography.sectionTitle.copyWith(color: _newsInk),
+                    style: AppTypography.sectionTitle.copyWith(
+                      color: _venueText,
+                    ),
                   ),
                 ),
+                if (featured) ...[
+                  const SizedBox(width: 6),
+                  _venueBadge('Featured', _venuePrimary),
+                ],
                 _subtitleInfoButton(
                   key:
                       'news-feed-section-info-${title.toLowerCase().replaceAll(' ', '-')}',
@@ -1942,7 +3521,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         icon: const Icon(Icons.chevron_right_rounded, size: 17),
         label: AppText('See all (${sectionPosts.length})', localize: true),
         style: TextButton.styleFrom(
-          foregroundColor: _newsAccentForeground,
+          foregroundColor: _venuePrimary,
           padding: AppSpacing.buttonPadding,
           textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
         ),
@@ -2000,14 +3579,21 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
   Widget _horizontalVenues(
     List<Map<String, dynamic>> posts, {
     required String identifier,
+    bool featured = false,
   }) => Padding(
     key: ValueKey('news-feed-$identifier-section'),
     padding: EdgeInsets.zero,
     child: SizedBox(
-      height: MediaQuery.sizeOf(context).width >= 600 ? 222 : 196,
+      height: featured
+          ? 406
+          : MediaQuery.sizeOf(context).width >= 600
+          ? 222
+          : 196,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final cardWidth = constraints.maxWidth >= 600
+          final cardWidth = featured
+              ? constraints.maxWidth
+              : constraints.maxWidth >= 600
               ? 280.0
               : (constraints.maxWidth - 6) / 2;
           return ListView.separated(
@@ -2018,10 +3604,12 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
             separatorBuilder: (_, _) => const SizedBox(width: 6),
             itemBuilder: (_, index) => SizedBox(
               key: ValueKey(
-                'news-feed-$identifier-card-${_venueIdentifier(posts[index])}',
+                'news-feed-$identifier-${featured ? 'slide' : 'card'}-${_venueIdentifier(posts[index])}',
               ),
               width: cardWidth,
-              child: _miniVenueCard(posts[index]),
+              child: featured
+                  ? _featuredVenueCard(posts[index], section: identifier)
+                  : _miniVenueCard(posts[index]),
             ),
           );
         },
@@ -2144,9 +3732,9 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
             onTap: unavailable ? null : () => _openBookingType(post),
             child: Ink(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
+                color: _venueCard,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: _venueOutline),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2212,7 +3800,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                             right: 8,
                             bottom: 8,
                             child: Material(
-                              color: AppColors.surface.withValues(alpha: .95),
+                              color: _venueSurface.withValues(alpha: .95),
                               borderRadius: BorderRadius.circular(18),
                               child: GestureDetector(
                                 key: ValueKey(
@@ -2225,9 +3813,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: AppColors.surface.withValues(
-                                      alpha: .95,
-                                    ),
+                                    color: _venueSurface.withValues(alpha: .95),
                                     borderRadius: BorderRadius.circular(18),
                                   ),
                                   child: Row(
@@ -2240,7 +3826,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                         size: 14,
                                         color: hearted
                                             ? Colors.red
-                                            : _newsMuted,
+                                            : _venueMuted,
                                       ),
                                       const SizedBox(width: 6),
                                       AppText(
@@ -2249,7 +3835,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                                           'news-feed-mini-heart-count-${_venueIdentifier(post)}',
                                         ),
                                         style: TextStyle(
-                                          color: _newsInk,
+                                          color: _venueText,
                                           fontSize: 10,
                                           fontWeight: FontWeight.w800,
                                         ),
@@ -2275,7 +3861,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: _newsInk,
+                            color: _venueText,
                             fontSize: 13,
                             fontWeight: FontWeight.w900,
                           ),
@@ -2291,14 +3877,17 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                               rating == 0 ? 'New' : rating.toStringAsFixed(1),
                               localize: true,
                               style: TextStyle(
-                                color: _newsMuted,
+                                color: _venueMuted,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             AppText(
                               '(${_number(post['reviewCount']).toInt()})',
-                              style: TextStyle(color: _newsMuted, fontSize: 10),
+                              style: TextStyle(
+                                color: _venueMuted,
+                                fontSize: 10,
+                              ),
                               localize: true,
                             ),
                           ],
@@ -2312,7 +3901,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: _newsMuted,
+                                color: _venueMuted,
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -2335,7 +3924,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
                             priceLabel,
                             localize: true,
                             style: TextStyle(
-                              color: _newsInk,
+                              color: _venueText,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                             ),
@@ -2403,13 +3992,9 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
   );
 
   Widget _miniImageFallback() => ColoredBox(
-    color: AppColors.softOrange,
+    color: _venueSurface,
     child: Center(
-      child: Icon(
-        Icons.storefront_rounded,
-        color: _newsAccentForeground,
-        size: 30,
-      ),
+      child: Icon(Icons.storefront_rounded, color: _venuePrimary, size: 30),
     ),
   );
 
@@ -2452,19 +4037,34 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       final facility = '${post['facilityType'] ?? ''}';
       final hours = '${post['hours'] ?? post['opening_hours'] ?? ''}';
       final availability = '${post['availability'] ?? ''}';
+      final normalizedAvailability = availability.toLowerCase();
+      final normalizedHours = hours.toLowerCase();
       final price = venueFilterPrice(post);
       final rawAmenities = '${post['tags'] ?? post['amenities'] ?? ''}'
           .toLowerCase();
+      final searchableFacility = '$facility $rawAmenities'.toLowerCase();
       final matchesCourt =
           _feedCourtType == _facilityAllLabel ||
           facility.toLowerCase() == _feedCourtType.toLowerCase();
       final matchesAvailability =
           _feedAvailability == 'Any' ||
-          hours.toLowerCase().contains('open 24 hours') ||
-          availability.toLowerCase().contains('open 24 hours');
+          (_feedAvailability == 'Available today'
+              ? _isVenueAvailableToday(post)
+              : normalizedHours.contains('open 24 hours') ||
+                    normalizedAvailability.contains('open 24 hours'));
       final matchesPrice = _feedMaxPrice == null || price <= _feedMaxPrice!;
+      final matchesRating =
+          _feedMinimumRating == null ||
+          _number(post['averageRating']) >= _feedMinimumRating!;
+      final hasIndoorFacility =
+          searchableFacility.contains('indoor') ||
+          searchableFacility.contains('air condition') ||
+          searchableFacility.contains('a/c') ||
+          RegExp(r'\bac\b').hasMatch(searchableFacility);
       final matchesAmenities = _feedAmenities.every(
-        (amenity) => rawAmenities.contains(amenity.toLowerCase()),
+        (amenity) => amenity == 'Indoor / AC'
+            ? hasIndoorFacility
+            : rawAmenities.contains(amenity.toLowerCase()),
       );
       final searchable = [
         post['businessName'],
@@ -2486,6 +4086,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
           matchesCourt &&
           matchesAvailability &&
           matchesPrice &&
+          matchesRating &&
           matchesAmenities &&
           (query.isEmpty || searchable.contains(query));
     }).toList();
@@ -2503,6 +4104,22 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
   }
 
   double _venuePrice(Map<String, dynamic> post) => venueFilterPrice(post);
+
+  bool _isVenueAvailableToday(Map<String, dynamic> post) {
+    if (_isMerchantDisabled(post)) return false;
+    final availability = '${post['availability'] ?? ''}';
+    final availableWeekdays = fitnessAvailableWeekdays(availability);
+    if (availableWeekdays != null) {
+      return availableWeekdays.contains(DateTime.now().weekday);
+    }
+
+    final normalizedAvailability = availability.toLowerCase();
+    final normalizedHours = '${post['hours'] ?? post['opening_hours'] ?? ''}'
+        .toLowerCase();
+    return normalizedAvailability.contains('available') ||
+        normalizedAvailability.contains('open') ||
+        normalizedHours.contains('open');
+  }
 
   double _distanceFrom(Position position, Map<String, dynamic> post) {
     final latitude = _mapCoordinate(post['latitude'] ?? post['lat']);
@@ -2622,6 +4239,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       _feedAvailability = 'Any';
       _feedPriceSort = 'Recommended';
       _feedMaxPrice = null;
+      _feedMinimumRating = null;
       _feedAmenities.clear();
       _userPosition = null;
     });
@@ -2633,14 +4251,18 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
     keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
     padding: const EdgeInsets.fromLTRB(32, 72, 32, 32),
     children: [
-      Icon(Icons.explore_outlined, size: 52, color: _newsAccentForeground),
+      Icon(
+        Icons.explore_outlined,
+        size: 52,
+        color: widget.savedOnly ? _newsAccentForeground : _venuePrimary,
+      ),
       const SizedBox(height: 6),
       Center(
         child: AppText(
           text,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: _newsInk,
+            color: widget.savedOnly ? _newsInk : _venueText,
             fontSize: 15,
             fontWeight: FontWeight.w700,
             height: 1.35,
@@ -4031,6 +5653,7 @@ class CustomerHomePage extends StatefulWidget {
 class _CustomerHomePageState extends State<CustomerHomePage> {
   late final AuthApi _api;
   String? _token;
+  int? _currentUserId;
   List<Map<String, dynamic>> _forYouPosts = [];
   List<Map<String, dynamic>> _followingPosts = [];
   Object? _forYouError;
@@ -4038,6 +5661,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   bool _loadingForYou = true;
   bool _loadingFollowing = true;
   bool _posting = false;
+  int _unreadSocialNotifications = 0;
+  Object? _socialNotificationsError;
+  int _selectedHomeFeed = 0;
 
   @override
   void initState() {
@@ -4056,10 +5682,18 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     try {
       final session = await AppSessionService.instance.load();
       if (!mounted) return;
-      setState(() => _token = session.apiToken);
+      setState(() {
+        if (_token != session.apiToken) {
+          _currentUserId = null;
+          _unreadSocialNotifications = 0;
+          _socialNotificationsError = null;
+        }
+        _token = session.apiToken;
+      });
       await Future.wait([
         _loadForYou(session.apiToken),
         _loadFollowing(session.apiToken),
+        _loadSocialNotificationCount(session.apiToken),
       ]);
     } on Exception catch (error) {
       if (mounted) {
@@ -4112,15 +5746,28 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     }
   }
 
-  Future<void> _openPerson(Map<String, dynamic> post) async {
-    final userId = (post['userId'] as num?)?.toInt();
-    if (userId == null) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            SocialPersonPage(api: _api, token: _token, userId: userId),
-      ),
-    );
+  Future<void> _loadSocialNotificationCount(String? token) async {
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _unreadSocialNotifications = 0;
+          _socialNotificationsError = null;
+        });
+      }
+      return;
+    }
+    try {
+      final response = await _api.socialNotifications(token);
+      if (mounted) {
+        setState(() {
+          _unreadSocialNotifications =
+              (response['unreadCount'] as num?)?.toInt() ?? 0;
+          _socialNotificationsError = null;
+        });
+      }
+    } on Exception catch (error) {
+      if (mounted) setState(() => _socialNotificationsError = error);
+    }
   }
 
   Future<void> _openComposer() async {
@@ -4160,10 +5807,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     final session = await AppSessionService.instance.load();
     final token = session.apiToken;
     if (token == null || token.isEmpty) {
-      _showSocialMessage('Sign in to share experiences.');
+      _showSocialMessage('Sign in to continue.');
       return null;
     }
-    setState(() => _token = token);
+    setState(() {
+      if (_token != token) _currentUserId = null;
+      _token = token;
+    });
     return token;
   }
 
@@ -4182,38 +5832,284 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     if (!await requireCustomerLogin(context) || !mounted) return;
     final session = await AppSessionService.instance.load();
     if (!mounted) return;
-    setState(() => _token = session.apiToken);
+    setState(() {
+      if (_token != session.apiToken) _currentUserId = null;
+      _token = session.apiToken;
+      _selectedHomeFeed = 1;
+    });
     await _loadFollowing(session.apiToken);
   }
 
+  void _openOwnProfile() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfileDashboardPage(
+          onLogout: widget.onLogout,
+          api: _api,
+          initialUserPosition: widget.initialUserPosition,
+          businessType: widget.businessType,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openHomeUserProfile(int? userId) async {
+    if (userId == null) return;
+    final token = _token;
+    if (token != null && token.isNotEmpty) {
+      try {
+        var currentUserId = _currentUserId;
+        if (currentUserId == null) {
+          final response = await _api.me(token);
+          currentUserId = int.tryParse(
+            '${(response['user'] as Map<String, dynamic>?)?['id'] ?? ''}',
+          );
+          if (currentUserId == null) {
+            throw const FormatException('The signed-in user ID is missing.');
+          }
+          _currentUserId = currentUserId;
+        }
+        if (!mounted) return;
+        if (userId == currentUserId) {
+          _openOwnProfile();
+          return;
+        }
+      } on Exception catch (error) {
+        if (mounted) {
+          _showSocialMessage('Could not verify this profile: $error');
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+    await openPublicUserProfile(
+      context: context,
+      api: _api,
+      token: token,
+      userId: userId,
+    );
+  }
+
+  List<Map<String, dynamic>> get _recentPlayers {
+    final seen = <int>{};
+    return _forYouPosts
+        .where((post) {
+          final userId = (post['userId'] as num?)?.toInt();
+          return userId != null && seen.add(userId);
+        })
+        .take(8)
+        .toList();
+  }
+
+  Widget _buildPlayerRail() {
+    final players = _recentPlayers;
+    return SizedBox(
+      height: 112,
+      child: ListView(
+        key: const ValueKey('customer-home-player-rail'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        children: [
+          _PlayerBubble(label: 'Post Match', isAdd: true, onTap: _openComposer),
+          for (final player in players)
+            _PlayerBubble(
+              label: '${player['displayName'] ?? 'SpotGo player'}',
+              imageProvider: player['avatarUrl'] is String
+                  ? socialAvatarProvider(player['avatarUrl'] as String)
+                  : null,
+              onTap: () => _openHomeUserProfile(
+                int.tryParse('${player['userId'] ?? ''}'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComposerCard(SocialHomeColors colors) => Container(
+    key: const ValueKey('customer-home-composer'),
+    margin: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: colors.border),
+    ),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            InkWell(
+              key: const ValueKey('customer-home-own-profile'),
+              onTap: _openOwnProfile,
+              customBorder: const CircleBorder(),
+              child: CircleAvatar(
+                radius: 17,
+                backgroundColor: colors.surfaceRaised,
+                child: Icon(
+                  Icons.person_outline_rounded,
+                  size: 19,
+                  color: colors.muted,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: InkWell(
+                key: const ValueKey('customer-home-composer-prompt'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: _openComposer,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: AppText(
+                    'Share your session, drop an invite, or post a highlight',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.text,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    localize: true,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _HomeComposerAction(
+              key: const ValueKey('customer-home-add'),
+              icon: Icons.photo_camera_outlined,
+              label: 'Photo',
+              color: colors.mint,
+              onTap: _openComposer,
+            ),
+            const SizedBox(width: 6),
+            _HomeComposerAction(
+              icon: Icons.location_on_outlined,
+              label: 'Venue',
+              color: const Color(0xFFA5A5FF),
+              onTap: () => _onDestinationSelected(0),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildHomeFilters() => SizedBox(
+    height: 48,
+    child: ListView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(14, 3, 14, 5),
+      children: [
+        _HomeFeedFilter(
+          label: 'For You',
+          selected: _selectedHomeFeed == 0,
+          onTap: () => setState(() => _selectedHomeFeed = 0),
+        ),
+        _HomeFeedFilter(
+          label: 'Following',
+          selected: _selectedHomeFeed == 1,
+          onTap: () => setState(() => _selectedHomeFeed = 1),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildCommunitySearchButton() => IconButton(
+    tooltip: 'Search players',
+    onPressed: () => Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => SocialCommunityPage(api: _api)),
+    ),
+    icon: const Icon(Icons.search_rounded),
+  );
+
+  Future<void> _openSocialNotifications() async {
+    var token = _token;
+    if (token == null || token.isEmpty) {
+      if (!await requireCustomerLogin(context) || !mounted) return;
+      final session = await AppSessionService.instance.load();
+      if (!mounted) return;
+      token = session.apiToken;
+      if (token == null || token.isEmpty) {
+        _showSocialMessage('Sign in to view notifications.');
+        return;
+      }
+      setState(() => _token = token);
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialNotificationsPage(
+          api: _api,
+          token: token!,
+          onUnreadCountChanged: (count) {
+            if (mounted) {
+              setState(() => _unreadSocialNotifications = count);
+            }
+          },
+        ),
+      ),
+    );
+    if (mounted) await _loadSocialNotificationCount(token);
+  }
+
+  Widget _buildNotificationsButton(SocialHomeColors colors) => IconButton(
+    key: const ValueKey('customer-home-notifications'),
+    tooltip: _socialNotificationsError == null
+        ? 'Notifications'
+        : 'Notifications unavailable',
+    onPressed: _openSocialNotifications,
+    icon: Badge(
+      isLabelVisible: _unreadSocialNotifications > 0,
+      backgroundColor: colors.coral,
+      textColor: Colors.white,
+      label: Text(
+        _unreadSocialNotifications > 99 ? '99+' : '$_unreadSocialNotifications',
+      ),
+      child: Icon(
+        _unreadSocialNotifications > 0
+            ? Icons.notifications_active_rounded
+            : Icons.notifications_none_rounded,
+      ),
+    ),
+  );
+
   Widget _buildFeed({
+    required BuildContext context,
     required bool following,
     required List<Map<String, dynamic>> posts,
     required bool loading,
     required Object? error,
   }) {
+    final colors = SocialHomeColors.of(context);
     if (following && (_token == null || _token!.isEmpty)) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+      return Padding(
         padding: const EdgeInsets.all(24),
-        children: [
-          const SizedBox(height: 40),
-          const Icon(Icons.people_outline_rounded, size: 48),
-          const SizedBox(height: 12),
-          const AppText(
-            'Follow people to see their experiences here.',
-            textAlign: TextAlign.center,
-            localize: true,
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: FilledButton(
-              key: const ValueKey('customer-home-following-sign-in'),
-              onPressed: _signInToFollowing,
-              child: const AppText('Sign in to continue', localize: true),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 40),
+            const Icon(Icons.people_outline_rounded, size: 48),
+            const SizedBox(height: 12),
+            const AppText(
+              'Follow people to see their experiences here.',
+              textAlign: TextAlign.center,
+              localize: true,
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Center(
+              child: FilledButton(
+                key: const ValueKey('customer-home-following-sign-in'),
+                onPressed: _signInToFollowing,
+                child: const AppText('Sign in to continue', localize: true),
+              ),
+            ),
+          ],
+        ),
       );
     }
     if (loading && posts.isEmpty) {
@@ -4249,95 +6145,158 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       );
     }
     if (posts.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+      return Padding(
         padding: const EdgeInsets.all(24),
-        children: [
-          const SizedBox(height: 40),
-          Center(
-            child: Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                color: AppColors.softOrange,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                following
-                    ? Icons.people_outline_rounded
-                    : Icons.dynamic_feed_outlined,
-                size: 42,
-                color: AppColors.accent,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          AppText(
-            following
-                ? 'People you follow haven’t shared experiences yet.'
-                : 'No experiences yet.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-            localize: true,
-          ),
-          if (following) ...[
-            const SizedBox(height: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 40),
             Center(
-              child: FilledButton.icon(
-                key: const ValueKey('customer-home-browse-for-you'),
-                onPressed: () => DefaultTabController.of(context).animateTo(0),
-                icon: const Icon(Icons.explore_outlined),
-                label: const AppText('Browse For You', localize: true),
+              child: Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  color: colors.surfaceRaised,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  following
+                      ? Icons.people_outline_rounded
+                      : Icons.dynamic_feed_outlined,
+                  size: 42,
+                  color: AppColors.accent,
+                ),
               ),
             ),
-          ] else ...[
-            const SizedBox(height: 8),
-            const AppText(
-              'Experiences from customers will show up here.',
+            const SizedBox(height: 12),
+            AppText(
+              following
+                  ? 'People you follow haven’t shared experiences yet.'
+                  : 'No experiences yet.',
               textAlign: TextAlign.center,
+              style: TextStyle(
+                color: colors.text,
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+              ),
               localize: true,
             ),
-            const SizedBox(height: 16),
-            Center(
-              child: FilledButton.icon(
-                key: const ValueKey('customer-home-explore-venues'),
-                onPressed: () => _onDestinationSelected(0),
-                icon: const Icon(Icons.sports_tennis_rounded),
-                label: const AppText('Explore sports venues', localize: true),
+            if (following) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: FilledButton.icon(
+                  key: const ValueKey('customer-home-browse-for-you'),
+                  onPressed: () => setState(() => _selectedHomeFeed = 0),
+                  icon: const Icon(Icons.explore_outlined),
+                  label: const AppText('Browse For You', localize: true),
+                ),
               ),
-            ),
+            ] else ...[
+              const SizedBox(height: 8),
+              const AppText(
+                'Experiences from customers will show up here.',
+                textAlign: TextAlign.center,
+                localize: true,
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: FilledButton.icon(
+                  key: const ValueKey('customer-home-explore-venues'),
+                  onPressed: () => _onDestinationSelected(0),
+                  icon: const Icon(Icons.sports_tennis_rounded),
+                  label: const AppText('Explore sports venues', localize: true),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       );
     }
+    return Column(
+      key: ValueKey(
+        following
+            ? 'customer-home-following-feed'
+            : 'customer-home-experience-feed',
+      ),
+      children: [
+        for (final post in posts)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+            child: SocialExperiencePostCard(
+              post: post,
+              onOpenPerson: () =>
+                  _openHomeUserProfile(int.tryParse('${post['userId'] ?? ''}')),
+              onFollow: null,
+              api: _api,
+              token: _token,
+              onRequireToken: _requireSocialToken,
+              homeFeedStyle: true,
+              onPostChanged: () {
+                if (following) {
+                  _loadFollowing(_token);
+                } else {
+                  _loadForYou(_token);
+                }
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTimeline(BuildContext context) {
+    final following = _selectedHomeFeed == 1;
     return RefreshIndicator(
       onRefresh: () => following ? _loadFollowing(_token) : _loadForYou(_token),
-      child: ListView.separated(
-        key: ValueKey(
-          following
-              ? 'customer-home-following-feed'
-              : 'customer-home-experience-feed',
-        ),
+      child: ListView(
+        key: const ValueKey('customer-home-timeline'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
-        itemCount: posts.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) => SocialExperiencePostCard(
-          post: posts[index],
-          onOpenPerson: () => _openPerson(posts[index]),
-          onFollow: null,
-          api: _api,
-          token: _token,
-          onRequireToken: _requireSocialToken,
-          onPostChanged: () {
-            if (following) {
-              _loadFollowing(_token);
-            } else {
-              _loadForYou(_token);
-            }
-          },
+        padding: const EdgeInsets.only(bottom: 12),
+        children: [
+          _buildPlayerRail(),
+          _buildComposerCard(SocialHomeColors.of(context)),
+          _buildHomeFilters(),
+          _buildFeed(
+            context: context,
+            following: following,
+            posts: following ? _followingPosts : _forYouPosts,
+            loading: following ? _loadingFollowing : _loadingForYou,
+            error: following ? _followingError : _forYouError,
+          ),
+        ],
+      ),
+    );
+  }
+
+  ThemeData _homeTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = SocialHomeColors.forBrightness(theme.colorScheme.brightness);
+    return theme.copyWith(
+      colorScheme: theme.colorScheme.copyWith(
+        primary: colors.primary,
+        onPrimary: Colors.white,
+        secondary: colors.coral,
+        surface: colors.surface,
+        onSurface: colors.text,
+        onSurfaceVariant: colors.muted,
+      ),
+      extensions: [colors],
+      scaffoldBackgroundColor: colors.canvas,
+      appBarTheme: theme.appBarTheme.copyWith(
+        backgroundColor: colors.surfaceRaised,
+        foregroundColor: colors.text,
+        surfaceTintColor: Colors.transparent,
+      ),
+      cardTheme: theme.cardTheme.copyWith(
+        color: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: colors.border),
         ),
       ),
+      dividerColor: colors.border,
     );
   }
 
@@ -4386,141 +6345,288 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   }
 
   @override
-  Widget build(BuildContext context) => DefaultTabController(
-    length: 2,
-    child: Scaffold(
-      backgroundColor: _newsPage,
-      appBar: AppBar(
-        title: const AppText('Home', localize: true),
-        backgroundColor: AppColors.surface,
-        foregroundColor: _newsInk,
-        actions: [
-          IconButton(
-            key: const ValueKey('customer-home-add'),
-            tooltip: appLanguageText(
-              'Share experience',
-              'Ibahagi ang karanasan',
+  Widget build(BuildContext context) {
+    final homeTheme = _homeTheme(context);
+    return Theme(
+      data: homeTheme,
+      child: Builder(
+        builder: (context) {
+          final colors = SocialHomeColors.of(context);
+          return Scaffold(
+            backgroundColor: colors.canvas,
+            appBar: AppBar(
+              toolbarHeight: 56,
+              titleSpacing: 14,
+              title: Row(
+                children: [
+                  const SpotGoLogo(size: 28),
+                  const SizedBox(width: 8),
+                  AppText(
+                    'SpotGO',
+                    style: TextStyle(
+                      color: colors.text,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -.5,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                _buildCommunitySearchButton(),
+                _buildNotificationsButton(colors),
+                const SizedBox(width: 8),
+              ],
             ),
-            onPressed: _openComposer,
-            icon: const Icon(Icons.add_rounded),
-          ),
-        ],
-        bottom: const TabBar(
-          tabs: [
-            Tab(child: AppText('For You', localize: true)),
-            Tab(child: AppText('Following', localize: true)),
-          ],
-        ),
+            body: _buildTimeline(context),
+            bottomNavigationBar: AppBottomNavigation(
+              selectedIndex: 5,
+              hideSavedDestination: true,
+              showHomeDestination: true,
+              onDestinationSelected: _onDestinationSelected,
+              onDestinationReselected: _load,
+            ),
+          );
+        },
       ),
-      body: TabBarView(
-        children: [
-          _buildFeed(
-            following: false,
-            posts: _forYouPosts,
-            loading: _loadingForYou,
-            error: _forYouError,
-          ),
-          _buildFeed(
-            following: true,
-            posts: _followingPosts,
-            loading: _loadingFollowing,
-            error: _followingError,
-          ),
-        ],
-      ),
-      bottomNavigationBar: AppBottomNavigation(
-        selectedIndex: 5,
-        hideSavedDestination: true,
-        showHomeDestination: true,
-        onDestinationSelected: _onDestinationSelected,
-        onDestinationReselected: _load,
-      ),
-    ),
-  );
+    );
+  }
 }
 
 class _CustomerFeedSkeleton extends StatelessWidget {
   const _CustomerFeedSkeleton();
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: 'Loading experiences',
-    liveRegion: true,
-    child: SkeletonPulse(
-      child: ListView.separated(
-        key: const ValueKey('customer-home-feed-skeleton'),
-        physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
-        itemCount: 2,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) => Card(
-          margin: EdgeInsets.zero,
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    const SkeletonBlock(
-                      width: 44,
-                      height: 44,
-                      borderRadius: 22,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SkeletonBlock(
-                            width: index == 0 ? 142 : 116,
-                            height: 13,
-                          ),
-                          const SizedBox(height: 8),
-                          const SkeletonBlock(width: 86, height: 10),
-                        ],
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Loading experiences',
+      liveRegion: true,
+      child: SkeletonPulse(
+        child: Container(
+          key: const ValueKey('customer-home-feed-skeleton'),
+          margin: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+          child: Card(
+            margin: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      const SkeletonBlock(
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
                       ),
-                    ),
-                    const SkeletonBlock(
-                      width: 28,
-                      height: 28,
-                      borderRadius: 14,
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SkeletonBlock(width: 142, height: 13),
+                            SizedBox(height: 8),
+                            SkeletonBlock(width: 86, height: 10),
+                          ],
+                        ),
+                      ),
+                      const SkeletonBlock(
+                        width: 28,
+                        height: 28,
+                        borderRadius: 14,
+                      ),
+                    ],
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(14, 0, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SkeletonBlock(width: double.infinity, height: 12),
+                      SizedBox(height: 7),
+                      SkeletonBlock(width: 174, height: 12),
+                    ],
+                  ),
+                ),
+                const SkeletonBlock(height: 190, borderRadius: 0),
+                const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      SkeletonBlock(width: 58, height: 22),
+                      SizedBox(width: 12),
+                      SkeletonBlock(width: 58, height: 22),
+                      Spacer(),
+                      SkeletonBlock(width: 74, height: 22),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerBubble extends StatelessWidget {
+  const _PlayerBubble({
+    required this.label,
+    this.imageProvider,
+    this.isAdd = false,
+    required this.onTap,
+  });
+
+  final String label;
+  final ImageProvider<Object>? imageProvider;
+  final bool isAdd;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SocialHomeColors.of(context);
+    return SizedBox(
+      width: 72,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isAdd ? colors.muted : colors.primary,
+                    width: isAdd ? 1.5 : 2,
+                  ),
+                ),
+                child: CircleAvatar(
+                  radius: 23,
+                  backgroundColor: colors.surfaceRaised,
+                  backgroundImage: imageProvider,
+                  child: isAdd
+                      ? Icon(Icons.add_rounded, color: colors.text, size: 24)
+                      : imageProvider == null
+                      ? Icon(
+                          Icons.person_outline_rounded,
+                          color: colors.muted,
+                          size: 22,
+                        )
+                      : null,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SkeletonBlock(
-                      width: index == 0 ? double.infinity : 232,
-                      height: 12,
-                    ),
-                    const SizedBox(height: 7),
-                    if (index == 0) const SkeletonBlock(width: 174, height: 12),
-                  ],
+              const SizedBox(height: 5),
+              AppText(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.text,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
                 ),
-              ),
-              SkeletonBlock(height: 190, borderRadius: 0),
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    const SkeletonBlock(width: 58, height: 22),
-                    const SizedBox(width: 12),
-                    const SkeletonBlock(width: 58, height: 22),
-                    const Spacer(),
-                    SkeletonBlock(width: index == 0 ? 74 : 52, height: 22),
-                  ],
-                ),
+                localize: true,
               ),
             ],
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+class _HomeComposerAction extends StatelessWidget {
+  const _HomeComposerAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.color,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SocialHomeColors.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+          decoration: BoxDecoration(
+            color: colors.surfaceRaised,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: colors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: color),
+              const SizedBox(width: 3),
+              AppText(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.text,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+                localize: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeFeedFilter extends StatelessWidget {
+  const _HomeFeedFilter({
+    required this.label,
+    this.selected = false,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SocialHomeColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        key: ValueKey('customer-home-filter-${label.toLowerCase()}'),
+        label: AppText(label, localize: true),
+        selected: selected,
+        onSelected: (_) => onTap(),
+        selectedColor: colors.primary,
+        backgroundColor: colors.surfaceRaised,
+        side: BorderSide(color: selected ? colors.primary : colors.border),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : colors.muted,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
 }

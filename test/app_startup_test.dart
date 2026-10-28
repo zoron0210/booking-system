@@ -1,14 +1,25 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:myapp/app_design_system.dart';
 import 'package:myapp/app_preferences.dart';
 import 'package:myapp/app_session.dart';
 import 'package:myapp/app_startup.dart';
+import 'package:myapp/auth_api.dart';
 import 'package:myapp/main.dart';
+import 'package:myapp/news_feed.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+AuthApi _emptySocialApi() => AuthApi(
+  client: MockClient(
+    (_) async => http.Response(jsonEncode({'posts': []}), 200),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +35,7 @@ void main() {
     final initialization = Completer<AppSession>();
     await tester.pumpWidget(
       AppStartup(
-        appBuilder: (_) => const MyApp(),
+        appBuilder: (_) => MyApp(homeApi: _emptySocialApi()),
         initialize: () => initialization.future,
       ),
     );
@@ -37,7 +48,7 @@ void main() {
     initialization.complete(await AppSession.load());
     await tester.pumpAndSettle();
 
-    expect(find.byType(OverviewPage), findsOneWidget);
+    expect(find.byType(CustomerHomePage), findsOneWidget);
   });
 
   testWidgets('shows a retry action if startup initialization fails', (
@@ -48,7 +59,7 @@ void main() {
     final retryAttempt = Completer<AppSession>();
     await tester.pumpWidget(
       AppStartup(
-        appBuilder: (_) => const MyApp(),
+        appBuilder: (_) => MyApp(homeApi: _emptySocialApi()),
         initialize: () {
           attempts++;
           return attempts == 1 ? initialAttempt.future : retryAttempt.future;
@@ -70,7 +81,7 @@ void main() {
     retryAttempt.complete(await AppSession.load());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.byType(OverviewPage), findsOneWidget);
+    expect(find.byType(CustomerHomePage), findsOneWidget);
   });
 
   testWidgets('loads preferences for the authenticated startup account', (

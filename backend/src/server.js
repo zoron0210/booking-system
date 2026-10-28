@@ -565,7 +565,7 @@ const processBookingPaymentDeadlines =
     notifyBookingParticipants: queueBookingNotifications,
   });
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.get('authorization') || '';
   const [scheme, value] = header.split(' ');
 
@@ -575,10 +575,22 @@ function requireAuth(req, res, next) {
 
   try {
     req.auth = jwt.verify(value, process.env.JWT_SECRET);
+  } catch (error) {
+    return res.status(401).json({ error: 'The access token is invalid or expired.' });
+  }
+
+  try {
+    const [users] = await pool.execute(
+      'SELECT status FROM users WHERE id = ? LIMIT 1',
+      [req.auth.sub],
+    );
+    if (!users[0] || users[0].status !== 'active') {
+      return res.status(403).json({ error: 'This account is not active.' });
+    }
     setAuditActor(req.auth.sub, req.auth.role);
     return next();
   } catch (error) {
-    return res.status(401).json({ error: 'The access token is invalid or expired.' });
+    return next(error);
   }
 }
 

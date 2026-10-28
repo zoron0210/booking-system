@@ -8,8 +8,10 @@ import 'package:myapp/app_design_system.dart';
 import 'package:myapp/app_preferences.dart';
 import 'package:myapp/app_session.dart';
 import 'package:myapp/app_startup.dart';
+import 'package:myapp/news_feed.dart';
 import 'package:myapp/features/session/application/session_service.dart';
 import 'package:myapp/app_theme.dart';
+import 'package:myapp/auth_api.dart';
 import 'package:myapp/booking_push_notifications.dart';
 import 'package:myapp/guest_access.dart';
 import 'package:myapp/merchant_dashboard.dart';
@@ -30,10 +32,18 @@ Color get _muted => AppColors.muted;
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, this.session, this.dependencies});
+  const MyApp({
+    super.key,
+    this.session,
+    this.dependencies,
+    this.homeApi,
+    this.initialPage,
+  });
 
   final AppSession? session;
   final AppDependencies? dependencies;
+  final AuthApi? homeApi;
+  final Widget? initialPage;
 
   AppDependencies get _dependencies =>
       dependencies ?? AppDependencies(preferences: AppPreferences.instance);
@@ -47,6 +57,7 @@ class MyApp extends StatelessWidget {
       );
 
   Widget get _initialHome {
+    if (initialPage != null) return initialPage!;
     final currentSession = session;
     final isAuthenticatedMerchant =
         currentSession?.role == 'merchant' &&
@@ -58,6 +69,7 @@ class MyApp extends StatelessWidget {
         onLogout: logoutToBookingPicker,
       );
       if (lastBookingPage != null) return lastBookingPage;
+      return CustomerHomePage(api: homeApi, onLogout: logoutToBookingPicker);
     }
     return const OverviewPage();
   }

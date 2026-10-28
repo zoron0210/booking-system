@@ -339,9 +339,7 @@ void main() {
     await tester.tap(payButton);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(
-      const ValueKey('prototype-payment-provider'),
-    ));
+    await tester.tap(find.byKey(const ValueKey('prototype-payment-provider')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Credit/debit card').last);
     await tester.pumpAndSettle();
@@ -475,9 +473,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('prototype-payment-confirm')),
       );
-      await tester.tap(
-        find.byKey(const ValueKey('prototype-payment-confirm')),
-      );
+      await tester.tap(find.byKey(const ValueKey('prototype-payment-confirm')));
       await tester.pumpAndSettle();
 
       expect(paymentPayload, {

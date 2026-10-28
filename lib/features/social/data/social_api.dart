@@ -4,6 +4,32 @@ const bool socialPostingEnabled = true;
 const bool socialProfileUiEnabled = true;
 
 extension AuthApiSocialOperations on AuthApi {
+  Future<Map<String, dynamic>> socialNotifications(String token) =>
+      _request(
+        'GET',
+        '/api/social/notifications',
+        headers: _authHeaders(token),
+      );
+
+  Future<void> markSocialNotificationRead({
+    required String token,
+    required int notificationId,
+  }) async {
+    await _request(
+      'PATCH',
+      '/api/social/notifications/$notificationId/read',
+      headers: _authHeaders(token),
+    );
+  }
+
+  Future<void> markAllSocialNotificationsRead(String token) async {
+    await _request(
+      'POST',
+      '/api/social/notifications/read-all',
+      headers: _authHeaders(token),
+    );
+  }
+
   Future<List<Map<String, dynamic>>> socialFeed(
     String? token, {
     bool allPublicPosts = false,
@@ -141,6 +167,19 @@ extension AuthApiSocialOperations on AuthApi {
       saved ? 'POST' : 'DELETE',
       '/api/social/posts/$postId/saves',
       headers: _authHeaders(token),
+    );
+  }
+
+  Future<void> reportSocialPost({
+    required String token,
+    required int postId,
+    required String reason,
+  }) async {
+    await _request(
+      'POST',
+      '/api/social/posts/$postId/reports',
+      body: {'reason': reason},
+      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
     );
   }
 

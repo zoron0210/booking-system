@@ -103,4 +103,35 @@ void main() {
     await tester.tap(find.text('Home'));
     expect(selectedDestination, 5);
   });
+
+  testWidgets('customer Home uses the shared footer order and styling', (
+    tester,
+  ) async {
+    final selectedDestinations = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          bottomNavigationBar: AppBottomNavigation(
+            selectedIndex: 5,
+            hideSavedDestination: true,
+            showHomeDestination: true,
+            onDestinationSelected: selectedDestinations.add,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Venue'), findsOneWidget);
+    expect(find.text('Messages'), findsOneWidget);
+    expect(find.text('Bookings'), findsOneWidget);
+    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('Explore'), findsNothing);
+    expect(find.text('Saved'), findsNothing);
+
+    await tester.tap(find.text('Venue'));
+    await tester.tap(find.text('Messages'));
+    await tester.tap(find.text('Bookings'));
+    expect(selectedDestinations, [0, 2, 3]);
+  });
 }

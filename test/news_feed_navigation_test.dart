@@ -10,12 +10,14 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:myapp/all_venues_page.dart';
 import 'package:myapp/auth_api.dart';
+import 'package:myapp/app_preferences.dart';
+import 'package:myapp/features/social/presentation/social_home_palette.dart';
 import 'package:myapp/customer_bookings_page.dart';
 import 'package:myapp/event_dashboard.dart';
 import 'package:myapp/fitness_dashboard.dart';
 import 'package:myapp/messages_dashboard.dart';
 import 'package:myapp/news_feed.dart';
-import 'package:myapp/rating_widgets.dart';
+import 'package:myapp/profile_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -35,6 +37,7 @@ void main() {
       'averageRating': 4.6,
       'heartCount': 9,
       'heartedByMe': false,
+      'availableSlots': ['9:00 AM', '10:00 AM'],
       'title': 'Basketball news',
       'body': 'Court updates',
     },
@@ -100,18 +103,19 @@ void main() {
     final miniCard = find.byKey(
       const ValueKey('news-feed-most-popular-card-business-42'),
     );
-    expect(tester.getSize(miniCard).width, 280);
+    expect(tester.getSize(miniCard).width, greaterThan(280));
+    expect(tester.getSize(miniCard).width, lessThanOrEqualTo(1024));
 
     final feed = find.byKey(const ValueKey('news-feed-content-list'));
     await tester.drag(feed, const Offset(0, -1000));
     await tester.pumpAndSettle();
     final largeCard = find.byKey(const ValueKey('news-feed-card-business-42'));
-    expect(tester.getSize(largeCard).width, lessThanOrEqualTo(820));
+    expect(tester.getSize(largeCard).width, lessThanOrEqualTo(1024));
     expect(
       tester
           .getSize(find.byKey(const ValueKey('news-feed-image-business-42')))
           .height,
-      220,
+      174,
     );
     expect(tester.takeException(), isNull);
   });
@@ -170,6 +174,403 @@ void main() {
     await tester.tap(find.text('Following'));
     await tester.pumpAndSettle();
     expect(find.text('A followed player experience'), findsOneWidget);
+  });
+
+  testWidgets('customer Home adapts its header and surfaces to theme mode', (
+    tester,
+  ) async {
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(jsonEncode({'posts': []}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.light(),
+        home: CustomerHomePage(api: homeApi),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    var scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    var appBarTheme = Theme.of(tester.element(find.byType(AppBar).first))
+        .appBarTheme;
+    expect(appBarTheme.backgroundColor, const Color(0xFFEEF1F7));
+    expect(appBarTheme.foregroundColor, const Color(0xFF182238));
+    expect(scaffold.backgroundColor, const Color(0xFFF5F6FA));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: CustomerHomePage(api: homeApi),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    appBarTheme = Theme.of(tester.element(find.byType(AppBar).first))
+        .appBarTheme;
+    expect(appBarTheme.backgroundColor, SocialHomePalette.surfaceRaised);
+    expect(appBarTheme.foregroundColor, SocialHomePalette.text);
+    expect(scaffold.backgroundColor, SocialHomePalette.canvas);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'Home experience photos open and post menu supports save and report',
+    (tester) async {
+      final requests = <http.Request>[];
+      var isSaved = false;
+      final api = AuthApi(
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/api/social/feed') {
+            return http.Response(
+              jsonEncode({
+                'posts': [
+                  {
+                    'id': 77,
+                    'userId': 42,
+                    'displayName': 'Alex Player',
+                    'caption': 'A full-frame experience',
+                    'images': [
+                      'data:image/png;base64,'
+                          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0L8AAAAASUVORK5CYII=',
+                    ],
+                    'createdAt': '2026-10-26T08:00:00.000Z',
+                    'likeCount': 3,
+                    'commentCount': 2,
+                    'isSaved': isSaved,
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.url.path == '/api/social/posts/77/saves') {
+            isSaved = request.method == 'POST';
+            return http.Response('{}', 200);
+          }
+          if (request.url.path == '/api/social/posts/77/reports') {
+            return http.Response(jsonEncode({'reported': true}), 201);
+          }
+          return http.Response('{}', 200);
+        }),
+      );
+
+      await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: api)));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('social-post-image-77')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('social-post-image-77')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('social-post-image-viewer-77')),
+        findsOneWidget,
+      );
+      final viewerImage = find.descendant(
+        of: find.byKey(const ValueKey('social-post-image-viewer-77')),
+        matching: find.byType(Image),
+      );
+      expect(tester.widget<Image>(viewerImage).fit, BoxFit.contain);
+      await tester.tap(
+        find.byKey(const ValueKey('social-post-image-viewer-back')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('social-post-options-77')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('social-post-options-77')));
+      await tester.pumpAndSettle();
+      expect(find.text('View profile'), findsOneWidget);
+      expect(find.text('Report'), findsOneWidget);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(
+        requests.any(
+          (request) =>
+              request.url.path == '/api/social/posts/77/saves' &&
+              request.method == 'POST',
+        ),
+        isTrue,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('social-post-options-77')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('social-post-options-77')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Report'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Spam'));
+      await tester.pumpAndSettle();
+      expect(
+        requests.any(
+          (request) =>
+              request.url.path == '/api/social/posts/77/reports' &&
+              jsonDecode(request.body)['reason'] == 'spam',
+        ),
+        isTrue,
+      );
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Home share sends an experience through in-app messages', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(
+            jsonEncode({
+              'posts': [
+                {
+                  'id': 77,
+                  'userId': 42,
+                  'displayName': 'Alex Player',
+                  'caption': 'A shared experience',
+                  'images': [],
+                  'createdAt': '2026-10-26T08:00:00.000Z',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/social/users') {
+          return http.Response(
+            jsonEncode({
+              'users': [
+                {'id': 31, 'displayName': 'Morgan User'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/messages/conversations') {
+          return http.Response(jsonEncode({'conversationId': 88}), 201);
+        }
+        if (request.url.path == '/api/messages/conversations/88') {
+          return http.Response('{}', 201);
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: api)));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('social-post-share-77')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('social-post-share-77')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Share experience'), findsOneWidget);
+    expect(find.text('Morgan User'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('social-share-user-31')));
+    await tester.pumpAndSettle();
+
+    final sharedMessage = requests.singleWhere(
+      (request) => request.url.path == '/api/messages/conversations/88',
+    );
+    expect(
+      jsonDecode(sharedMessage.body)['body'],
+      contains('A shared experience'),
+    );
+    expect(jsonDecode(sharedMessage.body)['body'], contains('SpotGo post #77'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tapping another Home post author opens a public dashboard', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final requests = <String>[];
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request.url.path);
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(
+            jsonEncode({
+              'posts': [
+                {
+                  'id': 51,
+                  'userId': 42,
+                  'displayName': 'Alex Player',
+                  'caption': 'A public experience',
+                  'images': [],
+                  'createdAt': '2026-10-26T08:00:00.000Z',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/social/users/42') {
+          return http.Response(
+            jsonEncode({
+              'profile': {
+                'displayName': 'Alex Player',
+                'followersCount': 3,
+                'followingCount': 5,
+                'isFollowing': false,
+              },
+              'posts': [],
+              'businesses': [],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: homeApi)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alex Player').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CustomerHomePage), findsNothing);
+    expect(find.byType(ProfileDashboardPage), findsNothing);
+    expect(
+      find.byKey(const ValueKey('public-user-profile-page')),
+      findsOneWidget,
+    );
+    expect(find.text('Follow'), findsOneWidget);
+    expect(find.text('Message'), findsOneWidget);
+    expect(find.text('Saved'), findsNothing);
+    expect(find.text('Upcoming'), findsNothing);
+    expect(find.text('History'), findsNothing);
+    expect(requests, contains('/api/social/users/42'));
+  });
+
+  testWidgets('tapping your own Home post opens your profile dashboard', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({
+      'session_api_token': 'test-token',
+    });
+    final requests = <String>[];
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request.url.path);
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(
+            jsonEncode({
+              'posts': [
+                {
+                  'id': 51,
+                  'userId': 42,
+                  'displayName': 'Alex Player',
+                  'caption': 'My experience',
+                  'images': [],
+                  'createdAt': '2026-10-26T08:00:00.000Z',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/auth/me') {
+          return http.Response(
+            jsonEncode({
+              'user': {
+                'id': 42,
+                'role': 'customer',
+                'firstName': 'Alex',
+                'lastName': 'Player',
+                'email': 'alex@example.test',
+              },
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/bookings') {
+          return http.Response(jsonEncode({'bookings': []}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: homeApi)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alex Player').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProfileDashboardPage), findsOneWidget);
+    expect(requests, contains('/api/auth/me'));
+    expect(
+      find.byKey(const ValueKey('public-user-profile-dialog')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('tapping the Home profile icon opens the owner dashboard', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(jsonEncode({'posts': []}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: homeApi)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('customer-home-own-profile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProfileDashboardPage), findsOneWidget);
+  });
+
+  testWidgets('Home Profile opens the original profile dashboard', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final requests = <String>[];
+    final homeApi = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request.url.path);
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(jsonEncode({'posts': []}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerHomePage(api: homeApi)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('news-feed-nav-profile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProfileDashboardPage), findsOneWidget);
+    expect(find.text('Player Profile'), findsOneWidget);
+    expect(find.text('Upcoming'), findsOneWidget);
+    expect(find.text('History'), findsOneWidget);
+    expect(requests, isNot(contains('/api/auth/me')));
+    expect(requests, isNot(contains('/api/social/users/42')));
   });
 
   testWidgets('customer Home shows skeletons then an actionable empty state', (
@@ -503,6 +904,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Basketball court'), findsWidgets);
+    final tennisCard = find.byKey(const ValueKey('news-feed-card-business-43'));
+    await tester.scrollUntilVisible(
+      tennisCard,
+      120,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('news-feed-content-list')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(find.text('Tennis court'), findsWidgets);
   });
 
@@ -627,8 +1039,10 @@ void main() {
     expect(feed.businessType, 'Event');
     expect(feed.savedItemType, 'event');
     expect(feed.pageTitle, 'Event Venues');
+    expect(find.text('Find a space for your next event'), findsOneWidget);
+    expect(find.text('Popular event venues'), findsOneWidget);
+    expect(find.text('Most popular'), findsNothing);
     expect(find.text('Cebu Event Hall'), findsWidgets);
-    expect(find.text('Wedding, Birthday'), findsWidgets);
     expect(find.text('Sports Court'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('news-feed-open-filters')));
     await tester.pumpAndSettle();
@@ -640,7 +1054,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('news-feed-filter-close')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text('All listed event venues'),
+      find.byKey(const ValueKey('news-feed-card-business-88')),
       180,
       scrollable: find
           .descendant(
@@ -649,6 +1063,11 @@ void main() {
           )
           .first,
     );
+    final eventListCard = find.byKey(
+      const ValueKey('news-feed-card-business-88'),
+    );
+    await tester.ensureVisible(eventListCard);
+    expect(find.text('Wedding, Birthday'), findsWidgets);
     expect(
       find.byKey(const ValueKey('news-feed-save-business-88')),
       findsOneWidget,
@@ -661,7 +1080,7 @@ void main() {
       find.byKey(const ValueKey('news-feed-reviews-business-88')),
       findsOneWidget,
     );
-    expect(find.text('Review'), findsOneWidget);
+    expect(find.textContaining('Review'), findsOneWidget);
     expect(
       tester
           .widget<IconButton>(
@@ -687,7 +1106,7 @@ void main() {
       find.byKey(const ValueKey('news-feed-heart-count-business-88')),
       findsOneWidget,
     );
-    expect(find.byTooltip('Heart venue'), findsOneWidget);
+    expect(tester.widget<IconButton>(heartButton).tooltip, 'Heart venue');
 
     final reviewsButton = find.byKey(
       const ValueKey('news-feed-reviews-business-88'),
@@ -714,11 +1133,8 @@ void main() {
     Navigator.of(tester.element(find.text('Cebu Event Hall ratings & reviews')))
         .pop();
     await tester.pumpAndSettle();
-    final eventExploreButton = find.byKey(
-      const ValueKey('news-feed-explore-business-88'),
-    );
-    await tester.ensureVisible(eventExploreButton);
-    await tester.tap(eventExploreButton);
+    await tester.ensureVisible(eventListCard);
+    await tester.tap(eventListCard);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('sports-venue-content-panel')),
@@ -1063,8 +1479,31 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final feedScrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('news-feed-content-list')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final firstEventCard = find.byKey(
+      const ValueKey('news-feed-card-business-91'),
+    );
+    await tester.scrollUntilVisible(
+      firstEventCard,
+      180,
+      scrollable: feedScrollable,
+    );
+    await tester.ensureVisible(firstEventCard);
     expect(find.text('Garden Event Place'), findsWidgets);
     expect(find.text('Wedding, Birthday'), findsWidgets);
+    final closedEventCard = find.byKey(
+      const ValueKey('news-feed-card-business-93'),
+    );
+    await tester.scrollUntilVisible(
+      closedEventCard,
+      180,
+      scrollable: feedScrollable,
+    );
     expect(find.text('Closed Event Garden'), findsWidgets);
     expect(find.text('UNAVAILABLE · Booking disabled'), findsWidgets);
     expect(find.text('Basketball Court'), findsNothing);
@@ -1073,10 +1512,6 @@ void main() {
     expect(requests, contains('GET /api/businesses'));
     expect(requests, isNot(contains('GET /api/customer/event-businesses')));
     expect(requests, isNot(contains('GET /api/news-feed')));
-    final firstEventCard = find.byKey(
-      const ValueKey('news-feed-card-business-91'),
-      skipOffstage: false,
-    );
     await tester.scrollUntilVisible(
       firstEventCard,
       180,
@@ -1090,7 +1525,6 @@ void main() {
     expect(firstEventCard, findsOneWidget);
     final firstEventHeart = find.byKey(
       const ValueKey('news-feed-heart-business-91'),
-      skipOffstage: false,
     );
     await tester.scrollUntilVisible(
       firstEventHeart,
@@ -1166,6 +1600,11 @@ void main() {
   testWidgets(
     'Event popular and highest-rated lists include event fees over 700',
     (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       final eventApi = AuthApi(
         client: MockClient((request) async {
           if (request.url.path == '/api/businesses') {
@@ -1207,8 +1646,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(
+        find.byKey(const ValueKey('news-feed-most-popular-card-business-95')),
+        findsOneWidget,
+      );
       for (final key in const [
-        'news-feed-see-all-most-popular',
+        'news-feed-see-all-popular-event-venues',
         'news-feed-see-all-highest-rated',
       ]) {
         final seeAll = find.byKey(ValueKey(key));
@@ -1238,7 +1681,7 @@ void main() {
     },
   );
 
-  testWidgets('venue feed cards use a denser image and post summary', (
+  testWidgets('venue feed cards use a featured image and compact listing', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(400, 800);
@@ -1296,10 +1739,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    for (final section in ['most-popular', 'highest-rate']) {
-      final miniCard = find.byKey(
-        ValueKey('news-feed-$section-card-business-42'),
-      );
+    for (final cardKey in const [
+      ValueKey('news-feed-most-popular-card-business-42'),
+      ValueKey('news-feed-card-business-42'),
+    ]) {
+      final miniCard = find.byKey(cardKey);
       await tester.scrollUntilVisible(
         miniCard,
         120,
@@ -1324,8 +1768,30 @@ void main() {
                   'https://example.com/court.jpg',
         ),
         isTrue,
-        reason: '$section should display the merchant gallery image',
+        reason: '$cardKey should display the merchant gallery image',
       );
+      if (cardKey ==
+          const ValueKey('news-feed-most-popular-card-business-42')) {
+        final secondImageDot = find.byKey(
+          const ValueKey('news-feed-featured-image-dot-business-42-1'),
+        );
+        expect(secondImageDot, findsOneWidget);
+        await tester.tap(secondImageDot);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widgetList<Image>(
+                find.descendant(of: miniCard, matching: find.byType(Image)),
+              )
+              .any(
+                (image) =>
+                    image.image is NetworkImage &&
+                    (image.image as NetworkImage).url ==
+                        'https://example.com/court-2.jpg',
+              ),
+          isTrue,
+        );
+      }
     }
 
     final card = find.byKey(const ValueKey('news-feed-card-business-42'));
@@ -1341,77 +1807,32 @@ void main() {
     );
 
     expect(
-      find.descendant(of: card, matching: find.text('Sports')),
-      findsNothing,
-    );
-    expect(
-      find.descendant(
-        of: card,
-        matching: find.text('Basketball, Tennis, Volleyball'),
-      ),
+      find.descendant(of: card, matching: find.text('Basketball')),
       findsOneWidget,
     );
-    final sportBadge = find.byKey(
-      const ValueKey('news-feed-sport-badge-business-42'),
-    );
-    final newsDescription = find.descendant(
-      of: card,
-      matching: find.text('Court updates').first,
-    );
-    final ratingStars = find.descendant(
-      of: card,
-      matching: find.byType(AppRatingStars),
-    );
-    expect(sportBadge, findsOneWidget);
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('news-feed-image-business-42')),
-        matching: sportBadge,
-      ),
-      findsNothing,
-    );
-    expect(
-      tester.getTopLeft(sportBadge).dy,
-      greaterThan(tester.getTopLeft(newsDescription).dy),
-    );
-    expect(
-      tester.getTopLeft(sportBadge).dy,
-      lessThan(tester.getTopLeft(ratingStars).dy),
+      find.descendant(of: card, matching: find.textContaining('Review')),
+      findsOneWidget,
     );
     expect(
       tester
           .getSize(find.byKey(const ValueKey('news-feed-image-business-42')))
           .height,
-      160,
+      174,
     );
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('news-feed-image-business-42')),
-        matching: find.byType(PageView),
-      ),
+      find.byKey(const ValueKey('news-feed-available-slots-business-42')),
       findsOneWidget,
     );
-    for (final image in tester.widgetList<Image>(
-      find.descendant(of: card, matching: find.byType(Image)),
-    )) {
-      expect(image.filterQuality, FilterQuality.high);
-    }
-    final address = find.descendant(of: card, matching: find.text('Cebu City'));
-    final price = find.descendant(
-      of: card,
-      matching: find.text('\u{20B1} 200 / hr'),
-    );
-    expect(address, findsOneWidget);
-    expect(price, findsOneWidget);
+    expect(find.text('9:00 AM'), findsOneWidget);
     expect(
-      tester.getTopLeft(price).dx,
-      greaterThan(tester.getTopLeft(address).dx),
+      find.descendant(of: card, matching: find.text('Cebu City')),
+      findsOneWidget,
     );
     expect(
-      find.descendant(of: card, matching: find.text('Basketball news')),
-      findsNothing,
+      find.descendant(of: card, matching: find.text('\u{20B1} 200 / hr')),
+      findsOneWidget,
     );
-    expect(tester.widget<Text>(find.text('Court updates').first).maxLines, 2);
     expect(tester.takeException(), isNull);
   });
 
@@ -1510,11 +1931,11 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('news-feed-nav-explore')));
     await tester.pumpAndSettle();
-    expect(find.text('0.0 km away'), findsWidgets);
+    expect(find.textContaining('0.0 km away'), findsWidgets);
   });
 
   testWidgets(
-    'venue hearts update counts and separate popularity from rating',
+    'venue hearts update counts and determine the popular hero venue',
     (tester) async {
       String? heartMethod;
       String? heartPath;
@@ -1568,35 +1989,12 @@ void main() {
       final popularBasketball = find.byKey(
         const ValueKey('news-feed-most-popular-card-business-42'),
       );
-      final highestTennis = find.byKey(
-        const ValueKey('news-feed-highest-rate-card-business-43'),
-      );
       final popularTennis = find.byKey(
         const ValueKey('news-feed-most-popular-card-business-43'),
       );
-      final highestBasketball = find.byKey(
-        const ValueKey('news-feed-highest-rate-card-business-42'),
-      );
-      await tester.scrollUntilVisible(
-        highestTennis,
-        120,
-        scrollable: find
-            .descendant(
-              of: find.byKey(const ValueKey('news-feed-content-list')),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
       expect(popularBasketball, findsOneWidget);
-      expect(highestTennis, findsOneWidget);
-      expect(
-        tester.getTopLeft(popularBasketball).dx,
-        lessThan(tester.getTopLeft(popularTennis).dx),
-      );
-      expect(
-        tester.getTopLeft(highestTennis).dx,
-        lessThan(tester.getTopLeft(highestBasketball).dx),
-      );
+      expect(popularTennis, findsNothing);
+      expect(find.text('Highest rate'), findsNothing);
 
       final miniHeart = find
           .byKey(const ValueKey('news-feed-mini-heart-business-42'))
@@ -1938,47 +2336,144 @@ void main() {
     expect(find.text('Sports Courts'), findsOneWidget);
   });
 
-  testWidgets('Sports News Feed retains its default discovery labels', (
+  testWidgets('booking type changes reload an isolated home feed', (
+    tester,
+  ) async {
+    final api = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/news-feed') {
+          final businessType = request.url.queryParameters['businessType'];
+          final post = businessType == 'Fitness'
+              ? {
+                  'businessId': 77,
+                  'businessName': 'Fitness Studio',
+                  'businessType': 'Fitness & Wellness',
+                  'category': 'Yoga',
+                  'enabled': true,
+                  'title': 'Yoga classes',
+                  'body': 'Book a session',
+                }
+              : {
+                  'businessId': 42,
+                  'businessName': 'Basketball Court',
+                  'businessType': 'Sports',
+                  'category': 'Basketball',
+                  'enabled': true,
+                  'title': 'Basketball court updates',
+                  'body': 'Book court time',
+                };
+          return http.Response(
+            jsonEncode({
+              'posts': [post],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/businesses') {
+          return http.Response(
+            jsonEncode({
+              'businesses': [
+                {
+                  'id': 42,
+                  'businessType': 'Sports',
+                  'name': 'Basketball Court',
+                  'enabled': true,
+                },
+                {
+                  'id': 77,
+                  'businessType': 'Fitness & Wellness',
+                  'name': 'Fitness Studio',
+                  'enabled': true,
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    var businessType = 'Sports';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) => Stack(
+            fit: StackFit.expand,
+            children: [
+              NewsFeedPage(
+                api: api,
+                businessType: businessType,
+                pageTitle: businessType == 'Sports'
+                    ? 'Sports Courts'
+                    : 'Fitness & Wellness',
+                savedItemType: businessType == 'Sports' ? 'sports' : 'fitness',
+              ),
+              Positioned(
+                top: 72,
+                left: 16,
+                child: TextButton(
+                  key: const ValueKey('switch-booking-type'),
+                  onPressed: () => setState(() => businessType = 'Fitness'),
+                  child: const Text('Switch to Fitness'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Basketball Court'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('news-feed-sport-filter-bar')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('switch-booking-type')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Fitness & Wellness'), findsOneWidget);
+    expect(find.text('Fitness Studio'), findsWidgets);
+    expect(find.text('Basketball Court'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('news-feed-booking-type-intro-fitness')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('news-feed-sport-filter-bar')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Sports Venue discovery uses the redesigned layout', (
     tester,
   ) async {
     await tester.pumpWidget(MaterialApp(home: NewsFeedPage(api: api())));
     await tester.pumpAndSettle();
 
+    expect(find.text('SpotGo'), findsOneWidget);
     expect(find.text('Sports Courts'), findsOneWidget);
     expect(find.text('Most popular'), findsOneWidget);
-    expect(find.text('Highest rate'), findsOneWidget);
-    expect(tester.widget<Text>(find.text('Sports Courts')).style?.fontSize, 20);
+    expect(find.text('Highest rate'), findsNothing);
+    expect(find.text('Available today'), findsOneWidget);
+    expect(find.text('4.5+'), findsOneWidget);
+    expect(find.text('Indoor / AC'), findsOneWidget);
+    expect(find.text('Instant book'), findsNothing);
     expect(
-      tester.widget<Text>(find.text('Discover what’s new')).style?.fontSize,
-      16,
+      find.byKey(const ValueKey('news-feed-featured-save-business-42')),
+      findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('news-feed-view-on-map')), findsNothing);
+    expect(tester.widget<Text>(find.text('Sports Courts')).style?.fontSize, 11);
     expect(tester.widget<Text>(find.text('Most popular')).style?.fontSize, 16);
-    expect(
-      tester.getTopLeft(find.text('Discover what’s new')).dx,
-      closeTo(tester.getTopLeft(find.text('Most popular')).dx, 1),
-    );
-    expect(
-      find.text('Fresh updates, offers, and stories from local venues.'),
-      findsNothing,
-    );
-    expect(
-      tester
-              .getTopLeft(
-                find.byKey(const ValueKey('news-feed-search-container')),
-              )
-              .dy -
-          tester
-              .getBottomLeft(find.byKey(const ValueKey('news-feed-intro')))
-              .dy,
-      0,
-    );
     expect(
       tester
           .widget<Container>(
             find.byKey(const ValueKey('news-feed-search-container')),
           )
           .padding,
-      const EdgeInsets.fromLTRB(16, 6, 16, 0),
+      const EdgeInsets.fromLTRB(16, 12, 16, 2),
     );
     expect(
       tester
@@ -1988,7 +2483,7 @@ void main() {
           .padding!
           .resolve(TextDirection.ltr)
           .top,
-      6,
+      8,
     );
     expect(
       tester
@@ -2001,14 +2496,44 @@ void main() {
           tester.getBottomLeft(find.text('Most popular')).dy,
       6,
     );
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
+      const Color(0xFFF5F6FA),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('news-feed-quick-filter-indoor')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Basketball court'), findsWidgets);
+    expect(find.text('Tennis court'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('news-feed-intro-info')));
+    await tester.tap(find.byKey(const ValueKey('news-feed-open-filters')));
     await tester.pumpAndSettle();
     expect(
-      find.text('Fresh updates, offers, and stories from local venues.'),
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('news-feed-filter-amenity-Indoor / AC')),
+          )
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey('news-feed-filter-close')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('news-feed-quick-filter-indoor')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('news-feed-search')),
+      'no venue has this name',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('news-feed-quick-filters')),
       findsOneWidget,
     );
-    await tester.tap(find.text('Got it'));
+    await tester.enterText(find.byKey(const ValueKey('news-feed-search')), '');
     await tester.pumpAndSettle();
 
     await tester.tap(
@@ -2060,6 +2585,60 @@ void main() {
       find.byKey(const ValueKey('news-feed-filter-sport-All sports')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('venue discovery adapts to light and dark app modes', (
+    tester,
+  ) async {
+    await AppPreferences.instance.update(darkMode: false);
+    addTearDown(() => AppPreferences.instance.update(darkMode: false));
+
+    await tester.pumpWidget(
+      AnimatedBuilder(
+        animation: AppPreferences.instance,
+        builder: (context, _) => MaterialApp(
+          theme: ThemeData(
+            brightness: AppPreferences.instance.darkMode
+                ? Brightness.dark
+                : Brightness.light,
+          ),
+          home: NewsFeedPage(api: api()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    var scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    var appBar = tester.widget<AppBar>(find.byType(AppBar).first);
+    var search = tester.widget<TextField>(
+      find.byKey(const ValueKey('news-feed-search')),
+    );
+    var navigationTheme = Theme.of(tester.element(find.byType(NavigationBar)))
+        .navigationBarTheme;
+    expect(scaffold.backgroundColor, const Color(0xFFF5F6FA));
+    expect(appBar.backgroundColor, const Color(0xFFF5F6FA));
+    expect(appBar.foregroundColor, const Color(0xFF182238));
+    expect(search.decoration!.fillColor, Colors.white);
+    expect(navigationTheme.backgroundColor, Colors.white);
+    expect(navigationTheme.indicatorColor, const Color(0xFFE7E6FF));
+
+    await AppPreferences.instance.update(darkMode: true);
+    await tester.pumpAndSettle();
+
+    scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    appBar = tester.widget<AppBar>(find.byType(AppBar).first);
+    search = tester.widget<TextField>(
+      find.byKey(const ValueKey('news-feed-search')),
+    );
+    navigationTheme = Theme.of(tester.element(find.byType(NavigationBar)))
+        .navigationBarTheme;
+    expect(scaffold.backgroundColor, const Color(0xFF0B1326));
+    expect(appBar.backgroundColor, const Color(0xFF0B1326));
+    expect(appBar.foregroundColor, const Color(0xFFF4F3FF));
+    expect(search.decoration!.fillColor, const Color(0xFF131B2E));
+    expect(navigationTheme.backgroundColor, const Color(0xFF131B2E));
+    expect(navigationTheme.indicatorColor, const Color(0xFF3935A8));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -2200,9 +2779,55 @@ void main() {
       expect(feed.savedItemType, 'fitness');
       expect(feed.savedOnly, isFalse);
       expect(find.text('Fitness & Wellness'), findsOneWidget);
-      expect(find.text('Most popular'), findsOneWidget);
+      expect(find.text('Find a space for your next workout'), findsOneWidget);
+      expect(find.text('Popular fitness spaces'), findsOneWidget);
+      expect(find.text('Most popular'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text('Highest rated'),
+        180,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('news-feed-content-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.text('Highest rated'), findsOneWidget);
+      final highestRatedCard = find.byKey(
+        const ValueKey('news-feed-highest-rated-card-business-71'),
+      );
+      await tester.scrollUntilVisible(
+        highestRatedCard,
+        180,
+        scrollable: find
+            .byWidgetPredicate(
+              (widget) =>
+                  widget is Scrollable &&
+                  widget.axisDirection == AxisDirection.down,
+            )
+            .first,
+      );
+      expect(highestRatedCard, findsOneWidget);
+      expect(
+        find.descendant(
+          of: highestRatedCard,
+          matching: find.byKey(
+            const ValueKey('news-feed-highest-rated-book-business-71'),
+          ),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Pilates Studio'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.text('Yoga Wellness'),
+        180,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('news-feed-highest-rated-scroll')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.text('Yoga Wellness'), findsWidgets);
       expect(find.text('Basketball court'), findsNothing);
 
@@ -2278,7 +2903,7 @@ void main() {
         findsWidgets,
       );
       final seeAll = find.byKey(
-        const ValueKey('news-feed-see-all-most-popular'),
+        const ValueKey('news-feed-see-all-popular-fitness-spaces'),
       );
       await tester.ensureVisible(seeAll);
       await tester.tap(seeAll);

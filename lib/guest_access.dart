@@ -60,11 +60,10 @@ Future<bool> openCustomerLogin(
         onCustomerOnboardingCompleted: () {
           Navigator.of(context).pushAndRemoveUntil<void>(
             MaterialPageRoute<void>(
-              builder: (_) =>
-                  CustomerHomePage(
-                    onLogout: _logoutCustomerSession,
-                    api: authService?.api,
-                  ),
+              builder: (_) => CustomerHomePage(
+                onLogout: _logoutCustomerSession,
+                api: authService?.api,
+              ),
             ),
             (_) => false,
           );

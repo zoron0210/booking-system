@@ -14,7 +14,6 @@ import 'messages_chat_view.dart';
 import 'messages_controller.dart';
 import 'features/messaging/data/messages_session_provider.dart';
 import 'public_user_profile.dart';
-import 'social_community_page.dart';
 import 'social_message_tools.dart';
 import 'message_unread_count.dart';
 import 'guest_access.dart';
@@ -1129,25 +1128,12 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     final userId = _asInt(user['id']);
     final token = _token;
     if (userId == null || token == null || token.isEmpty) return;
-    await showPublicUserProfileDialog(
+    await openPublicUserProfile(
       context: context,
       api: _socialApi,
       token: token,
       userId: userId,
       onFollowChanged: _load,
-      onViewProfile: () async {
-        if (!mounted) return;
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => SocialPersonPage(
-              api: _socialApi,
-              token: token,
-              userId: userId,
-              onFollowChanged: _load,
-            ),
-          ),
-        );
-      },
     );
   }
 }

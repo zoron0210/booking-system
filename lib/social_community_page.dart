@@ -7,10 +7,10 @@ import 'app_text.dart';
 import 'auth_api.dart';
 import 'guest_access.dart';
 import 'features/session/application/session_service.dart';
-import 'social_profile_section.dart';
-import 'public_user_profile.dart';
 import 'social_message_tools.dart';
 import 'social_post_interactions.dart';
+import 'features/social/presentation/social_home_palette.dart';
+import 'social_profile_section.dart';
 
 const _maxSocialPhotos = 5;
 const _maxSocialPhotoBytes = 10 * 1024 * 1024;
@@ -133,24 +133,6 @@ class _SocialCommunityPageState extends State<SocialCommunityPage> {
         _showMessage('Could not update follow status: $error');
       }
     }
-  }
-
-  Future<void> _openPerson(Map<String, dynamic> user) async {
-    final id =
-        (user['userId'] as num?)?.toInt() ?? (user['id'] as num?)?.toInt();
-    if (id == null) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => SocialPersonPage(
-          api: widget.api,
-          token: _token,
-          userId: id,
-          onFollowChanged: _loadUsers,
-        ),
-      ),
-    );
-    await _loadFeed();
-    await _loadUsers();
   }
 
   Future<void> _composePost() async {
@@ -282,9 +264,7 @@ class _SocialCommunityPageState extends State<SocialCommunityPage> {
         separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (context, index) => SocialExperiencePostCard(
           post: _feed[index],
-          onOpenPerson: socialProfileUiEnabled
-              ? () => _openPerson(_feed[index])
-              : null,
+          onOpenPerson: null,
           onFollow: null,
           api: widget.api,
           token: _token,
@@ -338,9 +318,7 @@ class _SocialCommunityPageState extends State<SocialCommunityPage> {
                           final user = _users[index];
                           return _SocialPersonTile(
                             user: user,
-                            onTap: socialProfileUiEnabled
-                                ? () => _openPerson(user)
-                                : null,
+                            onTap: null,
                             onFollow: () => _toggleFollow(user),
                           );
                         },
@@ -367,7 +345,7 @@ class _SocialPersonTile extends StatelessWidget {
     final avatar = user['avatarUrl'] as String?;
     final avatarProvider = avatar == null || avatar.isEmpty
         ? null
-        : _socialAvatarProvider(avatar);
+        : socialAvatarProvider(avatar);
     final following = user['isFollowing'] == true;
     return ListTile(
       onTap: onTap,
@@ -395,262 +373,6 @@ class _SocialPersonTile extends StatelessWidget {
   }
 }
 
-class SocialPersonPage extends StatefulWidget {
-  const SocialPersonPage({
-    super.key,
-    required this.api,
-    required this.token,
-    required this.userId,
-    this.onFollowChanged,
-  });
-
-  final AuthApi api;
-  final String? token;
-  final int userId;
-  final Future<void> Function()? onFollowChanged;
-
-  @override
-  State<SocialPersonPage> createState() => _SocialPersonPageState();
-}
-
-class _SocialPersonPageState extends State<SocialPersonPage> {
-  Map<String, dynamic>? _profile;
-  List<Map<String, dynamic>> _posts = [];
-  bool _loading = true;
-  bool _updatingFollow = false;
-
-  Future<String?> _requireInteractionToken() async {
-    final current = widget.token;
-    if (current != null && current.isNotEmpty) return current;
-    if (!await requireCustomerLogin(context) || !mounted) return null;
-    final token = (await AppSessionService.instance.load()).apiToken;
-    if (!mounted) return null;
-    if (token == null || token.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: AppText('Sign in to use post actions.', localize: true),
-        ),
-      );
-      return null;
-    }
-    return token;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final profile = await widget.api.socialUserProfile(
-        token: widget.token,
-        userId: widget.userId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _profile = profile;
-        _posts = (profile['posts'] as List<dynamic>? ?? [])
-            .whereType<Map<String, dynamic>>()
-            .toList();
-        _loading = false;
-      });
-    } on Exception catch (error) {
-      if (mounted) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: AppText('Could not load profile: $error')),
-        );
-      }
-    }
-  }
-
-  Future<void> _toggleFollow() async {
-    if (_updatingFollow) return;
-    var token = widget.token;
-    if (token == null || token.isEmpty) {
-      if (!await requireCustomerLogin(context) || !mounted) return;
-      token = (await AppSessionService.instance.load()).apiToken;
-      if (token == null || token.isEmpty) return;
-    }
-    setState(() => _updatingFollow = true);
-    final following = _profile?['isFollowing'] == true;
-    try {
-      if (following) {
-        await widget.api.unfollowSocialUser(
-          token: token,
-          userId: widget.userId,
-        );
-      } else {
-        await widget.api.followSocialUser(token: token, userId: widget.userId);
-      }
-      if (!mounted) return;
-      final count = (_profile?['followersCount'] as num?)?.toInt() ?? 0;
-      setState(() {
-        _profile = {
-          ...?_profile,
-          'isFollowing': !following,
-          'followersCount': count + (following ? -1 : 1),
-        };
-      });
-      await widget.onFollowChanged?.call();
-    } on Exception catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: AppText('Could not update follow status: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _updatingFollow = false);
-    }
-  }
-
-  Future<void> _openConnections(String type) async {
-    await showUserConnections(
-      context: context,
-      api: widget.api,
-      token: widget.token,
-      userId: widget.userId,
-      type: type,
-      onOpenProfile: (otherUserId) async {
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => SocialPersonPage(
-              api: widget.api,
-              token: widget.token,
-              userId: otherUserId,
-              onFollowChanged: widget.onFollowChanged,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final avatar = _profile?['avatarUrl'] as String?;
-    final avatarProvider = avatar == null || avatar.isEmpty
-        ? null
-        : _socialAvatarProvider(avatar);
-    return Scaffold(
-      appBar: AppBar(
-        title: AppText('${_profile?['displayName'] ?? 'Profile'}'),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundImage: avatarProvider,
-                            child: avatarProvider == null
-                                ? const Icon(Icons.person_outline_rounded)
-                                : null,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                AppText(
-                                  '${_profile?['displayName'] ?? 'SpotGo user'}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 17,
-                                  ),
-                                ),
-                                Row(
-                                  children: [
-                                    TextButton(
-                                      key: const ValueKey(
-                                        'public-profile-followers',
-                                      ),
-                                      onPressed: () =>
-                                          _openConnections('followers'),
-                                      child: AppText(
-                                        '${(_profile?['followersCount'] as num?)?.toInt() ?? 0} followers',
-                                        localize: true,
-                                      ),
-                                    ),
-                                    TextButton(
-                                      key: const ValueKey(
-                                        'public-profile-following',
-                                      ),
-                                      onPressed: () =>
-                                          _openConnections('following'),
-                                      child: AppText(
-                                        '${(_profile?['followingCount'] as num?)?.toInt() ?? 0} following',
-                                        localize: true,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          FilledButton(
-                            onPressed: _updatingFollow ? null : _toggleFollow,
-                            child: AppText(
-                              _profile?['isFollowing'] == true
-                                  ? 'Following'
-                                  : 'Follow',
-                              localize: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const AppText(
-                    'Experiences',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-                  ),
-                  const SizedBox(height: 10),
-                  if (_posts.isEmpty)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(28),
-                        child: AppText('No posts yet.', localize: true),
-                      ),
-                    )
-                  else
-                    ..._posts.map(
-                      (post) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: SocialExperiencePostCard(
-                          post: {
-                            ...post,
-                            'displayName': _profile?['displayName'],
-                            'avatarUrl': _profile?['avatarUrl'],
-                          },
-                          onOpenPerson: null,
-                          onFollow: null,
-                          api: widget.api,
-                          token: widget.token,
-                          onRequireToken: _requireInteractionToken,
-                          onPostChanged: _load,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-    );
-  }
-}
-
 class SocialExperiencePostCard extends StatelessWidget {
   const SocialExperiencePostCard({
     super.key,
@@ -661,6 +383,7 @@ class SocialExperiencePostCard extends StatelessWidget {
     this.token,
     this.onRequireToken,
     this.onPostChanged,
+    this.homeFeedStyle = false,
   });
 
   final Map<String, dynamic> post;
@@ -670,6 +393,7 @@ class SocialExperiencePostCard extends StatelessWidget {
   final String? token;
   final Future<String?> Function()? onRequireToken;
   final VoidCallback? onPostChanged;
+  final bool homeFeedStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -679,41 +403,118 @@ class SocialExperiencePostCard extends StatelessWidget {
     final avatar = post['avatarUrl'] as String?;
     final avatarProvider = avatar == null || avatar.isEmpty
         ? null
-        : _socialAvatarProvider(avatar);
+        : socialAvatarProvider(avatar);
     final caption = '${post['caption'] ?? ''}'.trim();
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
+      color: homeFeedStyle ? SocialHomeColors.of(context).surface : null,
+      shape: homeFeedStyle
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: SocialHomeColors.of(context).border),
+            )
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ListTile(
-            onTap: onOpenPerson,
-            leading: CircleAvatar(
-              backgroundImage: avatarProvider,
-              child: avatarProvider == null
-                  ? const Icon(Icons.person_outline_rounded)
-                  : null,
+          if (homeFeedStyle)
+            _HomeFeedPostHeader(
+              displayName: '${post['displayName'] ?? 'SpotGo user'}',
+              createdAt: _socialDate(post['createdAt']),
+              avatarProvider: avatarProvider,
+              onTap: onOpenPerson,
+              trailing: api == null
+                  ? null
+                  : _SocialPostOptionsMenu(
+                      post: post,
+                      api: api!,
+                      token: token,
+                      onRequireToken: onRequireToken,
+                      onViewProfile: onOpenPerson,
+                      onPostChanged: onPostChanged,
+                    ),
+            )
+          else
+            ListTile(
+              onTap: onOpenPerson,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              leading: CircleAvatar(
+                backgroundImage: avatarProvider,
+                child: avatarProvider == null
+                    ? const Icon(Icons.person_outline_rounded)
+                    : null,
+              ),
+              title: AppText(
+                '${post['displayName'] ?? 'SpotGo user'}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: AppText(_socialDate(post['createdAt'])),
+              trailing: onFollow == null
+                  ? null
+                  : TextButton(
+                      onPressed: onFollow,
+                      child: const AppText('Follow', localize: true),
+                    ),
             ),
-            title: AppText(
-              '${post['displayName'] ?? 'SpotGo user'}',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            subtitle: AppText(_socialDate(post['createdAt'])),
-            trailing: onFollow == null
-                ? null
-                : TextButton(
-                    onPressed: onFollow,
-                    child: const AppText('Follow', localize: true),
-                  ),
-          ),
           if (images.isNotEmpty)
-            SizedBox(
-              height: 280,
-              child: PageView.builder(
-                itemCount: images.length,
-                itemBuilder: (context, index) => SizedBox.expand(
-                  child: socialExperienceImage(images[index]),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: homeFeedStyle ? 10 : 0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(homeFeedStyle ? 10 : 0),
+                child: homeFeedStyle
+                    ? GestureDetector(
+                        key: ValueKey('social-post-image-${post['id']}'),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute<void>(
+                            fullscreenDialog: true,
+                            builder: (_) => _SocialExperienceImageViewer(
+                              post: post,
+                              images: images,
+                              api: api,
+                              token: token,
+                              onRequireToken: onRequireToken,
+                              onViewProfile: onOpenPerson,
+                              onPostChanged: onPostChanged,
+                            ),
+                          ),
+                        ),
+                        child: Container(
+                          color: SocialHomeColors.of(context).surfaceRaised,
+                          child: AspectRatio(
+                            aspectRatio: 0.8,
+                            child: PageView.builder(
+                              itemCount: images.length,
+                              itemBuilder: (context, index) => Center(
+                                child: socialExperienceImage(
+                                  images[index],
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : SizedBox(
+                        height: 280,
+                        child: PageView.builder(
+                          itemCount: images.length,
+                          itemBuilder: (context, index) => SizedBox.expand(
+                            child: socialExperienceImage(images[index]),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          if (homeFeedStyle && caption.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              child: AppText(
+                caption,
+                style: TextStyle(
+                  color: SocialHomeColors.of(context).text,
+                  fontSize: 14,
+                  height: 1.35,
                 ),
               ),
             ),
@@ -724,11 +525,367 @@ class SocialExperiencePostCard extends StatelessWidget {
               token: token,
               onRequireToken: onRequireToken,
               onPostChanged: onPostChanged,
+              compact: homeFeedStyle,
+              showSave: !homeFeedStyle,
             ),
-          if (caption.isNotEmpty)
+          if (!homeFeedStyle && caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: AppText(caption),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeFeedPostHeader extends StatelessWidget {
+  const _HomeFeedPostHeader({
+    required this.displayName,
+    required this.createdAt,
+    required this.avatarProvider,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final String displayName;
+  final String createdAt;
+  final ImageProvider<Object>? avatarProvider;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SocialHomeColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      child: Row(
+        children: [
+          InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: CircleAvatar(
+              radius: 20,
+              backgroundImage: avatarProvider,
+              child: avatarProvider == null
+                  ? const Icon(Icons.person_outline_rounded)
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: InkWell(
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: AppText(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.text,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (createdAt.isNotEmpty) ...[
+                      const SizedBox(width: 5),
+                      Icon(Icons.circle, size: 3, color: colors.muted),
+                      const SizedBox(width: 5),
+                      AppText(
+                        createdAt,
+                        maxLines: 1,
+                        style: TextStyle(color: colors.muted, fontSize: 11),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
+    );
+  }
+}
+
+class _SocialPostOptionsMenu extends StatefulWidget {
+  const _SocialPostOptionsMenu({
+    required this.post,
+    required this.api,
+    required this.onViewProfile,
+    this.token,
+    this.onRequireToken,
+    this.onPostChanged,
+  });
+
+  final Map<String, dynamic> post;
+  final AuthApi api;
+  final VoidCallback? onViewProfile;
+  final String? token;
+  final Future<String?> Function()? onRequireToken;
+  final VoidCallback? onPostChanged;
+
+  @override
+  State<_SocialPostOptionsMenu> createState() => _SocialPostOptionsMenuState();
+}
+
+class _SocialPostOptionsMenuState extends State<_SocialPostOptionsMenu> {
+  bool _working = false;
+
+  Future<String?> _requireToken() async {
+    final token = widget.token;
+    if (token != null && token.isNotEmpty) return token;
+    return widget.onRequireToken?.call();
+  }
+
+  Future<void> _select(String value) async {
+    if (value == 'profile') {
+      widget.onViewProfile?.call();
+      return;
+    }
+    if (value == 'save') {
+      await _toggleSave();
+    } else if (value == 'report') {
+      await _report();
+    }
+  }
+
+  Future<void> _toggleSave() async {
+    final id = (widget.post['id'] as num?)?.toInt();
+    if (id == null || _working) return;
+    final token = await _requireToken();
+    if (token == null || !mounted) return;
+    final wasSaved = widget.post['isSaved'] == true;
+    setState(() => _working = true);
+    try {
+      await widget.api.setSocialPostSaved(
+        token: token,
+        postId: id,
+        saved: !wasSaved,
+      );
+      widget.post['isSaved'] = !wasSaved;
+      widget.onPostChanged?.call();
+      _showMessage(wasSaved ? 'Removed from Saved.' : 'Saved to your profile.');
+    } on Exception catch (error) {
+      _showMessage('Could not update this post: $error');
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _report() async {
+    final id = (widget.post['id'] as num?)?.toInt();
+    if (id == null || _working) return;
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: AppText(
+                'Report this experience',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: AppText('Why are you reporting this post?'),
+            ),
+            for (final (value, label, icon) in [
+              ('spam', 'Spam', Icons.campaign_outlined),
+              (
+                'harassment',
+                'Harassment or bullying',
+                Icons.person_off_outlined,
+              ),
+              (
+                'inappropriate',
+                'Inappropriate content',
+                Icons.warning_amber_rounded,
+              ),
+              ('other', 'Something else', Icons.more_horiz_rounded),
+            ])
+              ListTile(
+                leading: Icon(icon),
+                title: AppText(label, localize: true),
+                onTap: () => Navigator.pop(context, value),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (reason == null || !mounted) return;
+    final token = await _requireToken();
+    if (token == null || !mounted) return;
+    setState(() => _working = true);
+    try {
+      await widget.api.reportSocialPost(
+        token: token,
+        postId: id,
+        reason: reason,
+      );
+      _showMessage('Thanks. Your report has been submitted.');
+    } on Exception catch (error) {
+      _showMessage('Could not report this post: $error');
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: AppText(message, localize: true)));
+  }
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<String>(
+    key: ValueKey('social-post-options-${widget.post['id']}'),
+    tooltip: 'Post options',
+    enabled: !_working,
+    onSelected: _select,
+    itemBuilder: (context) => [
+      PopupMenuItem(
+        value: 'profile',
+        child: const ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.person_outline_rounded),
+          title: AppText('View profile', localize: true),
+        ),
+      ),
+      PopupMenuItem(
+        value: 'report',
+        child: const ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.flag_outlined),
+          title: AppText('Report', localize: true),
+        ),
+      ),
+      PopupMenuItem(
+        value: 'save',
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            widget.post['isSaved'] == true
+                ? Icons.bookmark_remove_outlined
+                : Icons.bookmark_border_rounded,
+          ),
+          title: AppText(
+            widget.post['isSaved'] == true ? 'Unsave' : 'Save',
+            localize: true,
+          ),
+        ),
+      ),
+    ],
+    icon: const Icon(Icons.more_vert_rounded),
+  );
+}
+
+class _SocialExperienceImageViewer extends StatelessWidget {
+  const _SocialExperienceImageViewer({
+    required this.post,
+    required this.images,
+    required this.api,
+    required this.token,
+    required this.onRequireToken,
+    required this.onViewProfile,
+    required this.onPostChanged,
+  });
+
+  final Map<String, dynamic> post;
+  final List<String> images;
+  final AuthApi? api;
+  final String? token;
+  final Future<String?> Function()? onRequireToken;
+  final VoidCallback? onViewProfile;
+  final VoidCallback? onPostChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final caption = '${post['caption'] ?? ''}'.trim();
+    final colors = SocialHomeColors.of(context);
+    return Scaffold(
+      backgroundColor: colors.canvas,
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.black.withValues(alpha: 0.28),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          key: const ValueKey('social-post-image-viewer-back'),
+          tooltip: 'Back',
+          onPressed: () => Navigator.maybePop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: AppText(
+          '${post['displayName'] ?? 'SpotGo user'}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        actions: [
+          if (api != null)
+            _SocialPostOptionsMenu(
+              post: post,
+              api: api!,
+              token: token,
+              onRequireToken: onRequireToken,
+              onViewProfile: onViewProfile,
+              onPostChanged: onPostChanged,
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ColoredBox(
+              color: Colors.black,
+              child: PageView.builder(
+                key: ValueKey('social-post-image-viewer-${post['id']}'),
+                itemCount: images.length,
+                itemBuilder: (context, index) => Center(
+                  child: InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: SizedBox.expand(
+                      child: socialExperienceImage(
+                        images[index],
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (caption.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: AppText(
+                  caption,
+                  style: TextStyle(color: colors.text, fontSize: 14),
+                ),
+              ),
+            ),
+          if (api != null)
+            SocialPostInteractionBar(
+              post: post,
+              api: api!,
+              token: token,
+              onRequireToken: onRequireToken,
+              onPostChanged: onPostChanged,
+              compact: true,
+              showSave: false,
             ),
         ],
       ),
@@ -1005,7 +1162,7 @@ class SocialPostDraft {
   final List<String> images;
 }
 
-ImageProvider<Object>? _socialAvatarProvider(String value) {
+ImageProvider<Object>? socialAvatarProvider(String value) {
   final match = RegExp(
     r'^data:image/(?:jpeg|jpg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$',
     caseSensitive: false,

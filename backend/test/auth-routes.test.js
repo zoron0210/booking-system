@@ -11,14 +11,52 @@ const originalListen = express.application.listen;
 let server;
 let accessToken;
 let originalJwtSecret;
+let originalGoogleClientId;
+let originalFetch;
 let onboardingUser;
+let googleSuspendedUser;
+let authUserStatus;
 
 before(async () => {
   originalJwtSecret = process.env.JWT_SECRET;
+  originalGoogleClientId = process.env.GOOGLE_CLIENT_ID;
+  originalFetch = global.fetch;
   process.env.JWT_SECRET = 'backend-test-only-secret';
+  process.env.GOOGLE_CLIENT_ID = 'backend-test-google-client';
+  authUserStatus = 'active';
+  googleSuspendedUser = {
+    id: 99,
+    email: 'suspended@example.test',
+    first_name: 'Taylor',
+    last_name: null,
+    role: 'customer',
+    status: 'suspended',
+  };
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      aud: 'backend-test-google-client',
+      email: 'suspended@example.test',
+      email_verified: true,
+      given_name: 'Taylor',
+      sub: 'google-subject-99',
+    }),
+  });
 
   const fakePool = {
     execute: async (sql, params = []) => {
+      if (sql.includes('SELECT status FROM users WHERE id = ? LIMIT 1')) {
+        return [[{ status: authUserStatus }], []];
+      }
+      if (sql.includes('FROM users WHERE email = ? LIMIT 1')) {
+        return params[0] === googleSuspendedUser.email
+          ? [[googleSuspendedUser], []]
+          : [[], []];
+      }
+      if (sql.includes('UPDATE users SET status = ?')) {
+        googleSuspendedUser.status = params[0];
+        return [{ affectedRows: 1 }, []];
+      }
       if (sql.includes('SELECT id, email, role, status FROM users')) {
         if (params[0] === '88') {
           return [[{
@@ -85,6 +123,7 @@ before(async () => {
   } finally {
     Module._load = originalLoad;
     express.application.listen = originalListen;
+    global.fetch = originalFetch;
   }
 
   accessToken = jwt.sign({
@@ -110,6 +149,8 @@ after(async () => {
   }
   if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
   else process.env.JWT_SECRET = originalJwtSecret;
+  if (originalGoogleClientId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+  else process.env.GOOGLE_CLIENT_ID = originalGoogleClientId;
 });
 
 test('protected routes reject requests without a bearer token', async () => {
@@ -121,6 +162,40 @@ test('protected routes reject requests without a bearer token', async () => {
   const body = await response.json();
   assert.equal(typeof body.error, 'string');
   assert.ok(body.error.length > 0);
+});
+
+test('authenticated routes reject accounts that became inactive after token issuance', async () => {
+  authUserStatus = 'suspended';
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/auth/me`,
+      { headers: { authorization: ['Bearer', accessToken].join(' ') } },
+    );
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), {
+      error: 'This account is not active.',
+    });
+  } finally {
+    authUserStatus = 'active';
+  }
+});
+
+test('Google sign-in does not reactivate suspended accounts', async () => {
+  const response = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/auth/oauth/google`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ idToken: 'test-google-token' }),
+    },
+  );
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), {
+    error: 'This account is suspended.',
+  });
+  assert.equal(googleSuspendedUser.status, 'suspended');
 });
 
 test('merchant routes reject a valid token for an account without active merchant access', async () => {

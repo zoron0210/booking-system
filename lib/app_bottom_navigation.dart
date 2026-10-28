@@ -22,6 +22,7 @@ class AppBottomNavigation extends StatefulWidget {
     this.hideMerchantVenues = false,
     this.hideSavedDestination = false,
     this.showHomeDestination = false,
+    this.venueDiscoveryStyle = false,
   });
 
   final int selectedIndex;
@@ -34,6 +35,7 @@ class AppBottomNavigation extends StatefulWidget {
   final bool hideMerchantVenues;
   final bool hideSavedDestination;
   final bool showHomeDestination;
+  final bool venueDiscoveryStyle;
 
   @override
   State<AppBottomNavigation> createState() => _AppBottomNavigationState();
@@ -87,6 +89,18 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
           MessageUnreadCountScope.countOf(context) ?? widget.unreadMessageCount;
       final barHeight = compact ? 68.0 : 72.0;
       final hideSaved = widget.hideSavedDestination && !widget.merchantMode;
+      final venueDarkMode =
+          widget.venueDiscoveryStyle && AppPreferences.instance.darkMode;
+      final navigationBackground = widget.venueDiscoveryStyle
+          ? venueDarkMode
+                ? const Color(0xFF131B2E)
+                : Colors.white
+          : AppColors.surface;
+      final navigationIndicator = widget.venueDiscoveryStyle
+          ? venueDarkMode
+                ? const Color(0xFF3935A8)
+                : const Color(0xFFE7E6FF)
+          : AppColors.softOrange;
       final visibleSelectedIndex = widget.merchantMode
           ? widget.selectedIndex
           : _customerDestinationOrder.indexOf(widget.selectedIndex);
@@ -98,23 +112,43 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
       return Theme(
         data: Theme.of(context).copyWith(
           navigationBarTheme: NavigationBarThemeData(
-            backgroundColor: AppColors.surface,
-            surfaceTintColor: AppColors.surface,
+            backgroundColor: navigationBackground,
+            surfaceTintColor: navigationBackground,
             shadowColor: Colors.transparent,
             elevation: 0,
             height: barHeight,
-            indicatorColor: AppColors.softOrange,
+            indicatorColor: navigationIndicator,
             iconTheme: WidgetStateProperty.resolveWith((states) {
               final selected = states.contains(WidgetState.selected);
               return IconThemeData(
-                color: selected ? _navigationOrange : _navigationMuted,
+                color: selected
+                    ? widget.venueDiscoveryStyle
+                          ? venueDarkMode
+                                ? const Color(0xFF9B99FF)
+                                : const Color(0xFF4F46E5)
+                          : _navigationOrange
+                    : widget.venueDiscoveryStyle
+                    ? venueDarkMode
+                          ? const Color(0xFFAAA9BA)
+                          : const Color(0xFF647089)
+                    : _navigationMuted,
                 size: compact ? 22 : 24,
               );
             }),
             labelTextStyle: WidgetStateProperty.resolveWith((states) {
               final selected = states.contains(WidgetState.selected);
               return TextStyle(
-                color: selected ? _navigationInk : _navigationMuted,
+                color: selected
+                    ? widget.venueDiscoveryStyle
+                          ? venueDarkMode
+                                ? const Color(0xFFF4F3FF)
+                                : const Color(0xFF182238)
+                          : _navigationInk
+                    : widget.venueDiscoveryStyle
+                    ? venueDarkMode
+                          ? const Color(0xFFAAA9BA)
+                          : const Color(0xFF647089)
+                    : _navigationMuted,
                 fontSize: labelSize,
                 fontWeight: FontWeight.w700,
               );
@@ -124,7 +158,7 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
         child: SizedBox(
           height: barHeight,
           child: ColoredBox(
-            color: AppColors.surface,
+            color: navigationBackground,
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(

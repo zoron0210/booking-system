@@ -13,7 +13,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'disabled venue small cards are unavailable and do not navigate',
+    'disabled venues are unavailable and do not navigate from discovery cards',
     (tester) async {
       SharedPreferences.setMockInitialValues({
         'session_api_token': 'test-token',
@@ -62,14 +62,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('UNAVAILABLE · Booking disabled'), findsWidgets);
+      expect(find.text('UNAVAILABLE'), findsOneWidget);
       final smallCard = find
           .byKey(const ValueKey('news-feed-mini-business-42'))
           .first;
       final smallCardTap = find.descendant(
         of: smallCard,
         matching: find.byType(InkWell),
-      );
+      ).first;
       expect(tester.widget<InkWell>(smallCardTap).onTap, isNull);
       final pushesBeforeTap = observer.pushCount;
 
@@ -78,44 +78,31 @@ void main() {
 
       expect(observer.pushCount, pushesBeforeTap);
       expect(find.text('Sports Courts'), findsOneWidget);
-      expect(find.text('Discover what’s new'), findsOneWidget);
+      expect(find.text('SpotGo'), findsOneWidget);
       expect(find.byKey(const ValueKey('news-feed-search')), findsOneWidget);
-
       final feedScrollable = find
           .descendant(
             of: find.byKey(const ValueKey('news-feed-content-list')),
             matching: find.byType(Scrollable),
           )
           .first;
+      final listedCard = find.byKey(
+        const ValueKey('news-feed-card-business-42'),
+      );
       await tester.scrollUntilVisible(
-        find.text('Highest rate'),
-        200,
+        listedCard,
+        180,
         scrollable: feedScrollable,
       );
+      expect(find.text('UNAVAILABLE · Booking disabled'), findsOneWidget);
+      final listedCardTap = find
+          .descendant(of: listedCard, matching: find.byType(InkWell))
+          .first;
+      expect(tester.widget<InkWell>(listedCardTap).onTap, isNull);
+      final pushesBeforeListedTap = observer.pushCount;
+      await tester.tap(listedCard);
       await tester.pumpAndSettle();
-      expect(find.text('Discover what’s new'), findsNothing);
-      expect(find.byKey(const ValueKey('news-feed-search')), findsOneWidget);
-      expect(find.text('UNAVAILABLE · Booking disabled'), findsWidgets);
-      final featuredCards = find.byKey(
-        const ValueKey('news-feed-mini-business-42'),
-      );
-      expect(featuredCards, findsWidgets);
-
-      final highestRateCard = featuredCards.first;
-      final highestRateTap = find.descendant(
-        of: highestRateCard,
-        matching: find.byType(InkWell),
-      );
-      expect(tester.widget<InkWell>(highestRateTap).onTap, isNull);
-      final pushesBeforeHighestRateTap = observer.pushCount;
-      await tester.tap(highestRateCard);
-      await tester.pumpAndSettle();
-      expect(observer.pushCount, pushesBeforeHighestRateTap);
-
-      await tester.drag(feedScrollable, const Offset(0, 1200));
-      await tester.pumpAndSettle();
-      expect(find.text('Discover what’s new'), findsOneWidget);
-      expect(find.byKey(const ValueKey('news-feed-search')), findsOneWidget);
+      expect(observer.pushCount, pushesBeforeListedTap);
     },
   );
 }

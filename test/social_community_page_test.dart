@@ -104,113 +104,110 @@ void main() {
     expect(find.text('Your experience has been shared.'), findsOneWidget);
   });
 
-  testWidgets(
-    'guests can browse public posts and profiles but not follow or post',
-    (tester) async {
-      FlutterSecureStorage.setMockInitialValues({});
-      final requests = <http.Request>[];
-      final api = AuthApi(
-        client: MockClient((request) async {
-          requests.add(request);
-          if (request.url.path == '/api/social/feed') {
-            return http.Response(
-              jsonEncode({
-                'posts': [
-                  {
-                    'id': 19,
-                    'userId': 42,
-                    'displayName': 'Alex Player',
-                    'caption': 'Public match',
-                    'images': [],
-                    'createdAt': '2026-05-01T12:00:00.000Z',
-                  },
-                ],
-              }),
-              200,
-            );
-          }
-          if (request.url.path == '/api/social/users') {
-            return http.Response(
-              jsonEncode({
-                'users': [
-                  {
-                    'id': 42,
-                    'displayName': 'Alex Player',
-                    'followersCount': 3,
-                    'isFollowing': false,
-                  },
-                ],
-              }),
-              200,
-            );
-          }
-          if (request.url.path == '/api/social/users/42') {
-            return http.Response(
-              jsonEncode({
-                'profile': {
+  testWidgets('guests can browse posts without opening another profile', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final requests = <http.Request>[];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/social/feed') {
+          return http.Response(
+            jsonEncode({
+              'posts': [
+                {
+                  'id': 19,
+                  'userId': 42,
+                  'displayName': 'Alex Player',
+                  'caption': 'Public match',
+                  'images': [],
+                  'createdAt': '2026-05-01T12:00:00.000Z',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/social/users') {
+          return http.Response(
+            jsonEncode({
+              'users': [
+                {
+                  'id': 42,
                   'displayName': 'Alex Player',
                   'followersCount': 3,
-                  'followingCount': 1,
                   'isFollowing': false,
                 },
-                'posts': [
-                  {
-                    'id': 19,
-                    'caption': 'Public match',
-                    'images': [],
-                    'createdAt': '2026-05-01T12:00:00.000Z',
-                  },
-                ],
-                'businesses': [],
-              }),
-              200,
-            );
-          }
-          return http.Response('{}', 404);
-        }),
-      );
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/social/users/42') {
+          return http.Response(
+            jsonEncode({
+              'profile': {
+                'displayName': 'Alex Player',
+                'followersCount': 3,
+                'followingCount': 1,
+                'isFollowing': false,
+              },
+              'posts': [
+                {
+                  'id': 19,
+                  'caption': 'Public match',
+                  'images': [],
+                  'createdAt': '2026-05-01T12:00:00.000Z',
+                },
+              ],
+              'businesses': [],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
 
-      await tester.pumpWidget(MaterialApp(home: SocialCommunityPage(api: api)));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(MaterialApp(home: SocialCommunityPage(api: api)));
+    await tester.pumpAndSettle();
 
-      expect(find.text('Public match'), findsOneWidget);
-      await tester.tap(find.text('Alex Player').first);
-      await tester.pumpAndSettle();
-      expect(find.text('Experiences'), findsOneWidget);
-      expect(
-        requests.map((request) => request.url.path),
-        contains('/api/social/users/42'),
-      );
-      await tester.pageBack();
-      await tester.pumpAndSettle();
+    expect(find.text('Public match'), findsOneWidget);
+    await tester.tap(find.text('Alex Player').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Community'), findsOneWidget);
+    expect(
+      requests.map((request) => request.url.path),
+      isNot(contains('/api/social/users/42')),
+    );
 
-      await tester.tap(find.text('People'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Follow'));
-      await tester.pumpAndSettle();
-      expect(find.text('Log in to continue'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('People'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Follow'));
+    await tester.pumpAndSettle();
+    expect(find.text('Log in to continue'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.byKey(const ValueKey('social-community-create-post')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Log in to continue'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('social-community-create-post')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Log in to continue'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
-      expect(
-        requests.any(
-          (request) =>
-              request.method != 'GET' &&
-              (request.url.path == '/api/social/posts' ||
-                  request.url.path.startsWith('/api/social/follows/')),
-        ),
-        isFalse,
-      );
-    },
-  );
+    expect(
+      requests.any(
+        (request) =>
+            request.method != 'GET' &&
+            (request.url.path == '/api/social/posts' ||
+                request.url.path.startsWith('/api/social/follows/')),
+      ),
+      isFalse,
+    );
+  });
 
   testWidgets('experience cards support likes, comments, and saves', (
     tester,
@@ -312,7 +309,15 @@ void main() {
               'followersCount': 8,
               'followingCount': 4,
             },
-            'posts': [],
+            'posts': [
+              {
+                'id': 12,
+                'caption': 'A great game',
+                'images': [],
+                'likeCount': 18,
+                'commentCount': 6,
+              },
+            ],
             'businesses': [
               {
                 'businessId': 23,
@@ -349,6 +354,12 @@ void main() {
     expect(loadedProfile?['followersCount'], 8);
     expect(find.text('Your experiences'), findsOneWidget);
     expect(find.byKey(const ValueKey('social-create-post')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('social-profile-post-12')),
+      findsOneWidget,
+    );
+    expect(find.text('18'), findsOneWidget);
+    expect(find.text('6'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('social-profile-business-23')),
       findsOneWidget,

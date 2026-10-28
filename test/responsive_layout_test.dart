@@ -126,7 +126,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Choose your booking type'), findsOneWidget);
+        expect(find.text('Choose Booking Type'), findsOneWidget);
         expect(find.text('Continue to Fitness & Wellness'), findsOneWidget);
         expect(
           tester
@@ -258,9 +258,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Choose your booking type'), findsOneWidget);
+    expect(find.text('Choose Booking Type'), findsOneWidget);
     expect(find.text('Continue to Fitness & Wellness'), findsOneWidget);
-    expect(find.text('Courts & facilities'), findsOneWidget);
+    expect(find.text('Sports & Courts'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

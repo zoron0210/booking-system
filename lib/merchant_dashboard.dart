@@ -10,7 +10,6 @@ import 'app_bottom_navigation.dart';
 import 'features/merchant_management/data/merchant_session_provider.dart';
 import 'auth_api.dart';
 import 'public_user_profile.dart';
-import 'social_community_page.dart';
 import 'core/booking_status.dart';
 import 'core/booking_approval_deadline.dart';
 import 'fitness_booking_calendar.dart';
@@ -1942,25 +1941,12 @@ class _MerchantDashboardPageState extends State<MerchantDashboardPage> {
     final session = await _sessionProvider.load();
     final token = session.apiToken;
     if (token == null || token.isEmpty || !mounted) return;
-    await showPublicUserProfileDialog(
+    await openPublicUserProfile(
       context: context,
       api: _api,
       token: token,
       userId: customerId,
       onFollowChanged: _loadBookings,
-      onViewProfile: () async {
-        if (!mounted) return;
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => SocialPersonPage(
-              api: _api,
-              token: token,
-              userId: customerId,
-              onFollowChanged: _loadBookings,
-            ),
-          ),
-        );
-      },
     );
   }
 

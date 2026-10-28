@@ -178,8 +178,8 @@ class _BusinessThumbnail extends StatelessWidget {
   Widget build(BuildContext context) {
     final id = business['businessId'] ?? business['id'] ?? 'venue';
     final imageUrl = _businessImageUrl(business);
-    final name =
-        '${business['businessName'] ?? business['name'] ?? 'Venue'}'.trim();
+    final name = '${business['businessName'] ?? business['name'] ?? 'Venue'}'
+        .trim();
     return ClipRRect(
       key: ValueKey('social-profile-business-$id'),
       borderRadius: BorderRadius.circular(7),
@@ -254,18 +254,74 @@ class _PostThumbnail extends StatelessWidget {
         .whereType<String>()
         .toList();
     return ClipRRect(
+      key: ValueKey('social-profile-post-${post['id'] ?? 'unknown'}'),
       borderRadius: BorderRadius.circular(7),
-      child: images.isEmpty
-          ? Container(
-              color: AppColors.softSurface,
-              alignment: Alignment.center,
-              padding: const EdgeInsets.all(8),
-              child: const Icon(Icons.format_quote_rounded),
-            )
-          : socialExperienceImage(images.first, fit: BoxFit.cover),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          images.isEmpty
+              ? Container(
+                  color: AppColors.softSurface,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(8),
+                  child: const Icon(Icons.format_quote_rounded),
+                )
+              : socialExperienceImage(images.first, fit: BoxFit.cover),
+          Positioned(
+            right: 4,
+            bottom: 4,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .68),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.favorite_rounded,
+                      color: Colors.white,
+                      size: 11,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      _engagementCount(post['likeCount']),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    const Icon(
+                      Icons.mode_comment_rounded,
+                      color: Colors.white,
+                      size: 10,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      _engagementCount(post['commentCount']),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
+
+String _engagementCount(Object? value) =>
+    '${value is num ? value.toInt() : int.tryParse('$value') ?? 0}';
 
 Widget socialExperienceImage(String value, {BoxFit fit = BoxFit.cover}) {
   final match = RegExp(

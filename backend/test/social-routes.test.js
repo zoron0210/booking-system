@@ -18,6 +18,9 @@ function createRouteHarness(pool, options = {}) {
     delete(path, ...handlers) {
       routes.set(`DELETE ${path}`, handlers);
     },
+    patch(path, ...handlers) {
+      routes.set(`PATCH ${path}`, handlers);
+    },
   };
   registerSocialRoutes({
     app,
@@ -92,6 +95,124 @@ test('validates supported photos and rejects mismatched content and excessive fi
   assert.equal(validateImages(null).valid, true);
 });
 
+test('social notifications are scoped to the signed-in user and include unread count', async () => {
+  const calls = [];
+  const routes = createRouteHarness({
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('COUNT(*) AS unreadCount')) {
+        return [[{ unreadCount: 2 }], []];
+      }
+      if (sql.includes('FROM social_notifications n')) {
+        return [[{
+          id: 8,
+          type: 'comment',
+          postId: 35,
+          postOwnerId: 7,
+          actorUserId: 12,
+          actorFirstName: 'Alex',
+          actorLastName: 'Player',
+          actorAvatarUrl: null,
+          postCaption: 'Game day',
+          commentText: 'Great game!',
+          createdAt: new Date('2026-10-28T08:00:00.000Z'),
+          readAt: null,
+        }], []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+
+  const res = await call(routes, 'GET /api/social/notifications', {});
+
+  assert.equal(res.body.unreadCount, 2);
+  assert.deepEqual(res.body.notifications[0], {
+    id: 8,
+    type: 'comment',
+    postId: 35,
+    postOwnerId: 7,
+    actorUserId: 12,
+    actorFirstName: 'Alex',
+    actorLastName: 'Player',
+    actorAvatarUrl: null,
+    postCaption: 'Game day',
+    commentText: 'Great game!',
+    createdAt: '2026-10-28T08:00:00.000Z',
+    readAt: null,
+  });
+  assert.deepEqual(calls.map(({ params }) => params), [[7], [7]]);
+  assert.match(calls[0].sql, /n\.recipient_user_id = \?/);
+  assert.match(calls[1].sql, /n\.recipient_user_id = \?/);
+  assert.match(calls[1].sql, /FROM user_blocks/);
+});
+
+test('notification read updates are limited to the authenticated user', async () => {
+  const calls = [];
+  const routes = createRouteHarness({
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [{ affectedRows: 1 }, []];
+    },
+  });
+
+  const readOne = await call(
+    routes,
+    'PATCH /api/social/notifications/:notificationId/read',
+    { params: { notificationId: '8' } },
+  );
+  assert.deepEqual(readOne.body, { read: true });
+  assert.deepEqual(calls[0].params, [8, 7]);
+  assert.match(calls[0].sql, /WHERE id = \? AND recipient_user_id = \?/);
+
+  const readAll = await call(routes, 'POST /api/social/notifications/read-all', {});
+  assert.deepEqual(readAll.body, { read: true });
+  assert.deepEqual(calls[1].params, [7]);
+  assert.match(calls[1].sql, /WHERE recipient_user_id = \? AND read_at IS NULL/);
+});
+
+test('comments, reactions, and follows create recipient-specific notifications', async () => {
+  const notifications = [];
+  const routes = createRouteHarness({
+    async execute(sql, params) {
+      if (sql.includes('SELECT p.id')) {
+        return [[{ id: 35, ownerId: 42 }], []];
+      }
+      if (sql.includes('SELECT id FROM users')) return [[{ id: 42 }], []];
+      if (sql.includes('INSERT INTO social_post_comments')) {
+        return [{ insertId: 91 }, []];
+      }
+      if (sql.includes('INSERT IGNORE INTO social_post_likes')) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('INSERT IGNORE INTO user_follows')) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('INSERT IGNORE INTO social_notifications')) {
+        notifications.push(params);
+        return [{ affectedRows: 1 }, []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+
+  await call(routes, 'POST /api/social/posts/:postId/comments', {
+    params: { postId: '35' },
+    body: { text: 'Great game!' },
+  });
+  await call(routes, 'POST /api/social/posts/:postId/likes', {
+    params: { postId: '35' },
+  });
+  await call(routes, 'POST /api/social/follows/:userId', {
+    params: { userId: '42' },
+  });
+
+  assert.deepEqual(notifications, [
+    [42, 7, 'comment', 35, 91],
+    [42, 7, 'like', 35, 35],
+    [42, 7, 'follow', null, 42],
+  ]);
+});
+
 test('merchant profiles include only currently enabled published venues', async () => {
   const calls = [];
   const routes = createRouteHarness({
@@ -102,6 +223,7 @@ test('merchant profiles include only currently enabled published venues', async 
           id: 7,
           firstName: 'Morgan',
           lastName: 'Merchant',
+          hobby: 'Tennis, Hiking',
           role: 'merchant',
           postsCount: 0,
         }], []];
@@ -139,7 +261,9 @@ test('merchant profiles include only currently enabled published venues', async 
     imageUrls: ['https://example.test/court.jpg'],
   }]);
   assert.equal(res.body.profile.postsCount, 0);
+  assert.equal(res.body.profile.hobby, 'Tennis, Hiking');
   const profileQuery = calls.find(({ sql }) => sql.includes('postsCount'));
+  assert.match(profileQuery.sql, /u\.hobby/);
   assert.match(
     profileQuery.sql,
     /\(SELECT COUNT\(\*\) FROM social_posts p\s+WHERE p\.user_id = u\.id\) AS postsCount/,
@@ -465,6 +589,9 @@ test('saves a caption and valid photos in one transaction', async () => {
       if (sql.includes('INSERT INTO social_posts')) {
         return [{ insertId: 35 }, []];
       }
+      if (sql.includes('INSERT IGNORE INTO social_notifications')) {
+        return [{ affectedRows: 1 }, []];
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
     async rollback() {
@@ -497,6 +624,13 @@ test('saves a caption and valid photos in one transaction', async () => {
   assert.equal(committed, true);
   assert.equal(released, true);
   assert.ok(calls.some(({ sql }) => sql.includes('FOR UPDATE')));
+  const newPostNotifications = calls.find(({ sql }) =>
+    sql.includes('INSERT IGNORE INTO social_notifications'),
+  );
+  assert.ok(newPostNotifications);
+  assert.match(newPostNotifications.sql, /FROM user_follows f/);
+  assert.match(newPostNotifications.sql, /FROM user_blocks b/);
+  assert.deepEqual(newPostNotifications.params, [7, 35, 35, 7, 7, 7]);
 });
 
 test('rejects posts without content before acquiring a database connection', async () => {
@@ -549,9 +683,14 @@ test('creates a one-way follow after checking the target account and block list'
     const routes = createRouteHarness({
       async execute(sql, params) {
         calls.push({ sql, params });
-        if (sql.includes('SELECT p.id')) return [[{ id: 35 }], []];
+        if (sql.includes('SELECT p.id')) {
+          return [[{ id: 35, ownerId: 42 }], []];
+        }
         if (sql.includes('INSERT INTO social_post_comments')) {
           return [{ insertId: 91 }, []];
+        }
+        if (sql.includes('INSERT IGNORE INTO social_notifications')) {
+          return [{ affectedRows: 1 }, []];
         }
         throw new Error(`Unexpected SQL: ${sql}`);
       },
@@ -574,13 +713,14 @@ test('creates a one-way follow after checking the target account and block list'
       'Great game! 😀',
       'https://media.tenor.com/a1/test.gif',
     ]);
+    assert.deepEqual(calls[2].params, [42, 7, 'comment', 35, 91]);
 
     const invalid = await call(routes, 'POST /api/social/posts/:postId/comments', {
       params: { postId: '35' },
       body: { text: '', gifUrl: 'https://example.com/test.gif' },
     });
     assert.equal(invalid.statusCode, 400);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
   });
 
   test('likes and saves are idempotent and require a visible post', async () => {
@@ -603,6 +743,43 @@ test('creates a one-way follow after checking the target account and block list'
     });
     assert.deepEqual(unsaved.body, { isSaved: false });
     assert.equal(calls.length, 3);
+  });
+
+  test('reports a visible post once and validates the report reason', async () => {
+    const calls = [];
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT p.id')) return [[{ id: 35 }], []];
+        if (sql.includes('INSERT IGNORE INTO social_post_reports')) {
+          return [{ affectedRows: 1 }, []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+
+    const reported = await call(
+      routes,
+      'POST /api/social/posts/:postId/reports',
+      {
+        params: { postId: '35' },
+        body: { reason: 'spam' },
+      },
+    );
+    assert.equal(reported.statusCode, 201);
+    assert.deepEqual(reported.body, { reported: true });
+    assert.deepEqual(calls[1].params, [35, 7, 'spam']);
+
+    const invalid = await call(
+      routes,
+      'POST /api/social/posts/:postId/reports',
+      {
+        params: { postId: '35' },
+        body: { reason: 'not-a-reason' },
+      },
+    );
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(calls.length, 2);
   });
 
   test('Tenor GIF search keeps its API key server-side and returns approved media URLs', async () => {

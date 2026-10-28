@@ -55,6 +55,9 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
   final Set<String> _amenities = <String>{};
   var _headerVisible = true;
 
+  bool get _isPopularCollection =>
+      widget.title == 'Most popular' || widget.title.startsWith('Popular ');
+
   @override
   void initState() {
     super.initState();
@@ -109,9 +112,13 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
           (query.isEmpty || searchable.contains(query));
     }).toList();
     if (_priceSort == 'Lowest to highest') {
-      filtered.sort((a, b) => venueFilterPrice(a).compareTo(venueFilterPrice(b)));
+      filtered.sort(
+        (a, b) => venueFilterPrice(a).compareTo(venueFilterPrice(b)),
+      );
     } else if (_priceSort == 'Highest to lowest') {
-      filtered.sort((a, b) => venueFilterPrice(b).compareTo(venueFilterPrice(a)));
+      filtered.sort(
+        (a, b) => venueFilterPrice(b).compareTo(venueFilterPrice(a)),
+      );
     } else if (_userPosition case final position?) {
       filtered.sort(
         (a, b) =>
@@ -579,7 +586,7 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: AppText(
-          widget.title == 'Most popular' ? 'Most popular venues' : 'Top rated',
+          _isPopularCollection ? 'Most popular venues' : 'Top rated',
         ),
         content: AppText(widget.collectionDescription),
         actions: [
@@ -628,7 +635,7 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
                                   alignment: Alignment.centerLeft,
                                   fit: BoxFit.scaleDown,
                                   child: AppText(
-                                    widget.title == 'Most popular'
+                                    _isPopularCollection
                                         ? widget.popularHeading
                                         : widget.ratedHeading,
                                     key: const ValueKey(

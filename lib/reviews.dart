@@ -12,7 +12,6 @@ import 'features/session/application/session_service.dart';
 import 'guest_access.dart';
 import 'app_preferences.dart';
 import 'public_user_profile.dart';
-import 'social_community_page.dart';
 
 class ReviewsSheet extends StatefulWidget {
   const ReviewsSheet({
@@ -320,24 +319,12 @@ class _ReviewsSheetState extends State<ReviewsSheet> {
                 : () async {
                     final token =
                         (await AppSessionService.instance.load()).apiToken;
-              if (!mounted) return;
-                    await showPublicUserProfileDialog(
+                    if (!mounted) return;
+                    await openPublicUserProfile(
                       context: context,
                       api: widget.api,
                       token: token,
                       userId: review.customerId!,
-                      onViewProfile: () async {
-                        if (!mounted) return;
-                        await Navigator.of(context).push<void>(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SocialPersonPage(
-                              api: widget.api,
-                              token: token,
-                              userId: review.customerId!,
-                            ),
-                          ),
-                        );
-                      },
                     );
                   },
             child: CircleAvatar(

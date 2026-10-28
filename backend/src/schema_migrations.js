@@ -1032,6 +1032,62 @@ async function ensureVenueHeartsSchema() {
         [18, 'customer-onboarding-profile'],
       );
     }
+    if (!appliedVersions.has(19)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_post_reports (
+          post_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          reason ENUM('spam', 'harassment', 'inappropriate', 'other') NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (post_id, user_id),
+          KEY idx_social_post_reports_user (user_id, created_at),
+          CONSTRAINT fk_social_post_reports_post
+            FOREIGN KEY (post_id) REFERENCES social_posts (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_post_reports_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [19, 'social-post-reporting'],
+      );
+    }
+    if (!appliedVersions.has(20)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_notifications (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          recipient_user_id BIGINT UNSIGNED NOT NULL,
+          actor_user_id BIGINT UNSIGNED NOT NULL,
+          type ENUM('like', 'comment', 'follow', 'post') NOT NULL,
+          post_id BIGINT UNSIGNED NULL,
+          source_id BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          read_at DATETIME NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_social_notifications_event
+            (recipient_user_id, type, actor_user_id, source_id),
+          KEY idx_social_notifications_recipient
+            (recipient_user_id, read_at, created_at, id),
+          CONSTRAINT fk_social_notifications_recipient
+            FOREIGN KEY (recipient_user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_notifications_actor
+            FOREIGN KEY (actor_user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_notifications_post
+            FOREIGN KEY (post_id) REFERENCES social_posts (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [20, 'social-activity-notifications'],
+      );
+    }
   } finally {
     try {
       if (lockAcquired) {

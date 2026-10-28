@@ -488,6 +488,14 @@ async function request(
   });
 }
 
+function assertOnlyAuthenticationStatusQuery() {
+  assert.equal(db.calls.length, 1);
+  assert.equal(
+    db.calls[0].sql,
+    'SELECT status FROM users WHERE id = ? LIMIT 1',
+  );
+}
+
 before(async () => {
   originalJwtSecret = process.env.JWT_SECRET;
   originalPaymongoSecret = process.env.PAYMONGO_SECRET_KEY;
@@ -499,6 +507,9 @@ before(async () => {
   const fakePool = {
     execute: async (sql, params = []) => {
       db.calls.push({ sql, params });
+      if (sql.includes('SELECT status FROM users WHERE id = ? LIMIT 1')) {
+        return response([{ status: db.accountStatus }]);
+      }
       if (
         sql.includes('FROM merchant_businesses') &&
         sql.includes('WHERE id = ? AND merchant_id = ?')
@@ -934,7 +945,7 @@ test('profile routes reject invalid field types before database writes', async (
   assert.deepEqual(await response.json(), {
     error: 'One or more profile fields are invalid.',
   });
-  assert.equal(db.calls.length, 0);
+  assertOnlyAuthenticationStatusQuery();
 });
 
 test('conversation routes reject malformed identifiers without querying', async () => {
@@ -944,7 +955,7 @@ test('conversation routes reject malformed identifiers without querying', async 
   assert.deepEqual(await response.json(), {
     error: 'The conversation is invalid.',
   });
-  assert.equal(db.calls.length, 0);
+  assertOnlyAuthenticationStatusQuery();
 });
 
 test('deleting a conversation is per-user and new messages restore it for both members', async () => {
@@ -1017,7 +1028,7 @@ test('invalid message deletion scopes are rejected before database access', asyn
   assert.deepEqual(await response.json(), {
     error: 'Choose a valid message deletion scope.',
   });
-  assert.equal(db.calls.length, 0);
+  assertOnlyAuthenticationStatusQuery();
 });
 
 test('only a message sender can delete it for everyone', async () => {
@@ -1329,7 +1340,7 @@ test('merchant business routes deny customers and inactive merchants', async () 
   });
   assert.equal(inactiveMerchantResponse.status, 403);
   assert.deepEqual(await inactiveMerchantResponse.json(), {
-    error: 'Only active merchant accounts can access this endpoint.',
+    error: 'This account is not active.',
   });
   assert.equal(
     db.calls.some(({ sql }) => sql.includes('INSERT INTO merchant_businesses')),

@@ -509,14 +509,18 @@ class _ExperienceCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    AppText(
-                      actionLabel,
-                      style: TextStyle(
-                        color: accentForeground,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
+                    Flexible(
+                      child: AppText(
+                        actionLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: accentForeground,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                        localize: true,
                       ),
-                      localize: true,
                     ),
                     const SizedBox(width: 3),
                     Icon(

@@ -124,8 +124,9 @@ API and its MySQL connection. `npm run migrate` ensures the merchant,
 messaging, booking, QR arrival check-in, profile, news, review, and other
 upgraded schema is present.
 Migration 16 adds one-way user follows and social experience posts. Migration
-17 adds likes, saved posts, and comments. The social API allows five posts per
-account in a rolling 24-hour period and validates captions and up to five
+17 adds likes, saved posts, and comments; migration 19 adds social post reports.
+The social API allows five posts per account in a rolling 24-hour period and
+validates captions and up to five
 media items per post: JPEG, PNG, or WebP images (10 MiB maximum per image) or
 Tenor GIF URLs. Photo data is stored in MySQL with each post; for larger
 deployments, move post media to object storage before scaling the social

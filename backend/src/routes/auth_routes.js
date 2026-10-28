@@ -737,6 +737,15 @@ function registerAuthRoutes({
         }
       } else {
         user = rows[0];
+        if (user.status === 'pending') {
+          await pool.execute(
+            'UPDATE users SET status = ?, email_verified_at = CURRENT_TIMESTAMP WHERE id = ?',
+            ['active', user.id],
+          );
+          user.status = 'active';
+        } else if (user.status !== 'active') {
+          return res.status(403).json({ error: `This account is ${user.status}.` });
+        }
         if (!isValidRole(user.role)) {
           if (!role) {
             return res.status(409).json({
@@ -752,11 +761,6 @@ function registerAuthRoutes({
         }
         // A Google account keeps the role chosen when it was first created.
         // The role sent by a later login is intentionally ignored.
-        // If account exists but is not active, activate it (social sign-ins typically verify email)
-        if (user.status !== 'active') {
-          await pool.execute('UPDATE users SET status = ?, email_verified_at = CURRENT_TIMESTAMP WHERE id = ?', ['active', user.id]);
-          user.status = 'active';
-        }
       }
 
       const connection = await pool.getConnection();

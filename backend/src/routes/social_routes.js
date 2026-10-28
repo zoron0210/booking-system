@@ -5,6 +5,12 @@ const MAX_CAPTION_LENGTH = 2000;
 const MAX_IMAGES_PER_POST = 5;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_COMMENT_LENGTH = 2000;
+const SOCIAL_POST_REPORT_REASONS = new Set([
+  'spam',
+  'harassment',
+  'inappropriate',
+  'other',
+]);
 
 function validTenorGifUrl(value) {
   if (typeof value !== 'string' || value.length > 2048) return false;
@@ -40,7 +46,7 @@ function normalizeCaption(value) {
 
 async function visiblePost(pool, postId, viewerId) {
   const [rows] = await pool.execute(
-    `SELECT p.id
+    `SELECT p.id, p.user_id AS ownerId
      FROM social_posts p
      JOIN users u ON u.id = p.user_id AND u.status = 'active'
      WHERE p.id = ?
@@ -52,7 +58,20 @@ async function visiblePost(pool, postId, viewerId) {
      LIMIT 1`,
     [postId, viewerId, viewerId, viewerId],
   );
-  return rows.length > 0;
+  return rows[0] ?? null;
+}
+
+async function createSocialNotification(
+  pool,
+  { recipientUserId, actorUserId, type, postId = null, sourceId },
+) {
+  if (String(recipientUserId) === String(actorUserId)) return;
+  await pool.execute(
+    `INSERT IGNORE INTO social_notifications
+       (recipient_user_id, actor_user_id, type, post_id, source_id)
+     VALUES (?, ?, ?, ?, ?)`,
+    [recipientUserId, actorUserId, type, postId, sourceId],
+  );
 }
 
 function validateImages(value) {
@@ -217,6 +236,114 @@ function registerSocialRoutes({
     }
   });
 
+  app.get('/api/social/notifications', requireAuth, async (req, res, next) => {
+    try {
+      const [countRows] = await pool.execute(
+        `SELECT COUNT(*) AS unreadCount
+         FROM social_notifications n
+         JOIN users actor ON actor.id = n.actor_user_id
+           AND actor.status = 'active'
+         LEFT JOIN social_posts p ON p.id = n.post_id
+         LEFT JOIN users post_owner ON post_owner.id = p.user_id
+           AND post_owner.status = 'active'
+         WHERE n.recipient_user_id = ? AND n.read_at IS NULL
+           AND (n.post_id IS NULL OR post_owner.id IS NOT NULL)
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks b
+             WHERE (b.blocker_id = n.recipient_user_id
+                    AND b.blocked_user_id = n.actor_user_id)
+                OR (b.blocker_id = n.actor_user_id
+                    AND b.blocked_user_id = n.recipient_user_id)
+           )`,
+        [req.auth.sub],
+      );
+      const [rows] = await pool.execute(
+        `SELECT n.id, n.type, n.post_id AS postId,
+                n.created_at AS createdAt, n.read_at AS readAt,
+                actor.id AS actorUserId,
+                actor.first_name AS actorFirstName,
+                actor.last_name AS actorLastName,
+                actor.avatar_url AS actorAvatarUrl,
+                p.user_id AS postOwnerId, p.caption AS postCaption,
+                c.comment_text AS commentText
+         FROM social_notifications n
+         JOIN users actor ON actor.id = n.actor_user_id
+           AND actor.status = 'active'
+         LEFT JOIN social_posts p ON p.id = n.post_id
+         LEFT JOIN users post_owner ON post_owner.id = p.user_id
+           AND post_owner.status = 'active'
+         LEFT JOIN social_post_comments c
+           ON n.type = 'comment' AND c.id = n.source_id
+         WHERE n.recipient_user_id = ?
+           AND (n.post_id IS NULL OR post_owner.id IS NOT NULL)
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks b
+             WHERE (b.blocker_id = n.recipient_user_id
+                    AND b.blocked_user_id = n.actor_user_id)
+                OR (b.blocker_id = n.actor_user_id
+                    AND b.blocked_user_id = n.recipient_user_id)
+           )
+         ORDER BY n.created_at DESC, n.id DESC
+         LIMIT 50`,
+        [req.auth.sub],
+      );
+      return res.json({
+        unreadCount: Number(countRows[0]?.unreadCount ?? 0),
+        notifications: rows.map((row) => ({
+          ...row,
+          id: Number(row.id),
+          postId: row.postId == null ? null : Number(row.postId),
+          postOwnerId: row.postOwnerId == null ? null : Number(row.postOwnerId),
+          actorUserId: Number(row.actorUserId),
+          createdAt: serializeDate(row.createdAt),
+          readAt: serializeDate(row.readAt),
+        })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.patch(
+    '/api/social/notifications/:notificationId/read',
+    requireAuth,
+    async (req, res, next) => {
+      const notificationId = positiveId(req.params.notificationId);
+      if (notificationId === null) {
+        return res.status(400).json({ error: 'Invalid notification.' });
+      }
+      try {
+        await pool.execute(
+          `UPDATE social_notifications
+           SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE id = ? AND recipient_user_id = ?`,
+          [notificationId, req.auth.sub],
+        );
+        return res.json({ read: true });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.post(
+    '/api/social/notifications/read-all',
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        await pool.execute(
+          `UPDATE social_notifications
+           SET read_at = CURRENT_TIMESTAMP
+           WHERE recipient_user_id = ? AND read_at IS NULL`,
+          [req.auth.sub],
+        );
+        return res.json({ read: true });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
   app.get('/api/social/gifs', tenorSearchRateLimit, async (req, res, next) => {
     const query =
       typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
@@ -317,13 +444,20 @@ function registerSocialRoutes({
         });
       }
       try {
-        const visible = await visiblePost(pool, postId, req.auth.sub);
-        if (!visible) return res.status(404).json({ error: 'Post not found.' });
+        const post = await visiblePost(pool, postId, req.auth.sub);
+        if (!post) return res.status(404).json({ error: 'Post not found.' });
         const [result] = await pool.execute(
           `INSERT INTO social_post_comments (post_id, user_id, comment_text, gif_url)
            VALUES (?, ?, ?, ?)`,
           [postId, req.auth.sub, text, gifUrl],
         );
+        await createSocialNotification(pool, {
+          recipientUserId: post.ownerId,
+          actorUserId: req.auth.sub,
+          type: 'comment',
+          postId,
+          sourceId: result.insertId,
+        });
         return res.status(201).json({
           id: Number(result.insertId),
           postId,
@@ -350,12 +484,21 @@ function registerSocialRoutes({
           return res.status(400).json({ error: 'Invalid post.' });
         }
         try {
-          const visible = await visiblePost(pool, postId, req.auth.sub);
-          if (!visible) return res.status(404).json({ error: 'Post not found.' });
-          await pool.execute(
+          const post = await visiblePost(pool, postId, req.auth.sub);
+          if (!post) return res.status(404).json({ error: 'Post not found.' });
+          const [result] = await pool.execute(
             `INSERT IGNORE INTO ${table} (post_id, user_id) VALUES (?, ?)`,
             [postId, req.auth.sub],
           );
+          if (action === 'likes' && result.affectedRows > 0) {
+            await createSocialNotification(pool, {
+              recipientUserId: post.ownerId,
+              actorUserId: req.auth.sub,
+              type: 'like',
+              postId,
+              sourceId: postId,
+            });
+          }
           return res.json({ [column]: status });
         } catch (error) {
           return next(error);
@@ -382,6 +525,32 @@ function registerSocialRoutes({
       },
     );
   }
+
+  app.post(
+    '/api/social/posts/:postId/reports',
+    requireAuth,
+    async (req, res, next) => {
+      const postId = positiveId(req.params.postId);
+      const reason = typeof req.body.reason === 'string'
+        ? req.body.reason.trim()
+        : '';
+      if (postId === null || !SOCIAL_POST_REPORT_REASONS.has(reason)) {
+        return res.status(400).json({ error: 'Choose a valid report reason.' });
+      }
+      try {
+        const visible = await visiblePost(pool, postId, req.auth.sub);
+        if (!visible) return res.status(404).json({ error: 'Post not found.' });
+        await pool.execute(
+          `INSERT IGNORE INTO social_post_reports (post_id, user_id, reason)
+           VALUES (?, ?, ?)`,
+          [postId, req.auth.sub, reason],
+        );
+        return res.status(201).json({ reported: true });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
 
   app.get('/api/social/users', optionalAuth, async (req, res, next) => {
     const viewerId = req.auth?.sub ?? null;
@@ -444,7 +613,7 @@ function registerSocialRoutes({
     try {
       const [users] = await pool.execute(
         `SELECT u.id, u.first_name AS firstName, u.last_name AS lastName,
-                u.avatar_url AS avatarUrl, u.role,
+                u.avatar_url AS avatarUrl, u.hobby, u.role,
                 (SELECT COUNT(*) FROM user_follows f
                  WHERE f.followed_id = u.id) AS followersCount,
                 (SELECT COUNT(*) FROM user_follows f
@@ -524,6 +693,7 @@ function registerSocialRoutes({
           displayName: `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
             'SpotGo user',
           avatarUrl: user.avatarUrl,
+          hobby: user.hobby || '',
           role: user.role,
           followersCount: Number(user.followersCount),
           followingCount: Number(user.followingCount),
@@ -659,6 +829,28 @@ function registerSocialRoutes({
           JSON.stringify(imageResult.images),
         ],
       );
+      await connection.execute(
+        `INSERT IGNORE INTO social_notifications
+           (recipient_user_id, actor_user_id, type, post_id, source_id)
+         SELECT f.follower_id, ?, 'post', ?, ?
+         FROM user_follows f
+         JOIN users recipient ON recipient.id = f.follower_id
+           AND recipient.status = 'active'
+         WHERE f.followed_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks b
+             WHERE (b.blocker_id = f.follower_id AND b.blocked_user_id = ?)
+                OR (b.blocker_id = ? AND b.blocked_user_id = f.follower_id)
+           )`,
+        [
+          req.auth.sub,
+          result.insertId,
+          result.insertId,
+          req.auth.sub,
+          req.auth.sub,
+          req.auth.sub,
+        ],
+      );
       await connection.commit();
       transactionStarted = false;
       return res.status(201).json({
@@ -696,11 +888,19 @@ function registerSocialRoutes({
       if (!targets.length) {
         return res.status(404).json({ error: 'Profile not found.' });
       }
-      await pool.execute(
+      const [result] = await pool.execute(
         `INSERT IGNORE INTO user_follows (follower_id, followed_id)
          VALUES (?, ?)`,
         [req.auth.sub, userId],
       );
+      if (result.affectedRows > 0) {
+        await createSocialNotification(pool, {
+          recipientUserId: userId,
+          actorUserId: req.auth.sub,
+          type: 'follow',
+          sourceId: userId,
+        });
+      }
       return res.json({ isFollowing: true });
     } catch (error) {
       return next(error);

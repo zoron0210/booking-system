@@ -1,5 +1,6 @@
-import '../../../app_preferences.dart';
-import '../../../auth_api.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+
 import '../../session/application/session_service.dart';
 
 abstract interface class AuthSessionStore {
@@ -8,8 +9,11 @@ abstract interface class AuthSessionStore {
   Future<void> save({
     required String email,
     required String token,
+    required String refreshToken,
     required String role,
   });
+
+  Future<void> clear();
 }
 
 class AppSessionAuthStore implements AuthSessionStore {
@@ -23,15 +27,20 @@ class AppSessionAuthStore implements AuthSessionStore {
   Future<void> save({
     required String email,
     required String token,
+    required String refreshToken,
     required String role,
   }) async {
     await AppSessionService.instance.saveAuthenticatedSession(
       email: email,
       token: token,
+      refreshToken: refreshToken,
       role: role,
     );
     await AppPreferences.instance.load(accountEmail: email);
   }
+
+  @override
+  Future<void> clear() => AppSessionService.instance.clearCurrentSession();
 }
 
 class AuthService {
@@ -114,13 +123,31 @@ class AuthService {
     required String password,
   }) => api.resetPassword(email: email, code: code, password: password);
 
+  Future<bool> logout() async {
+    var sessionRevoked = true;
+    try {
+      final session = await AppSessionService.instance.load();
+      await api.logout(session.refreshToken);
+    } on AuthApiException {
+      sessionRevoked = false;
+    } finally {
+      await sessions.clear();
+    }
+    return sessionRevoked;
+  }
+
   Future<void> _persistApiSession(
     Map<String, dynamic> response, {
     String? fallbackEmail,
   }) async {
     final user = response['user'];
     final token = response['token'];
-    if (user is! Map || token is! String || token.isEmpty) {
+    final refreshToken = response['refreshToken'];
+    if (user is! Map ||
+        token is! String ||
+        token.isEmpty ||
+        refreshToken is! String ||
+        refreshToken.isEmpty) {
       throw const AuthApiException(
         'The server returned an incomplete sign-in response.',
         502,
@@ -142,6 +169,25 @@ class AuthService {
         502,
       );
     }
-    await sessions.save(email: email, token: token, role: role);
+    await sessions.save(
+      email: email,
+      token: token,
+      refreshToken: refreshToken,
+      role: role,
+    );
   }
+}
+
+Future<bool> revokeAndClearCurrentSession({AuthApi? api}) async {
+  final sessionService = AppSessionService.instance;
+  final session = await sessionService.load();
+  var sessionRevoked = true;
+  try {
+    await (api ?? AuthApi()).logout(session.refreshToken);
+  } on AuthApiException {
+    sessionRevoked = false;
+  } finally {
+    await sessionService.clearCurrentSession();
+  }
+  return sessionRevoked;
 }

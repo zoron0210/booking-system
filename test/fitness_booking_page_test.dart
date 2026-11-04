@@ -5,11 +5,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_theme.dart';
-import 'package:myapp/fitness_booking_page.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_theme.dart';
+import 'package:myapp/features/bookings/presentation/fitness_booking_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -61,10 +61,7 @@ void main() {
     );
     expect((summary.decoration! as BoxDecoration).color, AppColors.darkSurface);
     final action = tester.widget<FilledButton>(
-      find.widgetWithText(
-        FilledButton,
-        'Request booking',
-      ),
+      find.widgetWithText(FilledButton, 'Request booking'),
     );
     expect(action.style!.backgroundColor!.resolve({}), AppPalette.blue.color);
     expect(
@@ -151,10 +148,7 @@ void main() {
       );
       expect(find.textContaining('Monthly · \u{20B1} 1200.00'), findsOneWidget);
       expect(find.textContaining('Yearly · \u{20B1} 10800.00'), findsOneWidget);
-      expect(
-        find.textContaining('Request booking'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Request booking'), findsOneWidget);
       final monthlyPlan = find.textContaining('Monthly · \u{20B1} 1200.00');
       await tester.ensureVisible(monthlyPlan);
       await tester.tap(monthlyPlan);
@@ -259,10 +253,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final submitButton = find.widgetWithText(
-        FilledButton,
-        'Request booking',
-      );
+      final submitButton = find.widgetWithText(FilledButton, 'Request booking');
       await tester.ensureVisible(submitButton);
       await tester.tap(submitButton);
       await tester.pumpAndSettle();

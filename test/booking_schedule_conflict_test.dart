@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/bookings/data/http_booking_schedule_repository.dart';
 import 'package:myapp/features/bookings/application/booking_schedule_controller.dart';
 import 'package:myapp/features/bookings/domain/booking_schedule.dart';

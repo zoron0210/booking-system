@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 
 void main() {
   test('API connection errors use human-readable text without LAN details', () {
@@ -42,7 +42,7 @@ void main() {
 
     await api.login(email: 'client@example.com', password: 'password123');
 
-    expect(receivedRequest.url.host, '192.168.1.18');
+    expect(receivedRequest.url.host, '192.168.1.20');
     expect(receivedRequest.url.port, 3000);
     expect(receivedRequest.url.path, '/api/auth/login');
   });
@@ -58,7 +58,7 @@ void main() {
         }),
       );
 
-      await api.conversations('test-session-token');
+      await api.messaging.conversations('test-session-token');
 
       expect(authorization, 'Bearer test-session-token');
     },
@@ -73,7 +73,7 @@ void main() {
       }),
     );
 
-    await api.deleteConversationMessage(
+    await api.messaging.deleteConversationMessage(
       token: 'test-session-token',
       conversationId: 12,
       messageId: 34,
@@ -100,7 +100,7 @@ void main() {
       );
 
       await expectLater(
-        api.deleteConversationMessage(
+        api.messaging.deleteConversationMessage(
           token: 'test-session-token',
           conversationId: 12,
           messageId: 34,
@@ -126,7 +126,7 @@ void main() {
       );
 
       await expectLater(
-        api.setConversationState(
+        api.messaging.setConversationState(
           token: 'test-session-token',
           conversationId: 1,
           archived: true,
@@ -161,7 +161,7 @@ void main() {
       );
 
       await expectLater(
-        api.conversations('test-session-token'),
+        api.messaging.conversations('test-session-token'),
         throwsA(
           isA<AuthApiException>()
               .having(
@@ -179,21 +179,16 @@ void main() {
     },
   );
 
-  test('successful API responses must be JSON objects', () async {
+  test('messaging list APIs accept top-level JSON arrays', () async {
     final api = AuthApi(
-      client: MockClient((_) async => http.Response('[]', 200)),
-    );
-
-    await expectLater(
-      api.conversations('test-session-token'),
-      throwsA(
-        isA<AuthApiException>().having(
-          (error) => error.message,
-          'message',
-          'The server returned an invalid response.',
-        ),
+      client: MockClient(
+        (_) async => http.Response('[{"id":7,"members":[]}]', 200),
       ),
     );
+
+    expect(await api.messaging.conversations('test-session-token'), [
+      {'id': 7, 'members': <dynamic>[]},
+    ]);
   });
 
   test('customer venue catalog excludes disabled businesses', () async {

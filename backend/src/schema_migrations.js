@@ -1088,6 +1088,107 @@ async function ensureVenueHeartsSchema() {
         [20, 'social-activity-notifications'],
       );
     }
+    if (!appliedVersions.has(21)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS venue_review_reactions (
+          review_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (review_id, user_id),
+          KEY idx_venue_review_reactions_user (user_id, created_at),
+          CONSTRAINT fk_venue_review_reactions_review
+            FOREIGN KEY (review_id) REFERENCES venue_reviews (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_venue_review_reactions_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS venue_review_replies (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          review_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          reply_text VARCHAR(2000) NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_venue_review_replies_review (review_id, created_at, id),
+          CONSTRAINT fk_venue_review_replies_review
+            FOREIGN KEY (review_id) REFERENCES venue_reviews (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_venue_review_replies_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [21, 'venue-review-interactions'],
+      );
+    }
+    if (!appliedVersions.has(22)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_post_comment_reactions (
+          comment_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (comment_id, user_id),
+          KEY idx_social_post_comment_reactions_user (user_id, created_at),
+          CONSTRAINT fk_social_post_comment_reactions_comment
+            FOREIGN KEY (comment_id) REFERENCES social_post_comments (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_post_comment_reactions_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_post_comment_replies (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          comment_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          reply_text VARCHAR(2000) NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_social_post_comment_replies_comment
+            (comment_id, created_at, id),
+          CONSTRAINT fk_social_post_comment_replies_comment
+            FOREIGN KEY (comment_id) REFERENCES social_post_comments (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_post_comment_replies_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [22, 'social-post-comment-interactions'],
+      );
+    }
+    if (!appliedVersions.has(23)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          user_id BIGINT UNSIGNED NOT NULL,
+          token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+          expires_at DATETIME NOT NULL,
+          revoked_at DATETIME NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_refresh_tokens_token_hash (token_hash),
+          KEY idx_refresh_tokens_user_expiry (user_id, expires_at),
+          CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [23, 'refresh-token-sessions'],
+      );
+    }
   } finally {
     try {
       if (lockAcquired) {

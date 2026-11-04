@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_session.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/session/application/session_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -71,15 +72,39 @@ void main() {
     },
   );
 
+  test('access and refresh tokens are kept in secure storage', () async {
+    final session = await AppSession.load();
+
+    await session.setTokens(
+      apiToken: 'secure-session-token',
+      refreshToken: 'secure-refresh-token',
+    );
+
+    final reloaded = await AppSession.load();
+    expect(reloaded.apiToken, 'secure-session-token');
+    expect(reloaded.refreshToken, 'secure-refresh-token');
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        'session_refresh_token',
+      ),
+      isNull,
+    );
+  });
+
   test(
-    'api token is kept in secure storage and surfaced on the session',
+    'session changes notify the shared application session service',
     () async {
-      final session = await AppSession.load();
+      final service = AppSessionService.instance;
+      final session = await service.load();
+      var notifications = 0;
+      void listener() => notifications++;
+      service.addListener(listener);
 
-      await session.setApiToken('secure-session-token');
+      await session.setApiToken('reactive-session-token');
 
-      final reloaded = await AppSession.load();
-      expect(reloaded.apiToken, 'secure-session-token');
+      expect(service.currentSession, same(session));
+      expect(notifications, greaterThan(0));
+      service.removeListener(listener);
     },
   );
 

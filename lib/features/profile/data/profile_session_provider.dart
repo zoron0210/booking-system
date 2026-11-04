@@ -1,4 +1,4 @@
-import 'package:myapp/app_session.dart';
+import 'package:myapp/core/app_session.dart';
 import 'package:myapp/features/session/data/session_repositories.dart';
 
 abstract interface class ProfileSession {

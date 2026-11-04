@@ -14,7 +14,9 @@ class VenueBusiness {
     final id = parseVenuePositiveId(json['id'] ?? json['businessId']);
     final businessType = json['businessType'] ?? json['business_type'];
     if (id == null || (businessType != null && businessType is! String)) {
-      throw const VenueDomainException('The server returned an invalid business.');
+      throw const VenueDomainException(
+        'The server returned an invalid business.',
+      );
     }
     return VenueBusiness._(
       id,
@@ -44,7 +46,9 @@ class VenueFeedPost {
         businessId == null ||
         title is! String ||
         body is! String) {
-      throw const VenueDomainException('The server returned an invalid news post.');
+      throw const VenueDomainException(
+        'The server returned an invalid news post.',
+      );
     }
     return VenueFeedPost._(
       id,
@@ -75,6 +79,9 @@ class VenueReview {
     required this.avatarUrl,
     required this.imageData,
     required this.createdAt,
+    required this.reactionCount,
+    required this.reactedByMe,
+    required this.replies,
   });
 
   factory VenueReview.fromJson(Map<String, dynamic> json) {
@@ -84,7 +91,15 @@ class VenueReview {
     );
     final rating = parseVenueInteger(json['rating'], 'rating');
     if (rating < 1 || rating > 5) {
-      throw const VenueDomainException('The server returned an invalid review.');
+      throw const VenueDomainException(
+        'The server returned an invalid review.',
+      );
+    }
+    final rawReplies = json['replies'];
+    if (rawReplies != null && rawReplies is! List) {
+      throw const VenueDomainException(
+        'The server returned invalid review replies.',
+      );
     }
     return VenueReview(
       id: id,
@@ -102,6 +117,21 @@ class VenueReview {
         'imageData',
       ),
       createdAt: parseVenueOptionalString(json['createdAt'], 'createdAt'),
+      reactionCount: json['reactionCount'] == null
+          ? 0
+          : parseVenueInteger(json['reactionCount'], 'reactionCount'),
+      reactedByMe: json['reactedByMe'] == null
+          ? false
+          : parseVenueBoolean(json['reactedByMe'], 'reactedByMe'),
+      replies: [
+        for (final entry in rawReplies as List? ?? const [])
+          if (entry is Map)
+            VenueReviewReply.fromJson(Map<String, dynamic>.from(entry))
+          else
+            throw const VenueDomainException(
+              'The server returned an invalid review reply.',
+            ),
+      ],
     );
   }
 
@@ -113,6 +143,43 @@ class VenueReview {
   final String? lastName;
   final String? avatarUrl;
   final String? imageData;
+  final String? createdAt;
+  final int reactionCount;
+  final bool reactedByMe;
+  final List<VenueReviewReply> replies;
+}
+
+class VenueReviewReply {
+  const VenueReviewReply({
+    required this.id,
+    required this.userId,
+    required this.text,
+    required this.firstName,
+    required this.lastName,
+    required this.avatarUrl,
+    required this.createdAt,
+  });
+
+  factory VenueReviewReply.fromJson(Map<String, dynamic> json) =>
+      VenueReviewReply(
+        id: parseVenuePositiveId(json['id']),
+        userId: parseVenuePositiveId(json['userId'] ?? json['user_id']),
+        text: parseVenueOptionalString(json['text'], 'reply text') ?? '',
+        firstName: parseVenueOptionalString(json['firstName'], 'firstName'),
+        lastName: parseVenueOptionalString(json['lastName'], 'lastName'),
+        avatarUrl: parseVenueOptionalString(
+          json['avatarUrl'] ?? json['avatar_url'],
+          'avatarUrl',
+        ),
+        createdAt: parseVenueOptionalString(json['createdAt'], 'createdAt'),
+      );
+
+  final int? id;
+  final int? userId;
+  final String text;
+  final String? firstName;
+  final String? lastName;
+  final String? avatarUrl;
   final String? createdAt;
 }
 

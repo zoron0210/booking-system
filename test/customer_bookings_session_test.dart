@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/customer_bookings_page.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/bookings/presentation/customer_bookings_page.dart';
 import 'package:myapp/features/bookings/data/customer_bookings_session_provider.dart';
 
 class _FakeCustomerBookingsSession implements CustomerBookingsSession {

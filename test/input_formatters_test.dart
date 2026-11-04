@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/input_formatters.dart';
+import 'package:myapp/core/input_formatters.dart';
 
 void main() {
   group('PhilippineMobilePhoneFormatter', () {

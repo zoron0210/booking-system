@@ -201,6 +201,7 @@ class Booking {
     reviewRating: _intValue(json['reviewRating']),
   );
 
+  @Deprecated('Use typed Booking fields and booking.venue properties instead.')
   dynamic operator [](String key) => switch (key) {
     'id' => id,
     'venueId' => venue.id,

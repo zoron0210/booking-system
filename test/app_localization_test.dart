@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_localization.dart';
-import 'package:myapp/app_text.dart';
+import 'package:myapp/core/app_localization.dart';
+import 'package:myapp/core/app_text.dart';
 
 void main() {
   test('translates templates containing multiple dynamic values', () {

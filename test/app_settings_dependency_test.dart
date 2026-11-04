@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_settings_page.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/features/settings/presentation/app_settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

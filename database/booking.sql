@@ -32,6 +32,20 @@ CREATE TABLE users (
   KEY idx_users_created_at (created_at)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME NOT NULL,
+  revoked_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_refresh_tokens_token_hash (token_hash),
+  KEY idx_refresh_tokens_user_expiry (user_id, expires_at),
+  CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS booking_notification_devices (
   token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,

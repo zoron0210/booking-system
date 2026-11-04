@@ -5,9 +5,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/reviews.dart';
-import 'package:myapp/rating_widgets.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/venues/presentation/reviews.dart';
+import 'package:myapp/core/rating_widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -70,6 +70,7 @@ void main() {
           jsonEncode({
             'reviews': [
               {
+                'id': 31,
                 'customerId': 7,
                 'firstName': 'Ziggy',
                 'lastName': 'Player',
@@ -77,6 +78,23 @@ void main() {
                 'imageData': reviewerAvatar,
                 'rating': 5,
                 'comment': 'Great court.',
+                'createdAt': DateTime.now()
+                    .subtract(const Duration(minutes: 1))
+                    .toIso8601String(),
+                'reactionCount': 3,
+                'replies': [
+                  {
+                    'id': 55,
+                    'userId': 9,
+                    'firstName': 'Maya',
+                    'lastName': 'Player',
+                    'avatarUrl': reviewerAvatar,
+                    'text': 'I agree!',
+                    'createdAt': DateTime.now()
+                        .subtract(const Duration(minutes: 2))
+                        .toIso8601String(),
+                  },
+                ],
               },
             ],
           }),
@@ -111,6 +129,11 @@ void main() {
     expect(reviewerImage.image, isA<MemoryImage>());
     expect(find.text('Ziggy Player'), findsOneWidget);
     expect(find.text('Great court.'), findsOneWidget);
+    expect(find.text('1 min ago'), findsOneWidget);
+    expect(find.text('2 mins ago'), findsOneWidget);
+    expect(find.text('Like 3'), findsOneWidget);
+    expect(find.text('Reply (1)'), findsOneWidget);
+    expect(find.text('I agree!'), findsOneWidget);
     expect(
       find.text('Only customers with a completed booking can submit a review.'),
       findsOneWidget,
@@ -144,6 +167,148 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('review-photo-fullscreen')), findsNothing);
 
+    client.close();
+  });
+
+  testWidgets('review reactions and replies use authenticated venue APIs', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/news-feed/12/reviews') {
+          return http.Response(
+            jsonEncode({
+              'reviews': [
+                {
+                  'id': 31,
+                  'customerId': 7,
+                  'firstName': 'Ziggy',
+                  'rating': 5,
+                  'comment': 'Great court.',
+                  'reactionCount': 0,
+                  'reactedByMe': false,
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/bookings') {
+          return http.Response(jsonEncode({'bookings': []}), 200);
+        }
+        if (request.url.path == '/api/venue-reviews/31/reactions' ||
+            request.url.path == '/api/venue-reviews/31/replies') {
+          return http.Response('{}', 201);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReviewsSheet(
+            api: api,
+            businessId: 12,
+            businessName: 'Test Court',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('review-reaction-31')));
+    await tester.pumpAndSettle();
+    expect(
+      requests.any(
+        (request) =>
+            request.method == 'POST' &&
+            request.url.path == '/api/venue-reviews/31/reactions' &&
+            request.headers.containsKey('authorization'),
+      ),
+      isTrue,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('review-reply-toggle-31')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('review-reply-input-31')),
+      'Thanks for sharing!',
+    );
+    await tester.tap(find.byKey(const ValueKey('review-reply-send-31')));
+    await tester.pumpAndSettle();
+    final replyRequest = requests.firstWhere(
+      (request) => request.url.path == '/api/venue-reviews/31/replies',
+    );
+    expect(replyRequest.method, 'POST');
+    expect(replyRequest.headers['authorization'], 'Bearer test-token');
+    expect(jsonDecode(replyRequest.body), {'text': 'Thanks for sharing!'});
+  });
+
+  testWidgets('review avatar opens the reviewer public profile', (
+    tester,
+  ) async {
+    final client = MockClient((request) async {
+      if (request.url.path == '/api/news-feed/12/reviews') {
+        return http.Response(
+          jsonEncode({
+            'reviews': [
+              {
+                'id': 31,
+                'customerId': 7,
+                'firstName': 'Ziggy',
+                'rating': 5,
+                'comment': 'Great court.',
+              },
+            ],
+          }),
+          200,
+        );
+      }
+      if (request.url.path == '/api/bookings') {
+        return http.Response(jsonEncode({'bookings': []}), 200);
+      }
+      if (request.url.path == '/api/social/users/7') {
+        return http.Response(
+          jsonEncode({
+            'profile': {
+              'id': 7,
+              'displayName': 'Ziggy Player',
+              'followersCount': 0,
+              'followingCount': 0,
+              'isFollowing': false,
+            },
+            'posts': [],
+            'businesses': [],
+          }),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReviewsSheet(
+            api: AuthApi(client: client),
+            businessId: 12,
+            businessName: 'Test Court',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('review-user-avatar-7')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('public-user-profile-page')),
+      findsOneWidget,
+    );
+    expect(find.text('Ziggy Player'), findsOneWidget);
     client.close();
   });
 

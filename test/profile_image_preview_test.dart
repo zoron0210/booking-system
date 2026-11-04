@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/profile_image_preview.dart';
+import 'package:myapp/core/profile_image_preview.dart';
 
 void main() {
   testWidgets('tapping a profile avatar opens a zoomable photo preview', (

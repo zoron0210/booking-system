@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/social/presentation/social_home_palette.dart';
 import 'package:myapp/features/social/presentation/social_notifications_page.dart';
 
 void main() {
@@ -56,6 +57,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData.light(),
           home: SocialNotificationsPage(
             api: api,
             token: 'test-token',
@@ -65,6 +67,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+        SocialHomeColors.forBrightness(Brightness.light).canvas,
+      );
       expect(find.text('Notifications'), findsOneWidget);
       expect(find.text('Activity log'), findsNothing);
       expect(find.text('Alex Player commented on your post'), findsOneWidget);
@@ -88,4 +94,31 @@ void main() {
       expect(changedUnreadCount, 0);
     },
   );
+
+  testWidgets('uses the active dark theme for notification colors', (
+    tester,
+  ) async {
+    final api = AuthApi(
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'unreadCount': 0, 'notifications': []}),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: SocialNotificationsPage(api: api, token: 'test-token'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      SocialHomeColors.forBrightness(Brightness.dark).canvas,
+    );
+  });
 }

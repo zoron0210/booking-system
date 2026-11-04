@@ -1,22 +1,28 @@
-part of '../../../auth_api.dart';
+import 'package:myapp/core/api_transport.dart';
 
-extension AuthApiSavedItemOperations on AuthApi {
+class SavedItemsApi {
+  const SavedItemsApi(this._api);
+
+  final ApiTransport _api;
+
   Future<List<Map<String, dynamic>>> savedItems(String token) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/saved-items',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return (response['items'] as List<dynamic>? ?? [])
+    return (response['items'] as List<dynamic>? ??
+            response['data'] as List<dynamic>? ??
+            [])
         .whereType<Map<String, dynamic>>()
         .toList();
   }
 
   Future<Map<String, int>> savedItemCounts(String token, String type) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/saved-item-counts?itemType=${Uri.encodeQueryComponent(type)}',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
     final counts = response['counts'];
     if (counts is! Map) return {};
@@ -33,7 +39,7 @@ extension AuthApiSavedItemOperations on AuthApi {
     required String subtitle,
     String? imageUrl,
   }) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/saved-items',
       body: {
@@ -43,15 +49,18 @@ extension AuthApiSavedItemOperations on AuthApi {
         'subtitle': subtitle,
         'imageUrl': imageUrl,
       },
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
   Future<void> removeSavedItem(String token, String type, String key) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/saved-items/${Uri.encodeComponent(type)}/${Uri.encodeComponent(key)}',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 }

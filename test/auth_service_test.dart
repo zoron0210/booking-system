@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/auth/application/auth_service.dart';
 
 class _MemoryAuthSessionStore implements AuthSessionStore {
   String? email;
   String? token;
+  String? refreshToken;
   String? role;
 
   @override
@@ -18,11 +19,21 @@ class _MemoryAuthSessionStore implements AuthSessionStore {
   Future<void> save({
     required String email,
     required String token,
+    required String refreshToken,
     required String role,
   }) async {
     this.email = email;
     this.token = token;
+    this.refreshToken = refreshToken;
     this.role = role;
+  }
+
+  @override
+  Future<void> clear() async {
+    email = null;
+    token = null;
+    refreshToken = null;
+    role = null;
   }
 }
 
@@ -40,6 +51,7 @@ void main() {
             return http.Response(
               jsonEncode({
                 'token': 'api-session-token',
+                'refreshToken': 'api-refresh-token',
                 'user': {'email': 'player@example.test', 'role': 'customer'},
               }),
               200,
@@ -71,6 +83,7 @@ void main() {
       ]);
       expect(sessions.email, 'player@example.test');
       expect(sessions.token, 'api-session-token');
+      expect(sessions.refreshToken, 'api-refresh-token');
       expect(sessions.role, 'customer');
     },
   );

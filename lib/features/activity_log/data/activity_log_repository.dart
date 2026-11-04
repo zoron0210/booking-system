@@ -1,5 +1,5 @@
-import 'package:myapp/app_session.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 
 abstract interface class ActivityLogDataSource {
   Future<List<ActivityLogEntry>> loadActivities();

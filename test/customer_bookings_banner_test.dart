@@ -5,11 +5,33 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/customer_bookings_page.dart';
+import 'package:myapp/core/premium_motion.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/features/bookings/data/customer_bookings_session_provider.dart';
+import 'package:myapp/features/bookings/presentation/customer_bookings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _TestCustomerBookingsSession implements CustomerBookingsSession {
+  const _TestCustomerBookingsSession();
+
+  @override
+  String? get apiToken => 'test-token';
+
+  @override
+  bool bookingStatusBannerDismissed(String bookingKey) => false;
+
+  @override
+  Future<void> dismissBookingStatusBanner(String bookingKey) async {}
+}
+
+class _TestCustomerBookingsSessionProvider
+    implements CustomerBookingsSessionProvider {
+  @override
+  Future<CustomerBookingsSession> load() async =>
+      const _TestCustomerBookingsSession();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -40,7 +62,11 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: CustomerBookingsPage(api: api, businessType: 'Fitness'),
+        home: CustomerBookingsPage(
+          api: api,
+          businessType: 'Fitness',
+          sessionProvider: _TestCustomerBookingsSessionProvider(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -944,7 +970,7 @@ void main() {
     },
   );
 
-  testWidgets('tapping the booking status banner dismisses it', (tester) async {
+  testWidgets('tapping the booking status banner collapses it', (tester) async {
     await tester.pumpWidget(
       MaterialApp(home: CustomerBookingsPage(api: _api())),
     );
@@ -961,8 +987,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey('booking-status-banner-content')),
-      findsNothing,
+      tester.widget<PremiumExpandable>(find.byType(PremiumExpandable)).expanded,
+      isFalse,
     );
   });
 
@@ -1138,12 +1164,12 @@ void main() {
 
     expect(bookingRequests, 2);
     expect(
-      find.byKey(const ValueKey('booking-status-banner-content')),
-      findsNothing,
+      tester.widget<PremiumExpandable>(find.byType(PremiumExpandable)).expanded,
+      isFalse,
     );
   });
 
-  testWidgets('the dismiss action hides the booking status banner', (
+  testWidgets('the dismiss action collapses the booking status banner', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1157,8 +1183,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey('booking-status-banner-content')),
-      findsNothing,
+      tester.widget<PremiumExpandable>(find.byType(PremiumExpandable)).expanded,
+      isFalse,
     );
   });
 
@@ -1180,8 +1206,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey('booking-status-banner-content')),
-      findsNothing,
+      tester.widget<PremiumExpandable>(find.byType(PremiumExpandable)).expanded,
+      isFalse,
     );
   });
 

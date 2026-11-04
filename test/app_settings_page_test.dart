@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:myapp/app_bottom_navigation.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_settings_page.dart';
-import 'package:myapp/app_theme.dart';
-import 'package:myapp/merchant_profile_dashboard.dart';
+import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/features/settings/presentation/app_settings_page.dart';
+import 'package:myapp/core/app_theme.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_profile_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

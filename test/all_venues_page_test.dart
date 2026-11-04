@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/all_venues_page.dart';
-import 'package:myapp/filter_panel_style.dart';
+import 'package:myapp/features/venues/presentation/all_venues_page.dart';
+import 'package:myapp/core/filter_panel_style.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -102,7 +102,7 @@ void main() {
     },
   );
 
-  testWidgets('All Venues header collapses while search stays pinned', (
+  testWidgets('All Venues search header hides down and returns up', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(430, 900);
@@ -129,6 +129,10 @@ void main() {
 
     expect(find.text('Courts with the most hearts'), findsOneWidget);
     expect(find.byKey(const ValueKey('all-venues-search')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('all-venues-open-filters')),
+      findsOneWidget,
+    );
     expect(find.text('Browse every venue in this collection.'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('all-venues-info')));
     await tester.pumpAndSettle();
@@ -143,16 +147,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Courts with the most hearts'), findsNothing);
-    expect(find.byKey(const ValueKey('all-venues-search')), findsOneWidget);
+    expect(find.byKey(const ValueKey('all-venues-search')), findsNothing);
+    expect(find.byKey(const ValueKey('all-venues-open-filters')), findsNothing);
 
     await tester.drag(
       find.byKey(const ValueKey('all-venues-list')),
-      const Offset(0, 5000),
+      const Offset(0, 160),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Courts with the most hearts'), findsOneWidget);
     expect(find.byKey(const ValueKey('all-venues-search')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('all-venues-open-filters')),
+      findsOneWidget,
+    );
   });
 
   for (final title in ['Most popular', 'Highest rate']) {

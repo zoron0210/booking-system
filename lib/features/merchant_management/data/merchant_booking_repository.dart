@@ -1,4 +1,5 @@
-import '../../../auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+
 import '../../session/application/session_service.dart';
 
 abstract interface class MerchantBookingRepository {
@@ -41,11 +42,11 @@ class AuthApiMerchantBookingRepository implements MerchantBookingRepository {
 
   @override
   Future<List<Map<String, dynamic>>> loadBookings() async =>
-      api.merchantBookings(await _requireToken());
+      api.bookings.merchantBookings(await _requireToken());
 
   @override
   Future<void> approveBooking(int bookingId) async {
-    await api.approveBooking(
+    await api.bookings.approveBooking(
       token: await _requireToken(),
       bookingId: bookingId,
     );
@@ -53,7 +54,7 @@ class AuthApiMerchantBookingRepository implements MerchantBookingRepository {
 
   @override
   Future<void> declineBooking(int bookingId, {required String reason}) async {
-    await api.declineBooking(
+    await api.bookings.declineBooking(
       token: await _requireToken(),
       bookingId: bookingId,
       reason: reason,
@@ -65,7 +66,7 @@ class AuthApiMerchantBookingRepository implements MerchantBookingRepository {
     int bookingId, {
     required String paymentStatus,
   }) async {
-    await api.setCashOnArrivalPaymentStatus(
+    await api.bookings.setCashOnArrivalPaymentStatus(
       token: await _requireToken(),
       bookingId: bookingId,
       paymentStatus: paymentStatus,
@@ -74,7 +75,7 @@ class AuthApiMerchantBookingRepository implements MerchantBookingRepository {
 
   @override
   Future<void> deleteCompletedBooking(int bookingId) async {
-    await api.deleteCompletedBooking(
+    await api.bookings.deleteCompletedBooking(
       token: await _requireToken(),
       bookingId: bookingId,
     );

@@ -1,4 +1,4 @@
-import 'package:myapp/app_session.dart';
+import 'package:myapp/core/app_session.dart';
 
 abstract interface class CustomerBookingsSession {
   String? get apiToken;

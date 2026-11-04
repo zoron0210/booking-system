@@ -1,3 +1,5 @@
+const crypto = require('node:crypto');
+
 function registerAuthRoutes({
   app,
   pool,
@@ -17,6 +19,7 @@ function registerAuthRoutes({
   recordUserActivity,
   setAuditActor,
   invalidateCustomerBusinesses,
+  invalidateUserStatusCache = () => {},
   fetch,
   googleClientId,
   environment,
@@ -50,40 +53,122 @@ function registerAuthRoutes({
     return jwt.sign(
       { sub: String(user.id), email: user.email, role: user.role },
       environment.JWT_SECRET,
-      { expiresIn: environment.JWT_EXPIRES_IN || '7d' },
+      { expiresIn: '15m' },
     );
   }
 
-  app.post('/api/auth/portal-mode', requireAuth, async (req, res, next) => {
-    const mode = req.body?.mode;
-    if (mode !== 'customer' && mode !== 'merchant') {
-      return res.status(400).json({ error: 'Portal mode must be customer or merchant.' });
+  function hashRefreshToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  function isRefreshToken(value) {
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+  }
+
+  async function createSessionTokens(user) {
+    const refreshToken = crypto.randomBytes(32).toString('base64url');
+    await pool.execute(
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+       VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 30 DAY))`,
+      [user.id, hashRefreshToken(refreshToken)],
+    );
+    return { token: createToken(user), refreshToken };
+  }
+
+  app.post('/api/auth/refresh', authIpRateLimit, async (req, res, next) => {
+    const refreshToken = req.body?.refreshToken;
+    if (!isRefreshToken(refreshToken)) {
+      return res.status(401).json({ error: 'The refresh session is invalid or expired.' });
     }
+
+    let connection;
     try {
-      const [users] = await pool.execute(
-        'SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1',
-        [req.auth.sub],
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [rows] = await connection.execute(
+        `SELECT rt.id AS refresh_token_id, rt.user_id, rt.revoked_at,
+                (rt.expires_at > CURRENT_TIMESTAMP) AS is_unexpired,
+                u.id, u.email, u.first_name, u.last_name, u.role, u.status,
+                u.gender, u.player_type, u.onboarding_completed
+         FROM refresh_tokens rt
+         INNER JOIN users u ON u.id = rt.user_id
+         WHERE rt.token_hash = ? LIMIT 1 FOR UPDATE`,
+        [hashRefreshToken(refreshToken)],
       );
-      const user = users[0];
-      if (!user || user.role !== 'merchant' || user.status !== 'active') {
-        return res.status(403).json({ error: 'Only active merchant accounts can switch portals.' });
+      const session = rows[0];
+      if (!session) {
+        await connection.rollback();
+        return res.status(401).json({ error: 'The refresh session is invalid or expired.' });
       }
-      const token = jwt.sign(
-        {
-          sub: String(user.id),
-          email: user.email,
-          role: mode,
-          accountRole: 'merchant',
-          portalMode: mode,
-        },
-        environment.JWT_SECRET,
-        { expiresIn: environment.JWT_EXPIRES_IN || '7d' },
+      if (session.revoked_at || !Number(session.is_unexpired)) {
+        await connection.execute(
+          'UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP) WHERE id = ?',
+          [session.refresh_token_id],
+        );
+        await connection.commit();
+        return res.status(401).json({ error: 'The refresh session is invalid or expired.' });
+      }
+      if (session.status !== 'active') {
+        await connection.execute(
+          'UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [session.refresh_token_id],
+        );
+        await connection.commit();
+        return res.status(403).json({ error: `This account is ${session.status}.` });
+      }
+
+      const [revoked] = await connection.execute(
+        `UPDATE refresh_tokens
+         SET revoked_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND revoked_at IS NULL`,
+        [session.refresh_token_id],
       );
-      return res.json({ token, role: mode });
+      if (Number(revoked.affectedRows) !== 1) {
+        await connection.rollback();
+        return res.status(401).json({ error: 'The refresh session is invalid or expired.' });
+      }
+
+      const nextRefreshToken = crypto.randomBytes(32).toString('base64url');
+      await connection.execute(
+        `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+         VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 30 DAY))`,
+        [session.user_id, hashRefreshToken(nextRefreshToken)],
+      );
+      await connection.commit();
+      return res.json({
+        user: publicUser(session),
+        token: createToken(session),
+        refreshToken: nextRefreshToken,
+      });
+    } catch (error) {
+      if (connection) await connection.rollback();
+      return next(error);
+    } finally {
+      connection?.release();
+    }
+  });
+
+  app.post('/api/auth/logout', authIpRateLimit, async (req, res, next) => {
+    const refreshToken = req.body?.refreshToken;
+    if (!isRefreshToken(refreshToken)) return res.status(204).end();
+    try {
+      await pool.execute(
+        `UPDATE refresh_tokens
+         SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+         WHERE token_hash = ?`,
+        [hashRefreshToken(refreshToken)],
+      );
+      return res.status(204).end();
     } catch (error) {
       return next(error);
     }
   });
+
+  app.post('/api/auth/portal-mode', requireAuth, (_req, res) =>
+    res.status(403).json({
+      error: 'Portal switching is disabled. Sign in with an account of that role.',
+    }),
+  );
 
   app.post(
     '/api/auth/register',
@@ -254,6 +339,7 @@ function registerAuthRoutes({
           'Your email address was verified.',
         );
         await connection.commit();
+        invalidateUserStatusCache(token.id);
       } catch (error) {
         await connection.rollback();
         throw error;
@@ -261,7 +347,8 @@ function registerAuthRoutes({
         connection.release();
       }
       const user = { ...token, status: 'active' };
-      return res.json({ message: 'Email verified successfully.', user: publicUser(user), token: createToken(user) });
+      const tokens = await createSessionTokens(user);
+      return res.json({ message: 'Email verified successfully.', user: publicUser(user), ...tokens });
     } catch (error) {
       return next(error);
     }
@@ -409,6 +496,12 @@ function registerAuthRoutes({
         [passwordHash, 'active', token.user_id],
       );
       await connection.execute(
+        `UPDATE refresh_tokens
+         SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+         WHERE user_id = ?`,
+        [token.user_id],
+      );
+      await connection.execute(
         'UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?',
         [token.token_id],
       );
@@ -421,6 +514,7 @@ function registerAuthRoutes({
         'Your account password was changed.',
       );
       await connection.commit();
+      invalidateUserStatusCache(token.user_id);
       return res.json({ message: 'Your password has been changed. You can now sign in.' });
     } catch (error) {
       if (connection) await connection.rollback();
@@ -524,7 +618,8 @@ function registerAuthRoutes({
         'Signed in',
         'You signed in to your account.',
       );
-      return res.json({ user: publicUser(user), token: createToken(user) });
+      const tokens = await createSessionTokens(user);
+      return res.json({ user: publicUser(user), ...tokens });
     } catch (error) {
       return next(error);
     }
@@ -742,6 +837,7 @@ function registerAuthRoutes({
             'UPDATE users SET status = ?, email_verified_at = CURRENT_TIMESTAMP WHERE id = ?',
             ['active', user.id],
           );
+          invalidateUserStatusCache(user.id);
           user.status = 'active';
         } else if (user.status !== 'active') {
           return res.status(403).json({ error: `This account is ${user.status}.` });
@@ -795,7 +891,8 @@ function registerAuthRoutes({
       } finally {
         connection.release();
       }
-      return res.json({ user: publicUser(user), token: createToken(user) });
+      const tokens = await createSessionTokens(user);
+      return res.json({ user: publicUser(user), ...tokens });
     } catch (error) {
       return next(error);
     }

@@ -5,13 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_session.dart';
-import 'package:myapp/app_bottom_navigation.dart';
-import 'package:myapp/news_feed.dart';
-import 'package:myapp/saved_dashboard.dart';
-import 'package:myapp/saved_icons.dart';
-import 'package:myapp/sports.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
+import 'package:myapp/features/app_shell/presentation/news_feed.dart';
+import 'package:myapp/features/saved_items/presentation/saved_dashboard.dart';
+import 'package:myapp/features/saved_items/presentation/saved_icons.dart';
+import 'package:myapp/features/bookings/presentation/sports_booking_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -116,7 +116,10 @@ void main() {
     expect(feed.businessType, 'Fitness');
     expect(feed.savedItemType, 'fitness');
     expect(feed.savedOnly, isTrue);
-    expect(find.byKey(const ValueKey('saved-venues-image-grid')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('saved-venues-image-grid')),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('news-feed-search')), findsNothing);
     expect(
       find.byKey(const ValueKey('saved-venue-tile-business-2')),
@@ -152,7 +155,12 @@ void main() {
           );
         }
         if (request.url.path == '/api/saved-item-counts') {
-          return http.Response(jsonEncode({'counts': {'2': 1}}), 200);
+          return http.Response(
+            jsonEncode({
+              'counts': {'2': 1},
+            }),
+            200,
+          );
         }
         return http.Response('{}', 200);
       }),
@@ -239,11 +247,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: SavedDashboardPage(
-          embedded: true,
-          api: api,
-          itemType: 'sports',
-        ),
+        home: SavedDashboardPage(embedded: true, api: api, itemType: 'sports'),
       ),
     );
     await tester.pumpAndSettle();

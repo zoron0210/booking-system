@@ -8,6 +8,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const pool = require('./db');
 const { createCorsOriginPolicy } = require('./cors_policy');
+const { createJsonBodyParser } = require('./json_body_parser');
+const { createSocialMediaStorage } = require('./social_media_storage');
 const {
   createBookingApprovalDeadlineProcessor,
 } = require('./booking_approval_deadlines');
@@ -44,7 +46,6 @@ const {
   normalizeText,
   parseBusinessCoordinates,
   parseJsonArray,
-  publicMessageUser,
   publicUser,
 } = require('./normalizers');
 
@@ -55,16 +56,38 @@ const {
 const { registerAuthRoutes } = require('./routes/auth_routes');
 const { registerSocialRoutes } = require('./routes/social_routes');
 const { registerSystemRoutes } = require('./routes/system_routes');
+const { registerMessagingRoutes } = require('./routes/messaging_routes');
+const { registerSavedItemsRoutes } = require('./routes/saved_items_routes');
+const { registerActivityLogRoutes } = require('./routes/activity_log_routes');
+const { createWebSocketHub } = require('./websocket_hub');
 
 const app = express();
+const socialMediaStorage = createSocialMediaStorage();
 app.set('json escape', true);
 const auditContextStorage = new AsyncLocalStorage();
 const port = Number(process.env.PORT || 3000);
 const customerBusinessesCacheKey = 'customer-businesses';
 const customerBusinessesCacheTtlMs = 30_000;
+const userStatusCacheTtlMs = 5_000;
+const maxUserStatusCacheEntries = 5_000;
+const userStatusCache = new Map();
+const pendingUserStatusChecks = new Map();
+const userStatusCacheVersions = new Map();
 const notifyBookingParticipants = createBookingNotificationService({ pool });
+const liveUpdates = createWebSocketHub({
+  jwt,
+  pool,
+  secret: process.env.JWT_SECRET,
+  allowedOrigins: (process.env.CLIENT_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+});
 
 function queueBookingNotifications(details) {
+  for (const userId of details.userIds || []) {
+    liveUpdates.publishToUser(userId, { type: 'dashboard.updated' });
+  }
   notifyBookingParticipants(details).catch((error) => {
     console.error('Could not prepare booking notifications.', {
       bookingId: details.booking?.id,
@@ -87,21 +110,6 @@ function positiveIntegerId(value) {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function validTenorGifUrl(value) {
-  if (typeof value !== 'string' || value.length > 2048) return false;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' &&
-      url.hostname === 'media.tenor.com' &&
-      url.port === '' &&
-      !url.username &&
-      !url.password &&
-      /\.(gif|webp)$/i.test(url.pathname);
-  } catch {
-    return false;
-  }
 }
 
 function venueCheckInCode(venueId) {
@@ -197,21 +205,6 @@ function normalizeBusinessType(value) {
   }[value.trim().toLowerCase()] ?? null;
 }
 
-async function isConversationForBusinessType(conversationId, userId, businessType) {
-  const [rows] = await pool.execute(
-    `SELECT 1
-     FROM conversation_members cm
-     JOIN conversations c ON c.id = cm.conversation_id
-     JOIN bookings b ON c.title = CONCAT('Booking ', b.id)
-     JOIN merchant_businesses v ON v.id = b.venue_id
-     WHERE cm.conversation_id = ? AND cm.user_id = ?
-       AND cm.deleted_at IS NULL AND LOWER(v.business_type) = ?
-     LIMIT 1`,
-    [conversationId, userId, businessType],
-  );
-  return rows.length > 0;
-}
-
 function invalidateCustomerBusinesses() {
   readCache.invalidate(customerBusinessesCacheKey);
 }
@@ -246,14 +239,12 @@ app.use(cors({
   origin: createCorsOriginPolicy(),
   exposedHeaders: ['X-Request-Id'],
 }));
-app.use(express.json({
-  limit: '20mb',
-  verify: (req, _res, buffer) => {
-    if (req.originalUrl.startsWith('/api/payments/paymongo/webhook')) {
-      req.rawBody = Buffer.from(buffer);
-    }
-  },
-}));
+app.use(createJsonBodyParser(
+  express,
+  process.env.SOCIAL_ALLOW_LEGACY_BASE64 === 'false'
+    ? { socialPostLimit: '1mb' }
+    : undefined,
+));
 app.use((req, res, next) => {
   if (
     req.body === undefined &&
@@ -580,11 +571,7 @@ async function requireAuth(req, res, next) {
   }
 
   try {
-    const [users] = await pool.execute(
-      'SELECT status FROM users WHERE id = ? LIMIT 1',
-      [req.auth.sub],
-    );
-    if (!users[0] || users[0].status !== 'active') {
+    if (!(await isActiveUser(req.auth.sub))) {
       return res.status(403).json({ error: 'This account is not active.' });
     }
     setAuditActor(req.auth.sub, req.auth.role);
@@ -594,121 +581,64 @@ async function requireAuth(req, res, next) {
   }
 }
 
+async function isActiveUser(userId) {
+  const cacheKey = String(userId);
+  const cached = userStatusCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.status === 'active';
+  }
+  if (cached) userStatusCache.delete(cacheKey);
+
+  const pending = pendingUserStatusChecks.get(cacheKey);
+  if (pending) return pending;
+
+  const version = userStatusCacheVersions.get(cacheKey) || 0;
+  const check = (async () => {
+    const [users] = await pool.execute(
+      'SELECT status FROM users WHERE id = ? LIMIT 1',
+      [userId],
+    );
+    if (version !== (userStatusCacheVersions.get(cacheKey) || 0)) {
+      return isActiveUser(userId);
+    }
+    const status = users[0]?.status ?? null;
+    if (status !== null) {
+      userStatusCache.set(cacheKey, {
+        status,
+        expiresAt: Date.now() + userStatusCacheTtlMs,
+      });
+      while (userStatusCache.size > maxUserStatusCacheEntries) {
+        userStatusCache.delete(userStatusCache.keys().next().value);
+      }
+    }
+    return status === 'active';
+  })();
+  pendingUserStatusChecks.set(cacheKey, check);
+  try {
+    return await check;
+  } finally {
+    if (pendingUserStatusChecks.get(cacheKey) === check) {
+      pendingUserStatusChecks.delete(cacheKey);
+    }
+  }
+}
+
+function invalidateUserStatusCache(userId) {
+  const cacheKey = String(userId);
+  userStatusCache.delete(cacheKey);
+  pendingUserStatusChecks.delete(cacheKey);
+  userStatusCacheVersions.set(
+    cacheKey,
+    (userStatusCacheVersions.get(cacheKey) || 0) + 1,
+  );
+  liveUpdates.closeUser(cacheKey);
+}
+
 registerSystemRoutes({
   app,
   pool,
   requireAuth,
   notificationTokenHash,
-});
-
-app.patch('/api/messages/conversations/:id/state', requireAuth, async (req, res, next) => {
-  const conversationId = positiveIntegerId(req.params.id);
-  if (conversationId === null) {
-    return res.status(400).json({ error: 'The conversation is invalid.' });
-  }
-  const hasArchived = typeof req.body.archived === 'boolean';
-  const hasUnread = typeof req.body.unread === 'boolean';
-  if (!hasArchived && !hasUnread) {
-    return res.status(400).json({ error: 'A valid conversation state is required.' });
-  }
-  try {
-    const [members] = await pool.execute(
-      `SELECT conversation_id FROM conversation_members
-       WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL`,
-      [conversationId, req.auth.sub],
-    );
-    if (members.length === 0) {
-      return res.status(404).json({ error: 'Conversation not found.' });
-    }
-    const updates = [];
-    const values = [];
-    if (hasArchived) {
-      updates.push('archived_at = ?');
-      values.push(req.body.archived ? new Date() : null);
-    }
-    if (hasUnread) {
-      updates.push('manually_unread_at = ?');
-      values.push(req.body.unread ? new Date() : null);
-    }
-    values.push(conversationId, req.auth.sub);
-    await pool.execute(
-      `UPDATE conversation_members SET ${updates.join(', ')}
-       WHERE conversation_id = ? AND user_id = ?`,
-      values,
-    );
-    if (req.body.unread === false) {
-      await pool.execute(
-        `INSERT IGNORE INTO message_reads (message_id, user_id)
-         SELECT id, ? FROM messages
-         WHERE conversation_id = ? AND sender_id <> ?`,
-        [req.auth.sub, conversationId, req.auth.sub],
-      );
-    }
-    return res.json({ message: 'Conversation updated.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.delete('/api/messages/conversations/:id', requireAuth, async (req, res, next) => {
-  const conversationId = positiveIntegerId(req.params.id);
-  if (conversationId === null) {
-    return res.status(400).json({ error: 'The conversation is invalid.' });
-  }
-  try {
-    const [result] = await pool.execute(
-      `UPDATE conversation_members SET deleted_at = CURRENT_TIMESTAMP
-       WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL`,
-      [conversationId, req.auth.sub],
-    );
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Conversation not found.' });
-    }
-    return res.json({ message: 'Conversation deleted for you.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.post('/api/messages/blocks/:userId', requireAuth, async (req, res, next) => {
-  const blockedUserId = positiveIntegerId(req.params.userId);
-  if (blockedUserId === null ||
-      blockedUserId === Number(req.auth.sub)) {
-    return res.status(400).json({ error: 'The user to block is invalid.' });
-  }
-  try {
-    const [users] = await pool.execute(
-      `SELECT id FROM users WHERE id = ? AND status = 'active' LIMIT 1`,
-      [blockedUserId],
-    );
-    if (users.length === 0) {
-      return res.status(404).json({ error: 'User not found.' });
-    }
-    await pool.execute(
-      `INSERT IGNORE INTO user_blocks (blocker_id, blocked_user_id)
-       VALUES (?, ?)`,
-      [req.auth.sub, blockedUserId],
-    );
-    return res.json({ message: 'User blocked.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.delete('/api/messages/blocks/:userId', requireAuth, async (req, res, next) => {
-  const blockedUserId = positiveIntegerId(req.params.userId);
-  if (blockedUserId === null) {
-    return res.status(400).json({ error: 'The user to unblock is invalid.' });
-  }
-  try {
-    await pool.execute(
-      `DELETE FROM user_blocks WHERE blocker_id = ? AND blocked_user_id = ?`,
-      [req.auth.sub, blockedUserId],
-    );
-    return res.json({ message: 'User unblocked.' });
-  } catch (error) {
-    return next(error);
-  }
 });
 
 registerAuthRoutes({
@@ -730,662 +660,37 @@ registerAuthRoutes({
   recordUserActivity,
   setAuditActor,
   invalidateCustomerBusinesses,
+  invalidateUserStatusCache,
   fetch,
   googleClientId: process.env.GOOGLE_CLIENT_ID ||
     '451592121635-f7hgfk7plbi3mngvor1eenrup21mlbg5.apps.googleusercontent.com',
   environment: process.env,
 });
 
-registerSocialRoutes({ app, pool, requireAuth });
-
-app.get('/api/activity-logs', requireAuth, async (req, res, next) => {
-  try {
-    const [activities] = await pool.execute(
-      `SELECT id, activity_type AS activityType, title, description,
-              venue_id AS venueId, venue_name AS venueName,
-              sport_type AS sportType, details_json AS details,
-              actor_role AS actorRole, request_id AS requestId,
-              created_at AS createdAt
-       FROM user_activity_logs
-       WHERE user_id = ?
-       ORDER BY created_at DESC, id DESC`,
-      [req.auth.sub],
-    );
-    return res.json({ activities });
-  } catch (error) {
-    return next(error);
-  }
+registerSocialRoutes({
+  app,
+  pool,
+  requireAuth,
+  mediaStorage: socialMediaStorage,
+  allowLegacyBase64: process.env.SOCIAL_ALLOW_LEGACY_BASE64 !== 'false',
 });
 
-app.get('/api/messages/owner', requireAuth, async (req, res, next) => {
-  const key = typeof req.query.businessKey === 'string'
-    ? req.query.businessKey.trim()
-    : '';
-  if (!key || key.length > 255) {
-    return res.status(400).json({ error: 'A valid business key is required.' });
-  }
-  try {
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.role
-       FROM merchant_businesses b
-       JOIN users u ON u.id = b.merchant_id
-       WHERE (CAST(b.id AS CHAR) = ? OR b.name = ?) AND u.status = 'active'
-       LIMIT 1`,
-      [key, key],
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'The venue owner is no longer available.' });
-    }
-    return res.json({ owner: publicMessageUser(rows[0]) });
-  } catch (error) {
-    return next(error);
-  }
+registerMessagingRoutes({
+  app,
+  pool,
+  requireAuth,
+  positiveIntegerId,
+  normalizeBusinessType,
+  recordUserActivity,
+  publishToUser: liveUpdates.publishToUser,
 });
-
-app.get('/api/messages/contacts', requireAuth, async (req, res, next) => {
-  try {
-    const [rows] = await pool.execute(
-      `SELECT id, email, first_name, last_name, avatar_url, role
-       FROM users
-       WHERE id <> ? AND status = 'active'
-       ORDER BY first_name, last_name, email`,
-      [req.auth.sub],
-    );
-    return res.json({ contacts: rows.map(publicMessageUser) });
-  } catch (error) {
-    return next(error);
-  }
+registerSavedItemsRoutes({
+  app,
+  pool,
+  requireAuth,
+  recordUserActivity,
 });
-
-app.get('/api/messages/conversations', requireAuth, async (req, res, next) => {
-  try {
-    const params = [
-      req.auth.sub,
-      req.auth.sub,
-      req.auth.sub,
-      req.auth.sub,
-      req.auth.sub,
-    ];
-    let bookingTypeFilter = '';
-    if (req.query.businessType !== undefined) {
-      const businessType = normalizeBusinessType(req.query.businessType);
-      if (!businessType) {
-        return res.status(400).json({ error: 'Invalid business type filter.' });
-      }
-      bookingTypeFilter = `AND EXISTS (
-        SELECT 1
-        FROM bookings b
-        JOIN merchant_businesses v ON v.id = b.venue_id
-        WHERE c.title = CONCAT('Booking ', b.id)
-          AND LOWER(v.business_type) = ?
-      )`;
-      params.push(businessType);
-    }
-    const [rows] = await pool.execute(
-      `SELECT c.id, c.type, c.title, c.created_at AS createdAt,
-              CASE WHEN m.removed_at IS NOT NULL
-                   THEN CONCAT_WS(
-                     ' ', removed_by_user.first_name,
-                     removed_by_user.last_name, 'removed this message'
-                   )
-                   ELSE m.body
-              END AS lastMessage,
-              m.created_at AS lastMessageAt,
-              cm.archived_at IS NOT NULL AS archived,
-              cm.manually_unread_at IS NOT NULL AS manuallyUnread,
-              (cm.manually_unread_at IS NOT NULL OR
-               (SELECT COUNT(*) FROM messages unread
-                WHERE unread.conversation_id = c.id
-                  AND unread.sender_id <> ?
-                  AND unread.removed_at IS NULL
-                  AND NOT EXISTS (
-                    SELECT 1 FROM message_user_deletions mud
-                    WHERE mud.message_id = unread.id AND mud.user_id = cm.user_id
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM message_reads mr
-                    WHERE mr.message_id = unread.id AND mr.user_id = ?
-                  )) > 0)
-                AS unreadCount,
-              EXISTS (
-                SELECT 1
-                FROM conversation_members other
-                JOIN user_blocks ub
-                  ON ub.blocker_id = ? AND ub.blocked_user_id = other.user_id
-                WHERE other.conversation_id = c.id
-                  AND other.user_id <> ?
-              ) AS blockedByMe
-       FROM conversations c
-       JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ?
-       LEFT JOIN messages m ON m.id = (
-         SELECT MAX(latest.id) FROM messages latest
-         WHERE latest.conversation_id = c.id
-           AND NOT EXISTS (
-             SELECT 1 FROM message_user_deletions mud
-             WHERE mud.message_id = latest.id AND mud.user_id = cm.user_id
-           )
-       )
-       LEFT JOIN users removed_by_user ON removed_by_user.id = m.removed_by
-       WHERE cm.deleted_at IS NULL
-         ${bookingTypeFilter}
-       ORDER BY COALESCE(m.created_at, c.created_at) DESC`,
-      params,
-    );
-    for (const conversation of rows) {
-      const [members] = await pool.execute(
-        `SELECT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.role
-         FROM conversation_members cm JOIN users u ON u.id = cm.user_id
-         WHERE cm.conversation_id = ?`,
-        [conversation.id],
-      );
-      conversation.members = members.map(publicMessageUser);
-    }
-    return res.json({ conversations: rows });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.post('/api/messages/conversations', requireAuth, async (req, res, next) => {
-  const rawParticipantIds = req.body.participantIds;
-  const participantIdsValid = rawParticipantIds === undefined ||
-    (Array.isArray(rawParticipantIds) &&
-      rawParticipantIds.length <= 20 &&
-      rawParticipantIds.every((id) => positiveIntegerId(id) !== null));
-  const requestedIds = Array.isArray(rawParticipantIds)
-    ? rawParticipantIds.map(positiveIntegerId)
-    : [];
-  const recipientId = req.body.recipientId === undefined
-    ? null
-    : positiveIntegerId(req.body.recipientId);
-  if (recipientId !== null) requestedIds.push(recipientId);
-  const participantIds = [...new Set(requestedIds)].filter(
-    (id) => id !== Number(req.auth.sub),
-  );
-  const requestedType = req.body.type;
-  const isGroup = req.body.type === 'group' || participantIds.length > 1;
-  const title = typeof req.body.title === 'string'
-    ? req.body.title.trim().slice(0, 120)
-    : null;
-  if (
-    !participantIdsValid ||
-    (req.body.recipientId !== undefined && recipientId === null) ||
-    (requestedType !== undefined &&
-      !['direct', 'group'].includes(requestedType)) ||
-    (req.body.title !== undefined &&
-      (typeof req.body.title !== 'string' || req.body.title.length > 120)) ||
-    (requestedType === 'direct' && participantIds.length > 1) ||
-    participantIds.length === 0
-  ) {
-    return res.status(400).json({ error: 'A valid recipient is required.' });
-  }
-  try {
-    if (!isGroup) {
-      const [blocks] = await pool.execute(
-        `SELECT 1 FROM user_blocks
-         WHERE (blocker_id = ? AND blocked_user_id = ?)
-            OR (blocker_id = ? AND blocked_user_id = ?)
-         LIMIT 1`,
-        [req.auth.sub, participantIds[0], participantIds[0], req.auth.sub],
-      );
-      if (blocks.length > 0) {
-        return res.status(403).json({ error: 'This conversation is blocked.' });
-      }
-    }
-    const placeholders = participantIds.map(() => '?').join(', ');
-    const [users] = await pool.execute(
-      `SELECT id FROM users
-       WHERE id IN (${placeholders}) AND status = 'active'`,
-      participantIds,
-    );
-    if (users.length !== participantIds.length) {
-      return res.status(404).json({ error: 'One or more user accounts are unavailable.' });
-    }
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
-      if (!isGroup) {
-        const directParticipants = [Number(req.auth.sub), participantIds[0]];
-        await connection.execute(
-          `SELECT id FROM users
-           WHERE id IN (?, ?) ORDER BY id FOR UPDATE`,
-          directParticipants,
-        );
-        const [existing] = await connection.execute(
-          `SELECT c.id FROM conversations c
-           JOIN conversation_members cm ON cm.conversation_id = c.id
-           WHERE c.type = 'direct' AND cm.user_id IN (?, ?)
-           GROUP BY c.id
-           HAVING COUNT(DISTINCT cm.user_id) = 2 AND COUNT(*) = 2
-           ORDER BY COALESCE(
-             (SELECT MAX(m.created_at) FROM messages m
-              WHERE m.conversation_id = c.id),
-             c.created_at
-           ) DESC, c.id DESC
-           LIMIT 1`,
-          directParticipants,
-        );
-        if (existing.length > 0) {
-          await connection.execute(
-            `UPDATE conversation_members
-             SET archived_at = NULL, deleted_at = NULL, manually_unread_at = NULL
-             WHERE conversation_id = ? AND user_id = ?`,
-            [existing[0].id, req.auth.sub],
-          );
-          await connection.commit();
-          return res.json({ conversationId: existing[0].id });
-        }
-      }
-      const [result] = await connection.execute(
-        'INSERT INTO conversations (type, title, created_by) VALUES (?, ?, ?)',
-        [isGroup ? 'group' : 'direct', title, req.auth.sub],
-      );
-      const allParticipants = [Number(req.auth.sub), ...participantIds];
-      for (const userId of allParticipants) {
-        await connection.execute(
-          'INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)',
-          [result.insertId, userId],
-        );
-      }
-      await connection.commit();
-      return res.status(201).json({ conversationId: result.insertId });
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
-  } catch (error) {
-    return next(error);
-  }
-});
-
-async function isConversationMember(conversationId, userId) {
-  const [rows] = await pool.execute(
-    'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ? LIMIT 1',
-    [conversationId, userId],
-  );
-  return rows.length > 0;
-}
-
-app.get('/api/messages/conversations/:id', requireAuth, async (req, res, next) => {
-  try {
-    const conversationId = positiveIntegerId(req.params.id);
-    if (conversationId === null) {
-      return res.status(400).json({ error: 'The conversation is invalid.' });
-    }
-    const businessType = req.query.businessType === undefined
-      ? null
-      : normalizeBusinessType(req.query.businessType);
-    if (req.query.businessType !== undefined && !businessType) {
-      return res.status(400).json({ error: 'Invalid business type filter.' });
-    }
-    const [members] = await pool.execute(
-      `SELECT 1 FROM conversation_members
-       WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL`,
-      [conversationId, req.auth.sub],
-    );
-    if (members.length === 0) {
-      return res.status(403).json({ error: 'You are not a member of this conversation.' });
-    }
-    if (
-      businessType &&
-      !(await isConversationForBusinessType(
-        conversationId,
-        req.auth.sub,
-        businessType,
-      ))
-    ) {
-      return res.status(404).json({ error: 'Conversation not found.' });
-    }
-    const [readScopeRows] = await pool.execute(
-      `SELECT c.type, cm.archived_at AS archivedAt,
-              (SELECT peer.user_id FROM conversation_members peer
-               WHERE peer.conversation_id = c.id
-                 AND peer.user_id <> cm.user_id
-                 AND peer.deleted_at IS NULL
-               LIMIT 1) AS peerId
-       FROM conversations c
-       JOIN conversation_members cm ON cm.conversation_id = c.id
-       WHERE c.id = ? AND cm.user_id = ? AND cm.deleted_at IS NULL`,
-      [conversationId, req.auth.sub],
-    );
-    const readScope = readScopeRows[0];
-    let readConversationIds = [conversationId];
-    const peerId = positiveIntegerId(readScope?.peerId);
-    if (readScope?.type === 'direct' && peerId !== null) {
-      const businessTypeFilter = businessType
-        ? `AND EXISTS (
-             SELECT 1 FROM bookings b
-             JOIN merchant_businesses v ON v.id = b.venue_id
-             WHERE c.title = CONCAT('Booking ', b.id)
-               AND LOWER(v.business_type) = ?
-           )`
-        : '';
-      const duplicateParams = [
-        req.auth.sub,
-        peerId,
-        readScope.archivedAt,
-        req.auth.sub,
-        peerId,
-      ];
-      if (businessType) duplicateParams.push(businessType);
-      const [duplicateConversations] = await pool.execute(
-        `SELECT c.id
-         FROM conversations c
-         JOIN conversation_members viewer
-           ON viewer.conversation_id = c.id
-          AND viewer.user_id = ? AND viewer.deleted_at IS NULL
-         JOIN conversation_members peer
-           ON peer.conversation_id = c.id
-          AND peer.user_id = ? AND peer.deleted_at IS NULL
-         WHERE c.type = 'direct'
-           AND viewer.archived_at <=> ?
-           AND NOT EXISTS (
-             SELECT 1 FROM conversation_members extra
-             WHERE extra.conversation_id = c.id
-               AND extra.deleted_at IS NULL
-               AND extra.user_id NOT IN (?, ?)
-           )
-           ${businessTypeFilter}`,
-        duplicateParams,
-      );
-      readConversationIds = [
-        ...new Set([
-          conversationId,
-          ...duplicateConversations.map((row) => Number(row.id)),
-        ]),
-      ];
-    }
-    const readConversationPlaceholders = readConversationIds
-      .map(() => '?')
-      .join(', ');
-    await pool.execute(
-      `UPDATE conversation_members SET manually_unread_at = NULL
-       WHERE conversation_id IN (${readConversationPlaceholders})
-         AND user_id = ?`,
-      [...readConversationIds, req.auth.sub],
-    );
-    await pool.execute(
-      `INSERT IGNORE INTO message_reads (message_id, user_id)
-       SELECT id, ? FROM messages
-       WHERE conversation_id IN (${readConversationPlaceholders})
-         AND sender_id <> ?`,
-      [req.auth.sub, ...readConversationIds, req.auth.sub],
-    );
-    const [rows] = await pool.execute(
-      `SELECT m.id, m.conversation_id AS conversationId,
-              m.sender_id AS senderId, m.body, m.created_at AS createdAt,
-              m.removed_at AS removedAt,
-              CASE WHEN m.removed_at IS NULL THEN NULL
-                   ELSE CONCAT_WS(' ', remover.first_name, remover.last_name)
-              END AS removedByName,
-              m.attachment_json AS attachmentJson,
-              EXISTS (
-                SELECT 1 FROM message_reads mr
-                WHERE mr.message_id = m.id AND mr.user_id <> ?
-              ) AS isSeen,
-              u.first_name AS senderFirstName,
-              u.last_name AS senderLastName
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       LEFT JOIN users remover ON remover.id = m.removed_by
-       WHERE m.conversation_id IN (${readConversationPlaceholders})
-         AND NOT EXISTS (
-           SELECT 1 FROM message_user_deletions mud
-           WHERE mud.message_id = m.id AND mud.user_id = ?
-         )
-       ORDER BY m.created_at ASC, m.id ASC`,
-      [req.auth.sub, ...readConversationIds, req.auth.sub],
-    );
-    for (const message of rows) {
-      if (typeof message.attachmentJson === 'string') {
-        try {
-          message.attachment = JSON.parse(message.attachmentJson);
-        } catch {
-          message.attachment = null;
-        }
-      } else {
-        message.attachment = message.attachmentJson || null;
-      }
-      delete message.attachmentJson;
-    }
-    const bookingIdsWithApprovalTickets = new Set(
-      rows
-        .filter(({ attachment }) => {
-          if (attachment?.type !== 'booking_ticket') return false;
-          return ['approved', 'confirmed'].includes(
-            String(attachment.status ?? '').toLowerCase(),
-          ) || ['approved', 'confirmed'].includes(
-            String(attachment.approvalStatus ?? '').toLowerCase(),
-          );
-        })
-        .map(({ attachment }) => positiveIntegerId(attachment.bookingId))
-        .filter((id) => id !== null)
-        .map(String),
-    );
-    const visibleRows = rows.filter(({ attachment }) => {
-      if (
-        attachment?.type !== 'booking_payment_ticket' ||
-        attachment.paymentMethod !== 'cash_on_arrival'
-      ) {
-        return true;
-      }
-      const bookingId = positiveIntegerId(attachment.bookingId);
-      return (
-        bookingId === null ||
-        !bookingIdsWithApprovalTickets.has(String(bookingId))
-      );
-    });
-    const bookingTicketIds = [
-      ...new Set(
-        visibleRows
-          .map((message) => message.attachment)
-          .filter(
-            (attachment) =>
-              attachment &&
-              ['booking', 'booking_ticket', 'booking_payment_ticket'].includes(
-                attachment.type,
-              ),
-          )
-          .map((attachment) => positiveIntegerId(attachment.bookingId))
-          .filter((id) => id !== null),
-      ),
-    ];
-    if (bookingTicketIds.length > 0) {
-      const placeholders = bookingTicketIds.map(() => '?').join(', ');
-      const [ticketVenues] = await pool.execute(
-        `SELECT b.id AS bookingId, v.name AS venueName
-         FROM bookings b
-         JOIN merchant_businesses v ON v.id = b.venue_id
-         WHERE b.id IN (${placeholders})`,
-        bookingTicketIds,
-      );
-      const venueNames = new Map(
-        ticketVenues.map((booking) => [
-          String(booking.bookingId),
-          booking.venueName,
-        ]),
-      );
-      for (const message of visibleRows) {
-        const attachment = message.attachment;
-        if (
-          !attachment ||
-          !['booking', 'booking_ticket', 'booking_payment_ticket'].includes(
-            attachment.type,
-          )
-        ) {
-          continue;
-        }
-        const bookingId = positiveIntegerId(attachment.bookingId);
-        const venueName =
-          bookingId === null ? null : venueNames.get(String(bookingId));
-        if (venueName) attachment.venueName = venueName;
-      }
-    }
-    return res.json({ messages: visibleRows });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.delete('/api/messages/conversations/:conversationId/messages/:messageId', requireAuth, async (req, res, next) => {
-  const conversationId = positiveIntegerId(req.params.conversationId);
-  const messageId = positiveIntegerId(req.params.messageId);
-  const scope = req.body.scope;
-  if (conversationId === null || messageId === null) {
-    return res.status(400).json({ error: 'The conversation and message are invalid.' });
-  }
-  if (scope !== 'me' && scope !== 'everyone') {
-    return res.status(400).json({ error: 'Choose a valid message deletion scope.' });
-  }
-  try {
-    const [messages] = await pool.execute(
-      `SELECT m.sender_id AS senderId
-       FROM messages m
-       JOIN conversation_members cm
-         ON cm.conversation_id = m.conversation_id
-        AND cm.user_id = ? AND cm.deleted_at IS NULL
-       WHERE m.id = ? AND m.conversation_id = ?
-       LIMIT 1`,
-      [req.auth.sub, messageId, conversationId],
-    );
-    if (messages.length === 0) {
-      return res.status(404).json({ error: 'Message not found or cannot be deleted.' });
-    }
-    if (scope === 'everyone') {
-      if (String(messages[0].senderId) !== String(req.auth.sub)) {
-        return res.status(403).json({
-          error: 'You can only delete your own message for everyone.',
-        });
-      }
-      await pool.execute(
-        `UPDATE messages
-         SET body = NULL, attachment_json = NULL,
-             removed_at = COALESCE(removed_at, CURRENT_TIMESTAMP),
-             removed_by = COALESCE(removed_by, ?)
-         WHERE id = ? AND conversation_id = ?`,
-        [req.auth.sub, messageId, conversationId],
-      );
-      return res.json({ message: 'Message deleted for everyone.' });
-    }
-    await pool.execute(
-      `INSERT IGNORE INTO message_user_deletions (message_id, user_id)
-       VALUES (?, ?)`,
-      [messageId, req.auth.sub],
-    );
-    return res.json({ message: 'Message deleted for you.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.post('/api/messages/conversations/:id', requireAuth, async (req, res, next) => {
-  const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
-  const attachment = req.body.attachment;
-  const businessType = req.body.businessType === undefined
-    ? null
-    : normalizeBusinessType(req.body.businessType);
-  if (req.body.businessType !== undefined && !businessType) {
-    return res.status(400).json({ error: 'Invalid business type filter.' });
-  }
-  const hasImage = attachment &&
-    typeof attachment === 'object' &&
-    attachment.type === 'image' &&
-    typeof attachment.data === 'string' &&
-    /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(attachment.data) &&
-    attachment.data.length <= 7 * 1024 * 1024;
-  const hasGif = attachment &&
-    typeof attachment === 'object' &&
-    attachment.type === 'gif' &&
-    validTenorGifUrl(attachment.url);
-  if ((!body && !hasImage && !hasGif) || body.length > 4000) {
-    return res.status(400).json({
-      error: 'Add a message or a valid image attachment. Images must be smaller than 5 MB.',
-    });
-  }
-  if (attachment != null && !hasImage && !hasGif) {
-    return res.status(400).json({ error: 'The image or GIF attachment is invalid or too large.' });
-  }
-  try {
-    const conversationId = positiveIntegerId(req.params.id);
-    if (conversationId === null) {
-      return res.status(400).json({ error: 'The conversation is invalid.' });
-    }
-    const [members] = await pool.execute(
-      `SELECT 1 FROM conversation_members
-       WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL`,
-      [conversationId, req.auth.sub],
-    );
-    if (members.length === 0) {
-      return res.status(403).json({ error: 'You are not a member of this conversation.' });
-    }
-    if (
-      businessType &&
-      !(await isConversationForBusinessType(
-        conversationId,
-        req.auth.sub,
-        businessType,
-      ))
-    ) {
-      return res.status(404).json({ error: 'Conversation not found.' });
-    }
-    const [blocked] = await pool.execute(
-      `SELECT 1
-       FROM conversation_members sender
-       JOIN conversations c
-         ON c.id = sender.conversation_id AND c.type = 'direct'
-       JOIN conversation_members recipient
-         ON recipient.conversation_id = sender.conversation_id
-        AND recipient.user_id <> sender.user_id
-       JOIN user_blocks ub
-         ON (ub.blocker_id = sender.user_id AND ub.blocked_user_id = recipient.user_id)
-         OR (ub.blocker_id = recipient.user_id AND ub.blocked_user_id = sender.user_id)
-       WHERE sender.conversation_id = ? AND sender.user_id = ?
-       LIMIT 1`,
-      [conversationId, req.auth.sub],
-    );
-    if (blocked.length > 0) {
-      return res.status(403).json({ error: 'Messages cannot be sent in this blocked conversation.' });
-    }
-    await pool.execute(
-      `UPDATE conversation_members
-       SET archived_at = NULL, deleted_at = NULL
-       WHERE conversation_id = ?`,
-      [conversationId],
-    );
-    await pool.execute(
-      'INSERT INTO messages (conversation_id, sender_id, body, attachment_json) VALUES (?, ?, ?, ?)',
-      [
-        conversationId,
-        req.auth.sub,
-        body || null,
-        hasImage
-          ? JSON.stringify({
-              type: 'image',
-              name: typeof attachment.name === 'string'
-                ? attachment.name.slice(0, 255)
-                : 'image',
-              data: attachment.data,
-            })
-          : hasGif
-          ? JSON.stringify({ type: 'gif', url: attachment.url })
-          : null,
-      ],
-    );
-    await recordUserActivity(
-      pool,
-      req.auth.sub,
-      'message_sent',
-      'Message sent',
-      'You sent a message in a conversation.',
-    );
-    return res.status(201).json({ message: 'Message sent.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
+registerActivityLogRoutes({ app, pool, requireAuth });
 app.get('/api/merchant/profile', requireAuth, requireRole('merchant'), async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
@@ -2222,128 +1527,6 @@ app.post('/api/merchant/businesses', requireAuth, requireRole('merchant'), async
   }
 });
 
-app.get('/api/saved-items', requireAuth, async (req, res, next) => {
-  try {
-    const [items] = await pool.execute(
-      `SELECT id, item_type AS itemType, item_key AS itemKey,
-              title, subtitle, image_url AS imageUrl,
-              owner_email AS ownerEmail, owner_phone AS ownerPhone,
-              created_at AS createdAt
-       FROM saved_items
-       WHERE user_id = ?
-       ORDER BY created_at DESC`,
-      [req.auth.sub],
-    );
-    return res.json({ items });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.get('/api/saved-item-counts', requireAuth, async (req, res, next) => {
-  const itemType = req.query.itemType;
-  if (!['sports', 'event', 'fitness'].includes(itemType)) {
-    return res.status(400).json({ error: 'Invalid saved item type.' });
-  }
-  try {
-    const [rows] = await pool.execute(
-      `SELECT item_key AS itemKey, COUNT(*) AS saveCount
-       FROM saved_items
-       WHERE item_type = ?
-       GROUP BY item_key`,
-      [itemType],
-    );
-    return res.json({
-      counts: Object.fromEntries(
-        rows.map((row) => [row.itemKey, Number(row.saveCount)]),
-      ),
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.post('/api/saved-items', requireAuth, async (req, res, next) => {
-  const itemType = req.body.itemType;
-  const itemKey = typeof req.body.itemKey === 'string' ? req.body.itemKey.trim() : '';
-  const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
-  const subtitle = typeof req.body.subtitle === 'string' ? req.body.subtitle.trim() : '';
-  const imageUrl = typeof req.body.imageUrl === 'string' ? req.body.imageUrl.trim() : null;
-
-  if (!['sports', 'event', 'fitness'].includes(itemType) ||
-      !itemKey || !title || itemKey.length > 255 || title.length > 255 ||
-      (req.body.subtitle != null &&
-        (typeof req.body.subtitle !== 'string' ||
-          req.body.subtitle.length > 500)) ||
-      (req.body.imageUrl != null &&
-        (typeof req.body.imageUrl !== 'string' ||
-          req.body.imageUrl.length > 10 * 1024 * 1024))) {
-    return res.status(400).json({ error: 'A valid saved item is required.' });
-  }
-
-  try {
-    const [owners] = await pool.execute(
-      `SELECT u.email, u.phone, mp.contact_email AS contactEmail
-       FROM merchant_businesses b
-       JOIN users u ON u.id = b.merchant_id
-       LEFT JOIN merchant_profiles mp ON mp.user_id = u.id
-       WHERE b.id = ? OR b.name = ?
-       LIMIT 1`,
-      [itemKey, itemKey],
-    );
-    const owner = owners[0];
-    const ownerEmail = owner?.contactEmail || owner?.email || null;
-    const ownerPhone = owner?.phone || null;
-    await pool.execute(
-      `INSERT INTO saved_items
-       (user_id, item_type, item_key, title, subtitle, image_url,
-        owner_email, owner_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE title = VALUES(title), subtitle = VALUES(subtitle),
-                               image_url = VALUES(image_url),
-                               owner_email = COALESCE(VALUES(owner_email), owner_email),
-                               owner_phone = COALESCE(VALUES(owner_phone), owner_phone)`,
-      [req.auth.sub, itemType, itemKey, title, subtitle || null, imageUrl,
-       ownerEmail, ownerPhone],
-    );
-    await recordUserActivity(
-      pool,
-      req.auth.sub,
-      'item_saved',
-      'Saved an item',
-      `Saved ${itemType} item: ${title.slice(0, 200)}.`,
-    );
-    return res.status(201).json({ message: 'Item saved.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.delete('/api/saved-items/:itemType/:itemKey', requireAuth, async (req, res, next) => {
-  if (!['sports', 'event', 'fitness'].includes(req.params.itemType) ||
-      !req.params.itemKey || req.params.itemKey.length > 255) {
-    return res.status(400).json({ error: 'Invalid saved item type.' });
-  }
-  try {
-    const [result] = await pool.execute(
-      'DELETE FROM saved_items WHERE user_id = ? AND item_type = ? AND item_key = ?',
-      [req.auth.sub, req.params.itemType, req.params.itemKey],
-    );
-    if (result.affectedRows > 0) {
-      await recordUserActivity(
-        pool,
-        req.auth.sub,
-        'item_removed',
-        'Removed a saved item',
-        `Removed a saved ${req.params.itemType} item.`,
-      );
-    }
-    return res.json({ message: 'Item removed.' });
-  } catch (error) {
-    return next(error);
-  }
-});
-
 function requireRole(role) {
   return async (req, res, next) => {
     try {
@@ -2351,19 +1534,10 @@ function requireRole(role) {
         'SELECT role, status FROM users WHERE id = ? LIMIT 1',
         [req.auth.sub],
       );
-      const portalMode = req.auth.portalMode ?? req.auth.role;
-      const isMerchantUsingCustomerPortal =
-        users[0]?.role === 'merchant' &&
-        role === 'customer' &&
-        req.auth.role === 'customer' &&
-        req.auth.accountRole === 'merchant' &&
-        portalMode === 'customer';
-      const hasRole =
-        users[0]?.role === role || isMerchantUsingCustomerPortal;
       if (
         !users[0] ||
-        !hasRole ||
-        portalMode !== role ||
+        users[0].role !== role ||
+        req.auth.role !== role ||
         users[0].status !== 'active'
       ) {
         return res.status(403).json({ error: `Only active ${role} accounts can access this endpoint.` });
@@ -4492,6 +3666,7 @@ app.get('/api/merchant/bookings', requireAuth, requireRole('merchant'), async (r
               b.total_amount AS total, b.downpayment_amount AS downpayment,
               b.payment_status AS paymentStatus,
               b.paid_amount AS paidAmount,
+              b.paid_at AS paidAt,
               b.payment_due_at AS paymentDueAt,
               b.payment_timeout_minutes AS paymentTimeoutMinutes,
               b.approval_timeout_minutes AS approvalTimeoutMinutes,
@@ -5423,19 +4598,126 @@ async function listBusinessReviews(req, res, next) {
   if (businessId === null) {
     return res.status(400).json({ error: 'Invalid business id.' });
   }
+  const authorization = req.get('authorization') || '';
+  const [scheme, token] = authorization.split(' ');
+  let viewerId = null;
+  if (scheme === 'Bearer' && token) {
+    try {
+      viewerId = positiveIntegerId(jwt.verify(token, process.env.JWT_SECRET).sub);
+    } catch {
+      viewerId = null;
+    }
+  }
   try {
     const [rows] = await pool.execute(
       `SELECT r.id, r.business_id AS businessId, r.customer_id AS customerId,
               r.rating, r.comment,
               r.image_data AS imageData, r.created_at AS createdAt,
               u.first_name AS firstName, u.last_name AS lastName,
-              u.avatar_url AS avatarUrl
+              u.avatar_url AS avatarUrl,
+              (SELECT COUNT(*) FROM venue_review_reactions rr
+               WHERE rr.review_id = r.id) AS reactionCount,
+              EXISTS (SELECT 1 FROM venue_review_reactions rr
+                      WHERE rr.review_id = r.id AND rr.user_id = ?) AS reactedByMe
        FROM venue_reviews r INNER JOIN users u ON u.id = r.customer_id
        WHERE r.business_id = ? ORDER BY r.created_at DESC`,
+      [viewerId, businessId],
+    );
+    const [replyRows] = await pool.execute(
+      `SELECT rp.id, rp.review_id AS reviewId, rp.reply_text AS text,
+              rp.created_at AS createdAt, u.id AS userId,
+              u.first_name AS firstName, u.last_name AS lastName,
+              u.avatar_url AS avatarUrl
+       FROM venue_review_replies rp
+       INNER JOIN venue_reviews r ON r.id = rp.review_id
+       INNER JOIN users u ON u.id = rp.user_id AND u.status = 'active'
+       WHERE r.business_id = ?
+       ORDER BY rp.created_at, rp.id
+       LIMIT 500`,
       [businessId],
     );
-    return res.json({ reviews: rows });
+    const repliesByReview = new Map();
+    for (const reply of replyRows) {
+      const reviewId = Number(reply.reviewId);
+      const replies = repliesByReview.get(reviewId) ?? [];
+      replies.push({
+        ...reply,
+        createdAt: reply.createdAt == null
+          ? null
+          : new Date(reply.createdAt).toISOString(),
+      });
+      repliesByReview.set(reviewId, replies);
+    }
+    return res.json({
+      reviews: rows.map((row) => ({
+        ...row,
+        createdAt: row.createdAt == null
+          ? null
+          : new Date(row.createdAt).toISOString(),
+        reactionCount: Number(row.reactionCount) || 0,
+        reactedByMe: Boolean(row.reactedByMe),
+        replies: repliesByReview.get(Number(row.id)) ?? [],
+      })),
+    });
   } catch (error) { return next(error); }
+}
+
+async function setVenueReviewReaction(req, res, next) {
+  const reviewId = positiveIntegerId(req.params.reviewId);
+  if (reviewId === null) return res.status(400).json({ error: 'Invalid review.' });
+  try {
+    const [reviews] = await pool.execute(
+      'SELECT id FROM venue_reviews WHERE id = ? LIMIT 1',
+      [reviewId],
+    );
+    if (!reviews[0]) return res.status(404).json({ error: 'Review not found.' });
+    if (req.method === 'POST') {
+      await pool.execute(
+        'INSERT IGNORE INTO venue_review_reactions (review_id, user_id) VALUES (?, ?)',
+        [reviewId, req.auth.sub],
+      );
+    } else {
+      await pool.execute(
+        'DELETE FROM venue_review_reactions WHERE review_id = ? AND user_id = ?',
+        [reviewId, req.auth.sub],
+      );
+    }
+    return res.json({ reactedByMe: req.method === 'POST' });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function replyToVenueReview(req, res, next) {
+  const reviewId = positiveIntegerId(req.params.reviewId);
+  const text = typeof req.body.text === 'string'
+    ? req.body.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+    : '';
+  if (reviewId === null || !text || text.length > 2000) {
+    return res.status(400).json({
+      error: 'Enter a reply of no more than 2,000 characters.',
+    });
+  }
+  try {
+    const [reviews] = await pool.execute(
+      'SELECT id FROM venue_reviews WHERE id = ? LIMIT 1',
+      [reviewId],
+    );
+    if (!reviews[0]) return res.status(404).json({ error: 'Review not found.' });
+    const [result] = await pool.execute(
+      `INSERT INTO venue_review_replies (review_id, user_id, reply_text)
+       VALUES (?, ?, ?)`,
+      [reviewId, req.auth.sub, text],
+    );
+    return res.status(201).json({
+      id: Number(result.insertId),
+      reviewId,
+      userId: Number(req.auth.sub),
+      text,
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 async function submitBusinessReview(req, res, next) {
@@ -5504,6 +4786,21 @@ async function submitBusinessReview(req, res, next) {
 
 app.get('/api/news-feed/:businessId/reviews', listBusinessReviews);
 app.post('/api/news-feed/:businessId/reviews', requireAuth, requireRole('customer'), submitBusinessReview);
+app.post(
+  '/api/venue-reviews/:reviewId/reactions',
+  requireAuth,
+  setVenueReviewReaction,
+);
+app.delete(
+  '/api/venue-reviews/:reviewId/reactions',
+  requireAuth,
+  setVenueReviewReaction,
+);
+app.post(
+  '/api/venue-reviews/:reviewId/replies',
+  requireAuth,
+  replyToVenueReview,
+);
 app.post('/api/reviews', requireAuth, requireRole('customer'), submitCustomerReview);
 app.post('/api/customer/reviews', requireAuth, requireRole('customer'), submitCustomerReview);
 
@@ -5540,6 +4837,7 @@ function startServer() {
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`SpotGo Sports API listening on http://0.0.0.0:${port}`);
   });
+  liveUpdates.attach(server);
   const completionInterval = setInterval(() => {
     processBookingApprovalDeadlines().catch((error) => {
       console.error('Could not process booking approval deadlines.', error);
@@ -5565,3 +4863,5 @@ function startServer() {
 }
 
 startServer();
+
+module.exports = { invalidateUserStatusCache };

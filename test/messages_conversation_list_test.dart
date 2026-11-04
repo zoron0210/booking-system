@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/messages_conversation_list.dart';
+import 'package:myapp/features/messaging/presentation/messages_conversation_list.dart';
 
 void main() {
   testWidgets('archived conversation stays out of chats and quick contacts', (

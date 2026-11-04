@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_session.dart';
+import 'package:myapp/core/app_session.dart';
 import 'package:myapp/main.dart';
-import 'package:myapp/reserve_dashboard.dart';
+import 'package:myapp/features/app_shell/presentation/reserve_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

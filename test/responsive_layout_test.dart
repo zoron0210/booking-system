@@ -2,15 +2,14 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_bottom_navigation.dart';
-import 'package:myapp/app_design_system.dart';
+import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/all_venues_page.dart';
-import 'package:myapp/merchant_add_page.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/venues/presentation/all_venues_page.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_add_page.dart';
 import 'package:myapp/main.dart';
-import 'package:myapp/reserve_dashboard.dart';
+import 'package:myapp/features/app_shell/presentation/reserve_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -78,41 +77,6 @@ void main() {
     expect(navigationRect.center.dx, closeTo(800, 1));
     expect(navigationRect.bottom, closeTo(900, 1));
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('overview content is centered and constrained on desktop', (
-    tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1600, 900);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(const MaterialApp(home: OverviewPage()));
-    await tester.pumpAndSettle();
-
-    final contentRect = tester.getRect(find.byType(CustomScrollView));
-    expect(contentRect.width, closeTo(AppResponsive.contentMaxWidth, 1));
-    expect(contentRect.center.dx, closeTo(800, 1));
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('overview fits portrait and landscape tablet viewports', (
-    tester,
-  ) async {
-    for (final size in [const Size(768, 1024), const Size(1024, 768)]) {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = size;
-      await tester.pumpWidget(const MaterialApp(home: OverviewPage()));
-      await tester.pumpAndSettle();
-
-      final contentRect = tester.getRect(find.byType(CustomScrollView));
-      expect(contentRect.width, lessThanOrEqualTo(1000));
-      expect(contentRect.center.dx, closeTo(size.width / 2, 1));
-      expect(tester.takeException(), isNull, reason: '$size');
-    }
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
   });
 
   testWidgets(

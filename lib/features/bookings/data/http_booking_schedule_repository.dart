@@ -20,7 +20,7 @@ class HttpBookingScheduleRepository implements BookingScheduleRepository {
       '/api/bookings',
       headers: authHeaders(token),
     );
-    return asMapList(response['bookings'])
+    return asMapList(response['bookings'] ?? response['data'])
         .map(BookingScheduleEntry.fromApiJson)
         .toList(growable: false);
   }

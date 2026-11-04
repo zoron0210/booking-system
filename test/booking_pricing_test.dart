@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/booking_pricing.dart';
+import 'package:myapp/features/bookings/domain/booking_pricing.dart';
 
 void main() {
   group('calculateExtraPlayerCharge', () {

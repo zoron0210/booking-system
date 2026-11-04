@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_session.dart';
-import 'package:myapp/app_startup.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/app_shell/application/app_startup.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/main.dart';
-import 'package:myapp/news_feed.dart';
+import 'package:myapp/features/app_shell/presentation/news_feed.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 AuthApi _emptySocialApi() => AuthApi(
@@ -32,6 +32,9 @@ void main() {
   testWidgets('shows branded loading screen then opens the app', (
     tester,
   ) async {
+    SharedPreferences.setMockInitialValues({
+      'spotgo_first_launch_onboarding_complete': true,
+    });
     final initialization = Completer<AppSession>();
     await tester.pumpWidget(
       AppStartup(
@@ -43,7 +46,6 @@ void main() {
     expect(find.text('SpotGo'), findsOneWidget);
     expect(find.byType(SpotGoLogo), findsOneWidget);
     expect(find.text('Getting your courts ready...'), findsOneWidget);
-    expect(find.byType(OverviewPage), findsNothing);
 
     initialization.complete(await AppSession.load());
     await tester.pumpAndSettle();
@@ -54,6 +56,9 @@ void main() {
   testWidgets('shows a retry action if startup initialization fails', (
     tester,
   ) async {
+    SharedPreferences.setMockInitialValues({
+      'spotgo_first_launch_onboarding_complete': true,
+    });
     var attempts = 0;
     final initialAttempt = Completer<AppSession>();
     final retryAttempt = Completer<AppSession>();

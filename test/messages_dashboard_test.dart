@@ -5,8 +5,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/messages_dashboard.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/messaging/presentation/messages_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -133,6 +133,13 @@ void main() {
     expect(find.text('TP-TXN-00000504'), findsOneWidget);
     expect(find.text('TP-BOOKING-TOKEN-504'), findsOneWidget);
     expect(find.text('Earlier message to the venue.'), findsNothing);
+    final composer = tester.widget<TextField>(
+      find.byKey(const ValueKey('messages-chat-composer')),
+    );
+    expect(composer.minLines, 1);
+    expect(composer.maxLines, 6);
+    expect(composer.keyboardType, TextInputType.multiline);
+    expect(find.byIcon(Icons.emoji_emotions_outlined), findsNothing);
   });
 
   testWidgets('pulling down refreshes a short populated inbox', (tester) async {

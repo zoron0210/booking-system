@@ -5,8 +5,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/news_feed.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/app_shell/presentation/news_feed.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -45,7 +45,14 @@ void main() {
             );
           }
           if (request.url.path == '/api/businesses') {
-            return http.Response(jsonEncode({'businesses': []}), 200);
+            return http.Response(
+              jsonEncode({
+                'businesses': [
+                  {'id': 42, 'businessType': 'Sports', 'enabled': false},
+                ],
+              }),
+              200,
+            );
           }
           return http.Response(
             jsonEncode({'error': 'Unexpected API request'}),
@@ -62,14 +69,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('UNAVAILABLE'), findsOneWidget);
+      expect(find.text('Unavailable'), findsOneWidget);
       final smallCard = find
           .byKey(const ValueKey('news-feed-mini-business-42'))
           .first;
-      final smallCardTap = find.descendant(
-        of: smallCard,
-        matching: find.byType(InkWell),
-      ).first;
+      final smallCardTap = find
+          .descendant(of: smallCard, matching: find.byType(InkWell))
+          .first;
       expect(tester.widget<InkWell>(smallCardTap).onTap, isNull);
       final pushesBeforeTap = observer.pushCount;
 
@@ -77,7 +83,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(observer.pushCount, pushesBeforeTap);
-      expect(find.text('Sports Courts'), findsOneWidget);
+      expect(find.text('Sports Courts').first, findsOneWidget);
       expect(find.text('SpotGo'), findsOneWidget);
       expect(find.byKey(const ValueKey('news-feed-search')), findsOneWidget);
       final feedScrollable = find
@@ -100,7 +106,9 @@ void main() {
           .first;
       expect(tester.widget<InkWell>(listedCardTap).onTap, isNull);
       final pushesBeforeListedTap = observer.pushCount;
-      await tester.tap(listedCard);
+      await tester.ensureVisible(listedCard);
+      await tester.pumpAndSettle();
+      await tester.tapAt(tester.getTopLeft(listedCard) + const Offset(20, 20));
       await tester.pumpAndSettle();
       expect(observer.pushCount, pushesBeforeListedTap);
     },

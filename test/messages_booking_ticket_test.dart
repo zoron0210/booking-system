@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_theme.dart';
-import 'package:myapp/messages_ui.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_theme.dart';
+import 'package:myapp/features/messaging/presentation/messages_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -35,7 +35,7 @@ void main() {
       ),
     );
 
-    expect(find.text('TINKERPRO  ·  COURT PASS'), findsOneWidget);
+    expect(find.text('SPOTGO  ·  COURT PASS'), findsOneWidget);
     expect(find.text('PAYMENT RECEIPT'), findsOneWidget);
     expect(find.text('PAYMENT RECEIVED'), findsOneWidget);
     expect(find.text('PENDING APPROVAL'), findsOneWidget);
@@ -375,7 +375,7 @@ void main() {
       ),
     );
 
-    expect(find.text('TINKERPRO  ·  FITNESS PASS'), findsOneWidget);
+    expect(find.text('SPOTGO  ·  FITNESS PASS'), findsOneWidget);
     expect(find.text('Yoga · Yearly plan'), findsOneWidget);
     expect(find.textContaining('Alex Coach'), findsOneWidget);
     expect(find.textContaining('3 months'), findsOneWidget);
@@ -406,14 +406,14 @@ void main() {
       ),
     );
 
-    expect(find.text('TINKERPRO  ·  EVENT PASS'), findsOneWidget);
+    expect(find.text('SPOTGO  ·  EVENT PASS'), findsOneWidget);
     expect(find.text('PAYMENT RECEIPT'), findsOneWidget);
     expect(find.text('TP-TXN-00000503'), findsOneWidget);
     expect(find.text('\u{20B1} 25000.00'), findsOneWidget);
     expect(find.text('VENUE HOURS'), findsOneWidget);
     expect(find.text('7:00 AM - 10:00 PM'), findsOneWidget);
     expect(find.text('DURATION'), findsNothing);
-    expect(find.text('TINKERPRO  ·  COURT PASS'), findsNothing);
+    expect(find.text('SPOTGO  ·  COURT PASS'), findsNothing);
   });
 
   testWidgets('booking request displays its actual Event venue name', (
@@ -440,7 +440,7 @@ void main() {
       ),
     );
 
-    expect(find.text('TINKERPRO  ·  EVENT PASS'), findsOneWidget);
+    expect(find.text('SPOTGO  ·  EVENT PASS'), findsOneWidget);
     expect(find.text('exc wall'), findsOneWidget);
     expect(find.text('Wedding'), findsOneWidget);
     expect(find.text('Sports venue'), findsNothing);
@@ -505,10 +505,8 @@ void main() {
       find.byKey(const ValueKey('messages-booking-ticket-header')),
     );
     expect(header.color, const Color(0xFFB45309));
-    expect(find.text('TINKERPRO  ·  COURT PASS'), findsOneWidget);
-    final headerTitle = tester.widget<Text>(
-      find.text('TINKERPRO  ·  COURT PASS'),
-    );
+    expect(find.text('SPOTGO  ·  COURT PASS'), findsOneWidget);
+    final headerTitle = tester.widget<Text>(find.text('SPOTGO  ·  COURT PASS'));
     expect(headerTitle.style?.color, Colors.white);
   });
 }

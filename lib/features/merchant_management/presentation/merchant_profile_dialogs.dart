@@ -3,9 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../../app_design_system.dart';
-import '../../../app_preferences.dart';
-import '../../../auth_api.dart';
+import '../../../core/app_design_system.dart';
+
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 
 Color get _profileInk => AppColors.ink;
 Color get _profileMuted => AppColors.muted;
@@ -285,7 +286,7 @@ class _MerchantCheckInQrDialogState extends State<MerchantCheckInQrDialog> {
       _error = null;
     });
     try {
-      final result = await widget.api.merchantVenueCheckInCode(
+      final result = await widget.api.bookings.merchantVenueCheckInCode(
         token: widget.token,
         venueId: widget.venueId,
       );

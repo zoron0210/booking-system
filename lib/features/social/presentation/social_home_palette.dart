@@ -38,17 +38,7 @@ class SocialHomeColors extends ThemeExtension<SocialHomeColors> {
 
   static SocialHomeColors of(BuildContext context) =>
       Theme.of(context).extension<SocialHomeColors>() ??
-      const SocialHomeColors(
-        canvas: SocialHomePalette.canvas,
-        surface: SocialHomePalette.surface,
-        surfaceRaised: SocialHomePalette.surfaceRaised,
-        border: SocialHomePalette.border,
-        text: SocialHomePalette.text,
-        muted: SocialHomePalette.muted,
-        primary: SocialHomePalette.primary,
-        coral: SocialHomePalette.coral,
-        mint: SocialHomePalette.mint,
-      );
+      forBrightness(Theme.of(context).colorScheme.brightness);
 
   static SocialHomeColors forBrightness(Brightness brightness) {
     if (brightness == Brightness.dark) {

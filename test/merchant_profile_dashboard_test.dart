@@ -5,10 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/app_session.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/merchant_profile_dashboard.dart';
-import 'package:myapp/profile_dashboard.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_profile_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 String _date(DateTime value) =>
@@ -39,13 +38,13 @@ void main() {
       find.byKey(const ValueKey('merchant-settings-community')),
       findsNothing,
     );
-
     expect(
       find.byKey(const ValueKey('merchant-settings-switch-to-customer')),
-      findsOneWidget,
+      findsNothing,
     );
+
     final settingsList = find.ancestor(
-      of: find.byKey(const ValueKey('merchant-settings-switch-to-customer')),
+      of: find.byKey(const ValueKey('merchant-settings-booking-deadlines')),
       matching: find.byType(ListView),
     );
     final settingsScrollable = find
@@ -215,159 +214,6 @@ void main() {
       requests.map((request) => request.url.path),
       contains('/api/merchant/businesses/7/check-in-code'),
     );
-  });
-
-  testWidgets('merchant profile opens customer portal using switched token', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({
-      'session_api_token': 'merchant-token',
-      'session_role': 'merchant',
-      'session_authenticated': true,
-    });
-    FlutterSecureStorage.setMockInitialValues({});
-    final session = await AppSession.load();
-    await session.setApiToken('merchant-token');
-    await session.setRole('merchant');
-    final requests = <http.Request>[];
-    final api = AuthApi(
-      client: MockClient((request) async {
-        requests.add(request);
-        if (request.url.path == '/api/auth/portal-mode') {
-          return http.Response(
-            jsonEncode({'token': 'customer-mode-token', 'role': 'customer'}),
-            200,
-          );
-        }
-        if (request.url.path == '/api/news-feed') {
-          return http.Response(jsonEncode({'posts': []}), 200);
-        }
-        if (request.url.path == '/api/businesses') {
-          return http.Response(jsonEncode({'businesses': []}), 200);
-        }
-        if (request.url.path == '/api/saved-items') {
-          return http.Response(jsonEncode({'items': []}), 200);
-        }
-        return http.Response('{}', 200);
-      }),
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MerchantProfileDashboardPage(
-          owner: const {},
-          profileImage: null,
-          venueCount: 0,
-          api: api,
-          onLogout: (_) async {},
-          onEditProfile: () async => null,
-        ),
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-settings-switch-to-customer')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('news-feed-nav-explore')), findsOneWidget);
-    expect(find.text('You’re now browsing as a customer.'), findsOneWidget);
-    expect(
-      requests.any(
-        (request) =>
-            request.url.path == '/api/auth/portal-mode' &&
-            jsonDecode(request.body)['mode'] == 'customer',
-      ),
-      isTrue,
-    );
-    final updatedSession = await AppSession.load();
-    expect(updatedSession.role, 'customer');
-    expect(updatedSession.apiToken, 'customer-mode-token');
-  });
-
-  testWidgets('merchant customer mode exposes return switch in Settings', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({
-      'session_api_token': 'customer-mode-token',
-      'session_role': 'customer',
-      'session_authenticated': true,
-    });
-    FlutterSecureStorage.setMockInitialValues({});
-    final session = await AppSession.load();
-    await session.setApiToken('customer-mode-token');
-    await session.setRole('customer');
-    final requests = <http.Request>[];
-    final api = AuthApi(
-      client: MockClient((request) async {
-        requests.add(request);
-        if (request.url.path == '/api/auth/me') {
-          return http.Response(
-            jsonEncode({
-              'user': {
-                'id': 88,
-                'role': 'merchant',
-                'firstName': 'Morgan',
-                'lastName': 'Merchant',
-                'email': 'merchant@example.test',
-              },
-            }),
-            200,
-          );
-        }
-        if (request.url.path == '/api/bookings') {
-          return http.Response(jsonEncode({'bookings': []}), 200);
-        }
-        if (request.url.path == '/api/social/users/88') {
-          return http.Response(
-            jsonEncode({
-              'profile': {
-                'id': 88,
-                'role': 'merchant',
-                'postsCount': 0,
-                'followersCount': 0,
-                'followingCount': 0,
-              },
-              'posts': [],
-              'businesses': [],
-            }),
-            200,
-          );
-        }
-        if (request.url.path == '/api/auth/portal-mode') {
-          return http.Response(
-            jsonEncode({'token': 'merchant-mode-token', 'role': 'merchant'}),
-            200,
-          );
-        }
-        return http.Response('{}', 200);
-      }),
-    );
-
-    await tester.pumpWidget(MaterialApp(home: ProfileDashboardPage(api: api)));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
-
-    final switchPortal = find.byKey(
-      const ValueKey('profile-settings-switch-to-merchant'),
-    );
-    expect(switchPortal, findsOneWidget);
-    await tester.tap(switchPortal);
-    await tester.pumpAndSettle();
-
-    expect(
-      requests.any(
-        (request) =>
-            request.url.path == '/api/auth/portal-mode' &&
-            jsonDecode(request.body)['mode'] == 'merchant',
-      ),
-      isTrue,
-    );
-    final updatedSession = await AppSession.load();
-    expect(updatedSession.role, 'merchant');
-    expect(updatedSession.apiToken, 'merchant-mode-token');
   });
 
   testWidgets('merchant notification controls are grouped in their own page', (

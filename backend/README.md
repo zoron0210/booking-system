@@ -34,7 +34,8 @@ reviews, using MySQL.
 2. In `backend`, copy `.env.example` to `.env` and set the values for your
    environment. Set `DB_HOST`, `DB_USER`, and `DB_PASSWORD` to the dedicated
    runtime API account, and set a long, random `JWT_SECRET`; the API will not
-   start without it.
+   start without it. Access tokens expire after 15 minutes; refresh tokens are
+   rotated and expire after 30 days. Use HTTPS for deployed clients and APIs.
 3. For email verification and password reset, configure `SMTP_USER` as the
    sending Gmail address and `SMTP_APP_PASSWORD` as its Google App Password.
    This is separate from `DB_PASSWORD`.
@@ -50,6 +51,16 @@ reviews, using MySQL.
    service-account keys or provider tokens. Push is opt-in from profile
    settings; registered email and phone contacts receive booking transaction
    alerts automatically.
+   Social photo uploads use the Firebase Storage bucket configured for the
+   app. Set `SOCIAL_MEDIA_BUCKET` and provide a service account through
+   `GOOGLE_APPLICATION_CREDENTIALS`, `FIREBASE_SERVICE_ACCOUNT_JSON`, or the
+   runtime's application-default credentials. Grant that identity only the
+   `storage.objects.create`, `storage.objects.get`, and
+   `storage.objects.delete` permissions on this bucket. Keep the bucket
+   private; the API issues five-minute upload URLs and 24-hour read URLs.
+   Configure bucket CORS to allow `PUT` from the deployed app origins. Apply a
+   one-day object lifecycle rule to the `social-media-staging/` prefix so
+   abandoned uploads are removed automatically.
 4. Set `GOOGLE_CLIENT_ID` to the web OAuth client ID used by the app's Firebase
    Google sign-in configuration. Configure `PORT` only if you do not want the
    default port 3000. The example also includes optional PayMongo checkout
@@ -114,10 +125,17 @@ reviews, using MySQL.
    `npm run dev` starts Node.js watch mode (`node --watch src/server.js`). For a
    regular start, use `npm start` (`node src/server.js`); `node server.js` is
    also supported as a compatibility entry point when run from `backend`.
-   Health/device-notification, authentication, social, and merchant news
-   endpoints are registered by modules under `src/routes/`;
-   remaining route groups are still registered from `src/server.js` and can
-   be extracted incrementally.
+   Health/device-notification, authentication, social, messaging, saved-item,
+   activity-log, and merchant-news endpoints are registered by modules under
+   `src/routes/`; remaining route groups are still registered from
+   `src/server.js` and can be extracted incrementally.
+
+   Live updates use the authenticated WebSocket endpoint `GET /api/live`.
+   Clients send an `authenticate` message with the short-lived access token
+   immediately after connecting. The server closes sockets when the token
+   expires or the account becomes inactive. `message.created` and
+   `dashboard.updated` events cover chat and booking/payment changes; clients
+   retain HTTP polling only as a connection-failure fallback.
 
 The health endpoint is `GET http://localhost:3000/health`. It checks both the
 API and its MySQL connection. `npm run migrate` ensures the merchant,
@@ -125,14 +143,19 @@ messaging, booking, QR arrival check-in, profile, news, review, and other
 upgraded schema is present.
 Migration 16 adds one-way user follows and social experience posts. Migration
 17 adds likes, saved posts, and comments; migration 19 adds social post reports.
+Migration 23 adds hashed, rotating refresh-token sessions.
 The social API allows five posts per account in a rolling 24-hour period and
 validates captions and up to five
 media items per post: JPEG, PNG, or WebP images (10 MiB maximum per image) or
-Tenor GIF URLs. Photo data is stored in MySQL with each post; for larger
-deployments, move post media to object storage before scaling the social
-gallery. Configure the server-side `TENOR_API_KEY` environment variable to
-enable Tenor search; the key is never sent to Flutter clients. Chat messages
-can also contain Tenor GIF attachments and emoji text.
+Tenor GIF URLs. New photos are uploaded directly to private object storage with
+short-lived signed URLs; MySQL stores object keys, not photo bytes. Existing
+base64 photos can be migrated with `npm run migrate:social-media` from
+`backend`. Run that command after configuring database and storage credentials,
+then set `SOCIAL_ALLOW_LEGACY_BASE64=false` once supported app versions are
+deployed. Until then, older app versions can still submit base64 photos.
+Configure the server-side `TENOR_API_KEY` environment variable to enable Tenor
+search; the key is never sent to Flutter clients. Chat messages can also
+contain Tenor GIF attachments and emoji text.
 Social feed, user search, profile, and connection-list GET routes are
 read-only and can be used without a token; authenticated requests retain
 viewer-specific follow and block visibility. Creating posts and changing
@@ -143,7 +166,10 @@ Both scopes continue to exclude posts hidden by the viewer's block list.
 Authenticated users can like or save visible posts and comment on them. Comment
 reads apply the viewer's block filters. The `GET /api/social/gifs?q=...` route
 proxies bounded search requests to Tenor and only returns media hosted at
-`media.tenor.com`.
+`media.tenor.com`. While legacy base64 post uploads remain enabled, social post
+JSON requests allow up to 75 MB; other JSON endpoints remain limited to 20 MB.
+New upload authorization and post creation requests contain only small JSON
+bodies.
 Every API response includes an `X-Request-Id` header. When reporting an
 unexpected error, include that support reference so it can be matched to the
 backend error log. Internal server errors return a generic message; sensitive

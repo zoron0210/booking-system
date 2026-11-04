@@ -1,6 +1,21 @@
-part of '../../../auth_api.dart';
+import 'dart:math';
 
-extension AuthApiBookingOperations on AuthApi {
+import 'package:myapp/core/api_response.dart';
+import 'package:myapp/core/api_transport.dart';
+import 'package:myapp/features/bookings/domain/booking.dart';
+
+final Random _idempotencyRandom = Random.secure();
+
+String newBookingIdempotencyKey() => List.generate(
+  32,
+  (_) => _idempotencyRandom.nextInt(16).toRadixString(16),
+).join();
+
+class BookingApi {
+  const BookingApi(this._api);
+
+  final ApiTransport _api;
+
   Future<Map<String, dynamic>> createBooking({
     required String token,
     required String idempotencyKey,
@@ -17,7 +32,7 @@ extension AuthApiBookingOperations on AuthApi {
     String fitnessCoachName = '',
     int fitnessCoachDurationMonths = 0,
     String eventType = '',
-  }) => _request(
+  }) => _api.request(
     'POST',
     '/api/bookings',
     body: {
@@ -37,7 +52,7 @@ extension AuthApiBookingOperations on AuthApi {
       'fitnessCoachDurationMonths': fitnessCoachDurationMonths,
       'eventType': eventType,
     },
-    headers: _authHeaders(
+    headers: _api.authHeadersForToken(
       token,
       extra: {
         'Content-Type': 'application/json',
@@ -53,59 +68,66 @@ extension AuthApiBookingOperations on AuthApi {
     final path = businessType == null || businessType.trim().isEmpty
         ? '/api/bookings'
         : '/api/bookings?businessType=${Uri.encodeQueryComponent(businessType.trim())}';
-    final response = await _request('GET', path, headers: _authHeaders(token));
-    return asMapList(response['bookings']);
+    final response = await _api.request(
+      'GET',
+      path,
+      headers: _api.authHeadersForToken(token),
+    );
+    return asMapList(response['bookings'] ?? response['data']);
   }
 
   Future<Map<String, dynamic>> merchantVenueCheckInCode({
     required String token,
     required int venueId,
-  }) => _request(
+  }) => _api.request(
     'GET',
     '/api/merchant/businesses/$venueId/check-in-code',
-    headers: _authHeaders(token),
+    headers: _api.authHeadersForToken(token),
   );
 
   Future<Map<String, dynamic>> recordBookingCheckIn({
     required String token,
     required String qrCode,
-  }) => _request(
+  }) => _api.request(
     'POST',
     '/api/bookings/check-in',
     body: {'qrCode': qrCode},
-    headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    headers: _api.authHeadersForToken(
+      token,
+      extra: {'Content-Type': 'application/json'},
+    ),
   );
 
   Future<void> deleteCustomerBooking({
     required String token,
     required int bookingId,
   }) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/bookings/$bookingId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
   Future<Map<String, dynamic>> cancelCustomerBooking({
     required String token,
     required int bookingId,
-  }) => _request(
+  }) => _api.request(
     'PATCH',
     '/api/bookings/$bookingId/cancel',
-    headers: _authHeaders(token),
+    headers: _api.authHeadersForToken(token),
   );
 
   Future<List<Map<String, dynamic>>> fitnessBookingAttendance(
     String token,
     int bookingId,
   ) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/bookings/$bookingId/attendance',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return asMapList(response['attendance']);
+    return asMapList(response['attendance'] ?? response['data']);
   }
 
   Future<void> setFitnessBookingAttendance({
@@ -114,11 +136,14 @@ extension AuthApiBookingOperations on AuthApi {
     required String date,
     required String status,
   }) async {
-    await _request(
+    await _api.request(
       'PUT',
       '/api/bookings/$bookingId/attendance/${Uri.encodeComponent(date)}',
       body: {'status': status},
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
@@ -127,10 +152,10 @@ extension AuthApiBookingOperations on AuthApi {
     required int bookingId,
     required String date,
   }) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/bookings/$bookingId/attendance/${Uri.encodeComponent(date)}',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -146,29 +171,35 @@ extension AuthApiBookingOperations on AuthApi {
     required String token,
     required int bookingId,
     required String paymentMethod,
-  }) => _request(
+  }) => _api.request(
     'POST',
     '/api/payments/paymongo/checkout',
     body: {'bookingId': bookingId, 'paymentMethod': paymentMethod},
-    headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    headers: _api.authHeadersForToken(
+      token,
+      extra: {'Content-Type': 'application/json'},
+    ),
   );
 
   Future<Map<String, dynamic>> recordPrototypeBookingPayment({
     required String token,
     required int bookingId,
     required String provider,
-  }) => _request(
+  }) => _api.request(
     'POST',
     '/api/bookings/$bookingId/prototype-payment',
     body: {'paymentMethod': 'prototype_card', 'provider': provider},
-    headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    headers: _api.authHeadersForToken(
+      token,
+      extra: {'Content-Type': 'application/json'},
+    ),
   );
 
   Future<bool> payMongoPaymentsEnabled(String token) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/payments/paymongo/config',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
     return response['onlinePaymentsEnabled'] == true;
   }
@@ -178,31 +209,31 @@ extension AuthApiBookingOperations on AuthApi {
     required int venueId,
     required String date,
   }) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/bookings/availability?venueId=$venueId&date=${Uri.encodeQueryComponent(date)}',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return asMapList(response['bookings']);
+    return asMapList(response['bookings'] ?? response['data']);
   }
 
   Future<List<Map<String, dynamic>>> merchantBookings(String token) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/merchant/bookings',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return asMapList(response['bookings']);
+    return asMapList(response['bookings'] ?? response['data']);
   }
 
   Future<void> approveBooking({
     required String token,
     required int bookingId,
   }) async {
-    await _request(
+    await _api.request(
       'PATCH',
       '/api/merchant/bookings/$bookingId/approve',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -211,10 +242,13 @@ extension AuthApiBookingOperations on AuthApi {
     required int bookingId,
     required String reason,
   }) async {
-    await _request(
+    await _api.request(
       'PATCH',
       '/api/merchant/bookings/$bookingId/decline',
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
       body: {'reason': reason},
     );
   }
@@ -224,11 +258,11 @@ extension AuthApiBookingOperations on AuthApi {
     required int bookingId,
     required String paymentStatus,
   }) async {
-    await _request(
+    await _api.request(
       'PATCH',
       '/api/merchant/bookings/$bookingId/payment',
       body: {'paymentStatus': paymentStatus},
-      headers: _authHeaders(
+      headers: _api.authHeadersForToken(
         token,
         extra: const {'Content-Type': 'application/json'},
       ),
@@ -239,10 +273,10 @@ extension AuthApiBookingOperations on AuthApi {
     required String token,
     required int bookingId,
   }) async {
-    await _request(
+    await _api.request(
       'PATCH',
       '/api/merchant/bookings/$bookingId/finish',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -250,10 +284,10 @@ extension AuthApiBookingOperations on AuthApi {
     required String token,
     required int bookingId,
   }) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/merchant/bookings/$bookingId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 }

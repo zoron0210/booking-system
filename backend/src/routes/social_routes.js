@@ -4,6 +4,7 @@ const MAX_POSTS_PER_24_HOURS = 5;
 const MAX_CAPTION_LENGTH = 2000;
 const MAX_IMAGES_PER_POST = 5;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const SOCIAL_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_COMMENT_LENGTH = 2000;
 const SOCIAL_POST_REPORT_REASONS = new Set([
   'spam',
@@ -61,6 +62,23 @@ async function visiblePost(pool, postId, viewerId) {
   return rows[0] ?? null;
 }
 
+async function visiblePostComment(pool, postId, commentId, viewerId) {
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.user_id AS ownerId
+     FROM social_post_comments c
+     JOIN users u ON u.id = c.user_id AND u.status = 'active'
+     WHERE c.id = ? AND c.post_id = ?
+       AND NOT EXISTS (
+         SELECT 1 FROM user_blocks b
+         WHERE (b.blocker_id = ? AND b.blocked_user_id = c.user_id)
+            OR (b.blocker_id = c.user_id AND b.blocked_user_id = ?)
+       )
+     LIMIT 1`,
+    [commentId, postId, viewerId, viewerId],
+  );
+  return rows[0] ?? null;
+}
+
 async function createSocialNotification(
   pool,
   { recipientUserId, actorUserId, type, postId = null, sourceId },
@@ -82,6 +100,13 @@ function validateImages(value) {
   const images = [];
   for (const image of value) {
     if (validTenorGifUrl(image)) {
+      images.push(image);
+      continue;
+    }
+    if (
+      typeof image === 'string' &&
+      /^gcs:\/\/social-media-staging\/[1-9]\d*\/[0-9a-f-]{36}-[1-9]\d*$/i.test(image)
+    ) {
       images.push(image);
       continue;
     }
@@ -125,6 +150,8 @@ function registerSocialRoutes({
   app,
   pool,
   requireAuth,
+  mediaStorage = null,
+  allowLegacyBase64 = true,
   tenorApiKey = process.env.TENOR_API_KEY,
   fetchImpl = globalThis.fetch,
 }) {
@@ -144,9 +171,68 @@ function registerSocialRoutes({
     keyGenerator: (req) => req.ip ?? req.socket?.remoteAddress ?? 'unknown',
     message: 'Too many GIF searches. Try again in a minute.',
   });
+  const socialUploadRateLimit = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 20,
+    keyGenerator: (req) => String(req.auth?.sub ?? 'unknown'),
+    message: 'Too many photo uploads. Try again in a minute.',
+  });
+
+  app.post(
+    '/api/social/uploads',
+    requireAuth,
+    socialUploadRateLimit,
+    async (req, res, next) => {
+      if (!mediaStorage) {
+        return res.status(503).json({
+          error: 'Social photo storage is not configured on this server.',
+        });
+      }
+      const { contentType, size } = req.body;
+      if (
+        !SOCIAL_IMAGE_TYPES.has(contentType) ||
+        !Number.isSafeInteger(size) ||
+        size < 1 ||
+        size > MAX_IMAGE_BYTES
+      ) {
+        return res.status(400).json({
+          error: 'Choose a JPEG, PNG, or WebP photo up to 10 MiB.',
+        });
+      }
+      try {
+        const upload = await mediaStorage.createUpload(
+          req.auth.sub,
+          contentType,
+          size,
+        );
+        if (!upload) {
+          return res.status(400).json({
+            error: 'The photo upload request is invalid.',
+          });
+        }
+        return res.status(201).json(upload);
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
 
   app.get('/api/social/feed', optionalAuth, async (req, res, next) => {
     const viewerId = req.auth?.sub ?? null;
+    const rawLimit = req.query.limit;
+    const parsedLimit = rawLimit === undefined ? 20 : positiveId(rawLimit);
+    if (parsedLimit === null) {
+      return res.status(400).json({ error: 'The feed limit is invalid.' });
+    }
+    const pageSize = Math.min(parsedLimit, 50);
+    const rawCursor = req.query.before_id;
+    const beforeId = rawCursor === undefined ? null : positiveId(rawCursor);
+    if (rawCursor !== undefined && beforeId === null) {
+      return res.status(400).json({ error: 'The feed cursor is invalid.' });
+    }
+    const searchQuery = typeof req.query.q === 'string'
+      ? req.query.q.trim().replace(/\s+/g, ' ').slice(0, 80)
+      : '';
     const feedScope = ['public', 'following'].includes(req.query.scope)
       ? req.query.scope
       : 'default';
@@ -203,8 +289,13 @@ function registerSocialRoutes({
            WHERE (b.blocker_id = ? AND b.blocked_user_id = p.user_id)
               OR (b.blocker_id = p.user_id AND b.blocked_user_id = ?)
          ))
+         AND (? = '' OR LOCATE(
+           LOWER(?),
+           LOWER(CONCAT_WS(' ', u.first_name, u.last_name, p.caption))
+         ) > 0)
+         AND (? IS NULL OR p.id < ?)
          ORDER BY p.created_at DESC, p.id DESC
-         LIMIT 50`,
+         LIMIT ?`,
         [
           viewerId,
           viewerId,
@@ -220,16 +311,26 @@ function registerSocialRoutes({
           viewerId,
           viewerId,
           viewerId,
+          searchQuery,
+          searchQuery,
+          beforeId,
+          beforeId,
+          pageSize + 1,
         ],
       );
+      const hasMore = rows.length > pageSize;
+      const pageRows = rows.slice(0, pageSize);
+      const posts = await Promise.all(pageRows.map(async (row) => ({
+        ...row,
+        displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
+          'SpotGo user',
+        images: await resolveImages(mediaStorage, parseImages(row.imagesJson)),
+        createdAt: serializeDate(row.createdAt),
+      })));
       return res.json({
-        posts: rows.map((row) => ({
-          ...row,
-          displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
-            'SpotGo user',
-          images: parseImages(row.imagesJson),
-          createdAt: serializeDate(row.createdAt),
-        })),
+        posts,
+        hasMore,
+        nextCursor: hasMore ? pageRows[pageRows.length - 1].id : null,
       });
     } catch (error) {
       return next(error);
@@ -397,7 +498,12 @@ function registerSocialRoutes({
           `SELECT c.id, c.comment_text AS text, c.gif_url AS gifUrl,
                   c.created_at AS createdAt, u.id AS userId,
                   u.first_name AS firstName, u.last_name AS lastName,
-                  u.avatar_url AS avatarUrl
+                  u.avatar_url AS avatarUrl,
+                  (SELECT COUNT(*) FROM social_post_comment_reactions cr
+                   WHERE cr.comment_id = c.id) AS reactionCount,
+                  EXISTS (SELECT 1 FROM social_post_comment_reactions cr
+                          WHERE cr.comment_id = c.id AND cr.user_id = ?)
+                    AS reactedByMe
            FROM social_post_comments c
            JOIN users u ON u.id = c.user_id AND u.status = 'active'
            WHERE c.post_id = ?
@@ -408,14 +514,47 @@ function registerSocialRoutes({
              ))
            ORDER BY c.created_at, c.id
            LIMIT 100`,
-          [postId, viewerId, viewerId, viewerId],
+          [viewerId, postId, viewerId, viewerId, viewerId],
         );
+        const repliesByComment = new Map();
+        if (rows.length > 0) {
+          const commentIds = rows.map((row) => Number(row.id));
+          const placeholders = commentIds.map(() => '?').join(', ');
+          const [replyRows] = await pool.execute(
+            `SELECT r.id, r.comment_id AS commentId,
+                    r.reply_text AS text, r.created_at AS createdAt,
+                    u.id AS userId, u.first_name AS firstName,
+                    u.last_name AS lastName, u.avatar_url AS avatarUrl
+             FROM social_post_comment_replies r
+             JOIN users u ON u.id = r.user_id AND u.status = 'active'
+             WHERE r.comment_id IN (${placeholders})
+               AND (? IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM user_blocks b
+                 WHERE (b.blocker_id = ? AND b.blocked_user_id = r.user_id)
+                    OR (b.blocker_id = r.user_id AND b.blocked_user_id = ?)
+               ))
+             ORDER BY r.created_at, r.id`,
+            [...commentIds, viewerId, viewerId, viewerId],
+          );
+          for (const reply of replyRows) {
+            const commentId = Number(reply.commentId);
+            const replies = repliesByComment.get(commentId) ?? [];
+            replies.push({
+              ...reply,
+              displayName: `${reply.firstName || ''} ${reply.lastName || ''}`.trim() ||
+                'SpotGo user',
+              createdAt: serializeDate(reply.createdAt),
+            });
+            repliesByComment.set(commentId, replies);
+          }
+        }
         return res.json({
           comments: rows.map((row) => ({
             ...row,
             displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
               'SpotGo user',
             createdAt: serializeDate(row.createdAt),
+            replies: repliesByComment.get(Number(row.id)) ?? [],
           })),
         });
       } catch (error) {
@@ -464,6 +603,119 @@ function registerSocialRoutes({
           userId: Number(req.auth.sub),
           text,
           gifUrl,
+        });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.post(
+    '/api/social/posts/:postId/comments/:commentId/reactions',
+    requireAuth,
+    async (req, res, next) => {
+      const postId = positiveId(req.params.postId);
+      const commentId = positiveId(req.params.commentId);
+      if (postId === null || commentId === null) {
+        return res.status(400).json({ error: 'Invalid comment.' });
+      }
+      try {
+        const post = await visiblePost(pool, postId, req.auth.sub);
+        if (!post) return res.status(404).json({ error: 'Comment not found.' });
+        const comment = await visiblePostComment(
+          pool,
+          postId,
+          commentId,
+          req.auth.sub,
+        );
+        if (!comment) {
+          return res.status(404).json({ error: 'Comment not found.' });
+        }
+        await pool.execute(
+          `INSERT IGNORE INTO social_post_comment_reactions (comment_id, user_id)
+           VALUES (?, ?)`,
+          [commentId, req.auth.sub],
+        );
+        return res.json({ reactedByMe: true });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.delete(
+    '/api/social/posts/:postId/comments/:commentId/reactions',
+    requireAuth,
+    async (req, res, next) => {
+      const postId = positiveId(req.params.postId);
+      const commentId = positiveId(req.params.commentId);
+      if (postId === null || commentId === null) {
+        return res.status(400).json({ error: 'Invalid comment.' });
+      }
+      try {
+        const post = await visiblePost(pool, postId, req.auth.sub);
+        if (!post) return res.status(404).json({ error: 'Comment not found.' });
+        const comment = await visiblePostComment(
+          pool,
+          postId,
+          commentId,
+          req.auth.sub,
+        );
+        if (!comment) {
+          return res.status(404).json({ error: 'Comment not found.' });
+        }
+        await pool.execute(
+          `DELETE FROM social_post_comment_reactions
+           WHERE comment_id = ? AND user_id = ?`,
+          [commentId, req.auth.sub],
+        );
+        return res.json({ reactedByMe: false });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.post(
+    '/api/social/posts/:postId/comments/:commentId/replies',
+    requireAuth,
+    async (req, res, next) => {
+      const postId = positiveId(req.params.postId);
+      const commentId = positiveId(req.params.commentId);
+      const text = typeof req.body.text === 'string'
+        ? req.body.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+        : '';
+      if (
+        postId === null ||
+        commentId === null ||
+        !text ||
+        text.length > MAX_COMMENT_LENGTH
+      ) {
+        return res.status(400).json({ error: 'Enter a valid reply.' });
+      }
+      try {
+        const post = await visiblePost(pool, postId, req.auth.sub);
+        if (!post) return res.status(404).json({ error: 'Comment not found.' });
+        const comment = await visiblePostComment(
+          pool,
+          postId,
+          commentId,
+          req.auth.sub,
+        );
+        if (!comment) {
+          return res.status(404).json({ error: 'Comment not found.' });
+        }
+        const [result] = await pool.execute(
+          `INSERT INTO social_post_comment_replies
+             (comment_id, user_id, reply_text)
+           VALUES (?, ?, ?)`,
+          [commentId, req.auth.sub, text],
+        );
+        return res.status(201).json({
+          id: Number(result.insertId),
+          commentId,
+          userId: Number(req.auth.sub),
+          text,
         });
       } catch (error) {
         return next(error);
@@ -700,11 +952,11 @@ function registerSocialRoutes({
           postsCount: Number(user.postsCount),
           isFollowing: Boolean(user.isFollowing),
         },
-        posts: posts.map((post) => ({
+        posts: await Promise.all(posts.map(async (post) => ({
           ...post,
-          images: parseImages(post.imagesJson),
+          images: await resolveImages(mediaStorage, parseImages(post.imagesJson)),
           createdAt: serializeDate(post.createdAt),
-        })),
+        }))),
         businesses: businesses.map((business) => ({
           ...business,
           businessId: Number(business.businessId),
@@ -780,13 +1032,46 @@ function registerSocialRoutes({
       (!caption && imageResult.images.length === 0)
     ) {
       return res.status(400).json({
-        error: 'Add a caption or up to five JPEG, PNG, or WebP photos (10 MB each).',
+        error: 'Add a caption or up to five JPEG, PNG, or WebP photos (10 MiB each).',
+      });
+    }
+    const stagedImages = imageResult.images.filter((image) =>
+      image.startsWith('gcs://social-media-staging/'),
+    );
+    const legacyImages = imageResult.images.filter((image) =>
+      image.startsWith('data:image/'),
+    );
+    if (!allowLegacyBase64 && legacyImages.length > 0) {
+      return res.status(400).json({
+        error: 'Update the app to upload photos securely.',
+      });
+    }
+    if (stagedImages.length > 0 && !mediaStorage) {
+      return res.status(503).json({
+        error: 'Social photo storage is not configured on this server.',
       });
     }
 
     let connection;
     let transactionStarted = false;
+    let postCreated = false;
+    const promotedImages = [];
     try {
+      const images = [];
+      for (const image of imageResult.images) {
+        if (image.startsWith('gcs://social-media-staging/')) {
+          const promoted = await mediaStorage.promoteUpload(image, req.auth.sub);
+          if (!promoted) {
+            return res.status(400).json({
+              error: 'A photo upload is missing, expired, or invalid.',
+            });
+          }
+          promotedImages.push(promoted);
+          images.push(promoted);
+        } else {
+          images.push(image);
+        }
+      }
       connection = await pool.getConnection();
       await connection.beginTransaction();
       transactionStarted = true;
@@ -826,7 +1111,7 @@ function registerSocialRoutes({
         [
           req.auth.sub,
           caption || null,
-          JSON.stringify(imageResult.images),
+          JSON.stringify(images),
         ],
       );
       await connection.execute(
@@ -851,13 +1136,15 @@ function registerSocialRoutes({
           req.auth.sub,
         ],
       );
+      const responseImages = await resolveImages(mediaStorage, images);
       await connection.commit();
       transactionStarted = false;
+      postCreated = true;
       return res.status(201).json({
         id: Number(result.insertId),
         userId: Number(req.auth.sub),
         caption,
-        images: imageResult.images,
+        images: responseImages,
         message: 'Experience shared.',
       });
     } catch (error) {
@@ -865,6 +1152,16 @@ function registerSocialRoutes({
       return next(error);
     } finally {
       connection?.release();
+      if (!postCreated && promotedImages.length > 0) {
+        try {
+          await mediaStorage.deleteImages(promotedImages);
+        } catch (error) {
+          console.error('Could not clean up unclaimed social media uploads.', {
+            userId: req.auth.sub,
+            error,
+          });
+        }
+      }
     }
   });
 
@@ -922,6 +1219,10 @@ function registerSocialRoutes({
       return next(error);
     }
   });
+}
+
+function resolveImages(mediaStorage, images) {
+  return mediaStorage ? mediaStorage.signImages(images) : images;
 }
 
 function parseImages(value) {

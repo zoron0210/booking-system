@@ -53,10 +53,7 @@ void main() {
         BookingStatusAnalyzer.compareNotifications(first, second),
         lessThan(0),
       );
-      expect(
-        BookingStatusAnalyzer.bannerKey(first),
-        contains('approved'),
-      );
+      expect(BookingStatusAnalyzer.bannerKey(first), contains('approved'));
     });
 
     test('customer booking controller matches venue and booking ids', () {

@@ -5,8 +5,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/merchant_dashboard.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_dashboard.dart';
+import 'package:myapp/core/premium_motion.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'merchant_dashboard_test_support.dart';
@@ -80,7 +81,14 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
@@ -216,7 +224,14 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
@@ -244,7 +259,7 @@ void main() {
     );
     expect(
       bookingSubtabs.style?.minimumSize?.resolve({}),
-      const Size.fromHeight(40),
+      const Size.fromHeight(44),
     );
     expect(bookingSubtabs.style?.textStyle?.resolve({})?.fontSize, 12);
     expect(
@@ -378,6 +393,7 @@ void main() {
         'paymentMethod': 'cash_on_arrival',
         'paymentStatus': 'unpaid',
         'paidAmount': 0,
+        'paidAt': null,
         'pricePerHour': 250,
         'total': 500,
         'downpayment': 250,
@@ -437,6 +453,7 @@ void main() {
             booking['paidAmount'] = paymentStatus == 'partial'
                 ? booking['downpayment']
                 : booking['total'];
+            booking['paidAt'] = DateTime.now().toIso8601String();
             return http.Response(
               jsonEncode({'message': 'Payment status updated.'}),
               200,
@@ -494,11 +511,18 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final dashboardAppBar = tester.widget<AppBar>(find.byType(AppBar).first);
-    expect(dashboardAppBar.toolbarHeight, 56);
+    expect(dashboardAppBar.toolbarHeight, 64);
     expect(dashboardAppBar.titleSpacing, 16);
     expect(dashboardAppBar.leadingWidth, 56);
     expect(dashboardAppBar.titleTextStyle?.fontSize, 20);
@@ -620,7 +644,7 @@ void main() {
     );
     expect(
       periodFilter.style?.minimumSize?.resolve({}),
-      const Size.fromHeight(40),
+      const Size.fromHeight(44),
     );
     expect(
       find.byKey(const ValueKey('merchant-analytics-view-Sales report')),
@@ -717,12 +741,9 @@ void main() {
 
     await tester.drag(find.byType(ListView).first, const Offset(0, 1800));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('merchant-analytics-view-Customer count')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-analytics-view-Customer count')),
-    );
+    final customerCountLabel = find.text('Customer count');
+    await tester.ensureVisible(customerCountLabel);
+    await tester.tap(customerCountLabel);
     await tester.pumpAndSettle();
     expect(find.text('Customers by Annual'), findsOneWidget);
     expect(
@@ -832,11 +853,9 @@ void main() {
 
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 1800));
     await tester.pumpAndSettle();
-    final venuePerformanceView = find.byKey(
-      const ValueKey('merchant-analytics-view-Venue performance'),
-    );
-    await tester.ensureVisible(venuePerformanceView);
-    await tester.tap(venuePerformanceView);
+    final venuePerformanceLabel = find.text('Venue performance');
+    await tester.ensureVisible(venuePerformanceLabel);
+    await tester.tap(venuePerformanceLabel);
     await tester.pumpAndSettle();
     expect(find.text('Bookings by venue'), findsOneWidget);
     expect(
@@ -942,7 +961,7 @@ void main() {
     expect(payoutTabs.selected, {0});
     expect(
       payoutTabs.style?.minimumSize?.resolve({}),
-      const Size.fromHeight(40),
+      const Size.fromHeight(44),
     );
     expect(
       payoutTabs.style?.textStyle?.resolve({})?.fontSize,
@@ -952,7 +971,12 @@ void main() {
       payoutTabs.style?.textStyle?.resolve({})?.fontWeight,
       FontWeight.w800,
     );
+    final searchField = find.byKey(const ValueKey('merchant-payout-search'));
     expect(tester.getSize(payoutTypeFilter).height, 40);
+    expect(
+      tester.getSize(searchField).width,
+      greaterThan(tester.getSize(payoutTypeFilter).width),
+    );
     expect(find.text('Requests'), findsOneWidget);
     expect(find.text('Bookings & payments'), findsOneWidget);
     for (final summaryKey in [
@@ -963,7 +987,6 @@ void main() {
     ]) {
       expect(find.byKey(ValueKey(summaryKey)), findsNothing);
     }
-    final searchField = find.byKey(const ValueKey('merchant-payout-search'));
     expect(
       tester.getTopLeft(payoutTypeFilter).dy,
       tester.getTopLeft(searchField).dy,
@@ -1226,20 +1249,20 @@ void main() {
     expect(find.text("Today's performance"), findsOneWidget);
     expect(
       tester
-          .widget<Text>(
+          .widget<RollingNumber>(
             find.byKey(const ValueKey('merchant-profile-performance-revenue')),
           )
-          .data,
-      '₱500.00',
+          .value,
+      500,
     );
     expect(find.text('1 booking scheduled today'), findsOneWidget);
     expect(find.text('Awaiting approval'), findsOneWidget);
     expect(
       tester
-          .widget<Text>(
+          .widget<RollingDigits>(
             find.byKey(const ValueKey('merchant-profile-metric-Players today')),
           )
-          .data,
+          .value,
       '4',
     );
     await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
@@ -1383,7 +1406,14 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
@@ -1520,7 +1550,14 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('merchant-action-center')),
@@ -1581,7 +1618,14 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Merchant Dashboard'), findsOneWidget);
@@ -1603,5 +1647,100 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.text('Merchant Dashboard'), findsOneWidget);
+  });
+
+  testWidgets('cash downpayment analytics follow the payment date', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'session_api_token': 'merchant-token',
+    });
+    FlutterSecureStorage.setMockInitialValues({
+      'session_api_token': 'merchant-token',
+    });
+    final today = DateTime.now();
+    final bookingDate = today
+        .subtract(const Duration(days: 14))
+        .toIso8601String()
+        .substring(0, 10);
+    final api = AuthApi(
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/merchant/profile':
+            return http.Response(
+              jsonEncode({
+                'profile': {
+                  'firstName': 'Merchant',
+                  'lastName': 'Owner',
+                  'email': 'merchant@example.com',
+                  'businessType': 'Sports',
+                },
+              }),
+              200,
+            );
+          case '/api/merchant/businesses':
+            return http.Response(
+              jsonEncode({
+                'businesses': [
+                  {
+                    'id': 1,
+                    'name': 'Sample Court',
+                    'businessType': 'Sports',
+                    'enabled': true,
+                  },
+                ],
+              }),
+              200,
+            );
+          case '/api/merchant/bookings':
+            return http.Response(
+              jsonEncode({
+                'bookings': [
+                  {
+                    'id': 501,
+                    'customerId': 42,
+                    'customerName': 'Customer One',
+                    'venueName': 'Sample Court',
+                    'businessType': 'Sports',
+                    'date': bookingDate,
+                    'startTime': '09:00:00',
+                    'durationHours': 2,
+                    'players': 4,
+                    'paymentMethod': 'cash_on_arrival',
+                    'paymentStatus': 'partial',
+                    'paidAmount': 250,
+                    'paidAt': today.toIso8601String(),
+                    'total': 500,
+                    'downpayment': 250,
+                    'status': 'approved',
+                  },
+                ],
+              }),
+              200,
+            );
+          default:
+            return http.Response('{}', 200);
+        }
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('merchant-analytics-revenue-value')),
+          )
+          .data,
+      '\u{20B1} 250.00',
+    );
   });
 }

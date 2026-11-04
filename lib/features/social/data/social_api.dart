@@ -1,32 +1,51 @@
-part of '../../../auth_api.dart';
+import 'dart:convert';
+
+import 'package:myapp/core/api_http_client.dart';
+import 'package:myapp/core/api_transport.dart';
 
 const bool socialPostingEnabled = true;
 const bool socialProfileUiEnabled = true;
 
-extension AuthApiSocialOperations on AuthApi {
+class SocialFeedPage {
+  const SocialFeedPage({
+    required this.posts,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+
+  final List<Map<String, dynamic>> posts;
+  final String? nextCursor;
+  final bool hasMore;
+}
+
+class SocialApi {
+  const SocialApi(this._api);
+
+  final ApiTransport _api;
+
   Future<Map<String, dynamic>> socialNotifications(String token) =>
-      _request(
+      _api.request(
         'GET',
         '/api/social/notifications',
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       );
 
   Future<void> markSocialNotificationRead({
     required String token,
     required int notificationId,
   }) async {
-    await _request(
+    await _api.request(
       'PATCH',
       '/api/social/notifications/$notificationId/read',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
   Future<void> markAllSocialNotificationsRead(String token) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/social/notifications/read-all',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -34,20 +53,54 @@ extension AuthApiSocialOperations on AuthApi {
     String? token, {
     bool allPublicPosts = false,
     bool followingOnly = false,
+    String query = '',
+  }) async => (await socialFeedPage(
+    token,
+    allPublicPosts: allPublicPosts,
+    followingOnly: followingOnly,
+    query: query,
+    limit: 50,
+  )).posts;
+
+  Future<SocialFeedPage> socialFeedPage(
+    String? token, {
+    bool allPublicPosts = false,
+    bool followingOnly = false,
+    String query = '',
+    String? beforeId,
+    int limit = 20,
   }) async {
     if (allPublicPosts && followingOnly) {
       throw ArgumentError('Choose either the public or following feed.');
+    }
+    if (limit < 1 || limit > 50) {
+      throw ArgumentError.value(limit, 'limit', 'Must be between 1 and 50.');
     }
     final scope = allPublicPosts
         ? 'public'
         : followingOnly
         ? 'following'
         : null;
-    final path = scope == null
-        ? '/api/social/feed'
-        : '/api/social/feed?scope=$scope';
-    final response = await _request('GET', path, headers: _authHeaders(token));
-    return _socialMapList(response['posts']);
+    final queryParameters = <String, String>{
+      'limit': '$limit',
+      'scope': ?scope,
+      if (query.trim().isNotEmpty) 'q': query.trim(),
+      'before_id': ?beforeId,
+    };
+    final path = Uri(
+      path: '/api/social/feed',
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
+    ).toString();
+    final response = await _api.request(
+      'GET',
+      path,
+      headers: _api.authHeadersForToken(token),
+    );
+    return SocialFeedPage(
+      posts: _socialMapList(response['posts'] ?? response['data']),
+      nextCursor: response['nextCursor']?.toString(),
+      hasMore: response['hasMore'] == true,
+    );
   }
 
   Future<List<Map<String, dynamic>>> searchSocialUsers(
@@ -57,22 +110,26 @@ extension AuthApiSocialOperations on AuthApi {
     final path = query.trim().isEmpty
         ? '/api/social/users'
         : '/api/social/users?q=${Uri.encodeQueryComponent(query.trim())}';
-    final response = await _request('GET', path, headers: _authHeaders(token));
-    return _socialMapList(response['users']);
+    final response = await _api.request(
+      'GET',
+      path,
+      headers: _api.authHeadersForToken(token),
+    );
+    return _socialMapList(response['users'] ?? response['data']);
   }
 
   Future<Map<String, dynamic>> socialUserProfile({
     required String? token,
     required int userId,
   }) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/social/users/$userId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
     return {
       ...?response['profile'] as Map<String, dynamic>?,
-      'posts': _socialMapList(response['posts']),
+      'posts': _socialMapList(response['posts'] ?? response['data']),
       'businesses': _socialMapList(response['businesses']),
     };
   }
@@ -89,47 +146,109 @@ extension AuthApiSocialOperations on AuthApi {
         'Expected followers or following.',
       );
     }
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/social/users/$userId/$type',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return _socialMapList(response['users']);
+    return _socialMapList(response['users'] ?? response['data']);
   }
 
   Future<Map<String, dynamic>> createSocialPost({
     required String token,
     required String caption,
     required List<String> images,
-  }) => _request(
-    'POST',
-    '/api/social/posts',
-    body: {'caption': caption, 'images': images},
-    headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
-  );
+  }) async {
+    final uploadedImages = <String>[];
+    for (final image in images) {
+      final match = RegExp(
+        r'^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$',
+        caseSensitive: false,
+      ).firstMatch(image);
+      if (match == null) {
+        uploadedImages.add(image);
+        continue;
+      }
+
+      final contentType = match.group(1)!.toLowerCase();
+      final bytes = base64Decode(match.group(2)!);
+      final upload = await _api.request(
+        'POST',
+        '/api/social/uploads',
+        body: {'contentType': contentType, 'size': bytes.length},
+        headers: _api.authHeadersForToken(
+          token,
+          extra: {'Content-Type': 'application/json'},
+        ),
+      );
+      final uploadUrl = upload['uploadUrl'];
+      final key = upload['key'];
+      final rawHeaders = upload['headers'];
+      if (uploadUrl is! String ||
+          key is! String ||
+          !key.startsWith('gcs://social-media-staging/') ||
+          rawHeaders is! Map) {
+        throw const AuthApiException(
+          'The server returned an invalid photo upload request.',
+          502,
+        );
+      }
+      final uri = Uri.tryParse(uploadUrl);
+      if (uri == null ||
+          uri.scheme != 'https' ||
+          uri.host != 'storage.googleapis.com') {
+        throw const AuthApiException(
+          'The server returned an invalid photo upload address.',
+          502,
+        );
+      }
+      final headers = <String, String>{};
+      for (final entry in rawHeaders.entries) {
+        if (entry.key is! String || entry.value is! String) {
+          throw const AuthApiException(
+            'The server returned invalid photo upload headers.',
+            502,
+          );
+        }
+        headers[entry.key as String] = entry.value as String;
+      }
+      await _api.httpClient.putBytes(uri, body: bytes, headers: headers);
+      uploadedImages.add(key);
+    }
+
+    return _api.request(
+      'POST',
+      '/api/social/posts',
+      body: {'caption': caption, 'images': uploadedImages},
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
+    );
+  }
 
   Future<List<Map<String, dynamic>>> searchSocialGifs(
     String query, {
     String? token,
   }) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/social/gifs?q=${Uri.encodeQueryComponent(query.trim())}',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return _socialMapList(response['gifs']);
+    return _socialMapList(response['gifs'] ?? response['data']);
   }
 
   Future<List<Map<String, dynamic>>> socialPostComments({
     required String? token,
     required int postId,
   }) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/social/posts/$postId/comments',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return _socialMapList(response['comments']);
+    return _socialMapList(response['comments'] ?? response['data']);
   }
 
   Future<void> createSocialPostComment({
@@ -138,11 +257,44 @@ extension AuthApiSocialOperations on AuthApi {
     required String text,
     String? gifUrl,
   }) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/social/posts/$postId/comments',
       body: {'text': text, 'gifUrl': gifUrl},
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
+    );
+  }
+
+  Future<void> setSocialPostCommentReaction({
+    required String token,
+    required int postId,
+    required int commentId,
+    required bool reacted,
+  }) async {
+    await _api.request(
+      reacted ? 'POST' : 'DELETE',
+      '/api/social/posts/$postId/comments/$commentId/reactions',
+      headers: _api.authHeadersForToken(token),
+    );
+  }
+
+  Future<void> createSocialPostCommentReply({
+    required String token,
+    required int postId,
+    required int commentId,
+    required String text,
+  }) async {
+    await _api.request(
+      'POST',
+      '/api/social/posts/$postId/comments/$commentId/replies',
+      body: {'text': text},
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
@@ -151,10 +303,10 @@ extension AuthApiSocialOperations on AuthApi {
     required int postId,
     required bool liked,
   }) async {
-    await _request(
+    await _api.request(
       liked ? 'POST' : 'DELETE',
       '/api/social/posts/$postId/likes',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -163,10 +315,10 @@ extension AuthApiSocialOperations on AuthApi {
     required int postId,
     required bool saved,
   }) async {
-    await _request(
+    await _api.request(
       saved ? 'POST' : 'DELETE',
       '/api/social/posts/$postId/saves',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -175,11 +327,14 @@ extension AuthApiSocialOperations on AuthApi {
     required int postId,
     required String reason,
   }) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/social/posts/$postId/reports',
       body: {'reason': reason},
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
@@ -187,10 +342,10 @@ extension AuthApiSocialOperations on AuthApi {
     required String token,
     required int userId,
   }) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/social/follows/$userId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -198,16 +353,17 @@ extension AuthApiSocialOperations on AuthApi {
     required String token,
     required int userId,
   }) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/social/follows/$userId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 }
 
-List<Map<String, dynamic>> _socialMapList(dynamic value) =>
-    (value as List<dynamic>? ?? [])
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+List<Map<String, dynamic>> _socialMapList(dynamic value) => value is List
+    ? value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList()
+    : const [];

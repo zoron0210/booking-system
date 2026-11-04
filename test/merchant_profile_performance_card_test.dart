@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myapp/core/premium_motion.dart';
 import 'package:myapp/features/merchant_management/domain/merchant_profile_performance.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_profile_performance_card.dart';
 
@@ -51,8 +52,8 @@ void main() {
 
     expect(find.text('₱100.00'), findsOneWidget);
     expect(find.text('₱40.00'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
+    expect(_metricValue(tester, 'Players today'), '3');
+    expect(_metricValue(tester, 'Active venues'), '2');
 
     await tester.tap(
       find.byKey(const ValueKey('merchant-profile-date-filter')),
@@ -69,3 +70,9 @@ void main() {
     expect(paidAmountTapped, isTrue);
   });
 }
+
+String _metricValue(WidgetTester tester, String label) => tester
+    .widget<RollingDigits>(
+      find.byKey(ValueKey('merchant-profile-metric-$label')),
+    )
+    .value;

@@ -11,7 +11,7 @@ class _AuthModeToggle extends StatelessWidget {
     key: const ValueKey('auth-mode-toggle'),
     padding: const EdgeInsets.all(4),
     decoration: BoxDecoration(
-      color: const Color(0xFFE9EDF4),
+      color: AppColors.softSurface,
       borderRadius: BorderRadius.circular(13),
     ),
     child: Row(
@@ -44,23 +44,28 @@ class _ToggleOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        constraints: const BoxConstraints(minHeight: 40),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: AppText(
-            label,
-            style: TextStyle(
-              color: selected ? _navy : _muted,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
+    child: Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: AppText(
+              label,
+              style: TextStyle(
+                color: selected ? _ink : _muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ),
@@ -117,84 +122,89 @@ class _RoleCard extends StatelessWidget {
   final VoidCallback? onNoticeTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(15),
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      constraints: const BoxConstraints(minHeight: 104),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: selected ? _navy : Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: selected ? _orange : const Color(0xFFE4E8EF),
-          width: selected ? 2 : 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: selected ? _orange : _muted, size: 24),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: AppText(
-                        title,
-                        localize: true,
-                        style: TextStyle(
-                          color: selected ? Colors.white : _ink,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    if (onNoticeTap != null)
-                      SizedBox(
-                        width: 44,
-                        height: 44,
-                        child: IconButton(
-                          tooltip: appLanguageText(
-                            'About merchant tools',
-                            'About merchant tools',
-                          ),
-                          onPressed: onNoticeTap,
-                          padding: AppSpacing.buttonPadding,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 44,
-                            height: 44,
-                          ),
-                          visualDensity: VisualDensity.compact,
-                          icon: Icon(
-                            Icons.info_outline_rounded,
-                            color: selected ? Colors.white70 : _muted,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 6),
-                  AppText(
-                    subtitle!,
-                    localize: true,
-                    style: TextStyle(
-                      color: selected
-                          ? Colors.white.withValues(alpha: .65)
-                          : _muted,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(15),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        constraints: const BoxConstraints(minHeight: 104),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.softOrangeAlt : AppColors.surface,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(
+            color: selected ? _orange : AppColors.border,
+            width: selected ? 2 : 1,
           ),
-        ],
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: selected ? _orange : _muted, size: 24),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: AppText(
+                          title,
+                          localize: true,
+                          style: TextStyle(
+                            color: _ink,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (selected && onNoticeTap == null)
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: _orange,
+                          size: 18,
+                        ),
+                      if (onNoticeTap != null)
+                        SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: IconButton(
+                            tooltip: appLanguageText(
+                              'About merchant tools',
+                              'About merchant tools',
+                            ),
+                            onPressed: onNoticeTap,
+                            padding: AppSpacing.buttonPadding,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 44,
+                              height: 44,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            icon: Icon(
+                              Icons.info_outline_rounded,
+                              color: _muted,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 6),
+                    AppText(
+                      subtitle!,
+                      localize: true,
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../app_design_system.dart';
-import '../../../app_text.dart';
+import '../../../core/app_design_system.dart';
+import '../../../core/app_text.dart';
 import '../../../features/bookings/domain/booking.dart';
 
 class BookingCardHeader extends StatelessWidget {
@@ -58,8 +58,10 @@ class BookingCardHeader extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: statusColor(status, awaitingPayment: canPayBookingPrototype)
-                    .withValues(alpha: .1),
+                color: statusColor(
+                  status,
+                  awaitingPayment: canPayBookingPrototype,
+                ).withValues(alpha: .1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: AppText(
@@ -82,10 +84,7 @@ class BookingCardHeader extends StatelessWidget {
           localize: true,
           key: ValueKey('booking-status-guidance-$status'),
           style: TextStyle(
-            color: statusColor(
-              status,
-              awaitingPayment: canPayBookingPrototype,
-            ),
+            color: statusColor(status, awaitingPayment: canPayBookingPrototype),
             fontSize: 12,
             fontWeight: FontWeight.w600,
             height: 1.3,

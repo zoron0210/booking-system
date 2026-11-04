@@ -22,6 +22,7 @@ let sentResetCodes;
 let paymentBooking;
 let attendanceBooking;
 let attendanceRecords;
+let invalidateUserStatusCache;
 
 function response(rows = []) {
   return [rows, []];
@@ -346,6 +347,7 @@ function resetDatabase() {
     idempotencyRecords: new Map(),
     accountStatus: 'active',
     venueReviews: [],
+    reviewReplies: [],
     completedReviewBookings: [],
     existingCustomerReview: null,
     customerHeartedBusinessRows: [],
@@ -586,6 +588,19 @@ before(async () => {
       if (sql.includes('FROM venue_reviews r INNER JOIN users u')) {
         return response(db.venueReviews);
       }
+      if (sql.includes('FROM venue_review_replies rp')) {
+        return response(db.reviewReplies);
+      }
+      if (sql.includes('SELECT id FROM venue_reviews WHERE id = ? LIMIT 1')) {
+        return response(
+          db.venueReviews.filter(
+            (review) => Number(review.id) === Number(params[0]),
+          ),
+        );
+      }
+      if (sql.includes('INSERT INTO venue_review_replies')) {
+        return [{ insertId: 88, affectedRows: 1 }, []];
+      }
       if (
         sql.includes('FROM merchant_businesses b') &&
         sql.includes('LEFT JOIN event_business_details e') &&
@@ -770,7 +785,8 @@ before(async () => {
   };
 
   try {
-    require(serverFile);
+    const serverExports = require(serverFile);
+    invalidateUserStatusCache = serverExports.invalidateUserStatusCache;
     await listening;
   } finally {
     Module._load = originalLoad;
@@ -778,7 +794,11 @@ before(async () => {
   }
 });
 
-beforeEach(() => resetDatabase());
+beforeEach(() => {
+  resetDatabase();
+  invalidateUserStatusCache('42');
+  invalidateUserStatusCache('88');
+});
 
 after(async () => {
   if (server) {
@@ -896,6 +916,60 @@ test('mutating API routes reject non-object JSON bodies', async () => {
   );
 });
 
+test('venue review reactions and replies require customer auth and validate text', async () => {
+  db.venueReviews = [{ id: 31, customerId: 42, businessId: 12 }];
+
+  const unauthenticatedReaction = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/venue-reviews/31/reactions`,
+    { method: 'POST' },
+  );
+  assert.equal(unauthenticatedReaction.status, 401);
+
+  const reaction = await request('/api/venue-reviews/31/reactions', {
+    method: 'POST',
+  });
+  assert.equal(reaction.status, 200);
+  assert.ok(db.calls.some(({ sql, params }) =>
+    sql.includes('INSERT IGNORE INTO venue_review_reactions') &&
+    params[0] === 31 &&
+    params[1] === '42',
+  ));
+
+  const removedReaction = await request('/api/venue-reviews/31/reactions', {
+    method: 'DELETE',
+  });
+  assert.equal(removedReaction.status, 200);
+  assert.ok(db.calls.some(({ sql, params }) =>
+    sql.includes('DELETE FROM venue_review_reactions') &&
+    params[0] === 31 &&
+    params[1] === '42',
+  ));
+
+  const reply = await request('/api/venue-reviews/31/replies', {
+    method: 'POST',
+    body: { text: '  Helpful reply.\nThanks!  ' },
+  });
+  assert.equal(reply.status, 201);
+  assert.deepEqual(await reply.json(), {
+    id: 88,
+    reviewId: 31,
+    userId: 42,
+    text: 'Helpful reply. Thanks!',
+  });
+  assert.ok(db.calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO venue_review_replies') &&
+    params[0] === 31 &&
+    params[1] === '42' &&
+    params[2] === 'Helpful reply. Thanks!',
+  ));
+
+  const invalidReply = await request('/api/venue-reviews/31/replies', {
+    method: 'POST',
+    body: { text: '   ' },
+  });
+  assert.equal(invalidReply.status, 400);
+});
+
 test('merchant booking deadline settings default to 15 minutes and can be updated', async () => {
   const initial = await request('/api/merchant/booking-deadlines', {
     role: 'merchant',
@@ -946,6 +1020,32 @@ test('profile routes reject invalid field types before database writes', async (
     error: 'One or more profile fields are invalid.',
   });
   assertOnlyAuthenticationStatusQuery();
+});
+
+test('authenticated account status is cached and invalidated on change', async () => {
+  const first = await request('/api/messages/conversations/12abc');
+  const second = await request('/api/messages/conversations/12abc');
+
+  assert.equal(first.status, 400);
+  assert.equal(second.status, 400);
+  assert.equal(
+    db.calls.filter(({ sql }) =>
+      sql.includes('SELECT status FROM users WHERE id = ? LIMIT 1'),
+    ).length,
+    1,
+  );
+
+  db.accountStatus = 'suspended';
+  invalidateUserStatusCache('42');
+  const suspended = await request('/api/messages/conversations/12abc');
+
+  assert.equal(suspended.status, 403);
+  assert.equal(
+    db.calls.filter(({ sql }) =>
+      sql.includes('SELECT status FROM users WHERE id = ? LIMIT 1'),
+    ).length,
+    2,
+  );
 });
 
 test('conversation routes reject malformed identifiers without querying', async () => {
@@ -3263,6 +3363,7 @@ test('merchant booking refresh automatically completes bookings at type-specific
   assert.ok(bookingsQuery);
   assert.match(bookingsQuery.sql, /u\.avatar_url AS customerAvatarUrl/);
   assert.match(bookingsQuery.sql, /b\.approval_due_at AS approvalExpiresAt/);
+  assert.match(bookingsQuery.sql, /b\.paid_at AS paidAt/);
   const completionQuery = db.calls.find(({ sql }) =>
     sql.includes("WHERE b.status = 'approved'") &&
     sql.includes('CURRENT_DATE >= DATE_ADD(b.booking_date'),
@@ -3390,6 +3491,7 @@ test('password reset handles unknown accounts and accepts only a valid reset tok
     message: 'Your password has been changed. You can now sign in.',
   });
   assert.ok(db.calls.some(({ sql }) => sql.includes('UPDATE password_reset_tokens')));
+  assert.ok(db.calls.some(({ sql }) => sql.includes('UPDATE refresh_tokens')));
 });
 
 test('password reset code verification requires a matching token', async () => {
@@ -4052,13 +4154,37 @@ test('venue reviews include each reviewer profile image URL', async () => {
     imageData: 'data:image/png;base64,aGVsbG8=',
     rating: 5,
     comment: 'Great court.',
+    createdAt: new Date('2026-11-02T08:30:00.000Z'),
+    reactionCount: 2,
+    reactedByMe: 1,
+  }];
+  db.reviewReplies = [{
+    id: 55,
+    reviewId: 31,
+    userId: 9,
+    text: 'Agreed.',
+    createdAt: new Date('2026-11-02T08:31:00.000Z'),
+    firstName: 'Sam',
+    lastName: 'Player',
+    avatarUrl: 'https://images.example.test/sam.png',
   }];
 
-  const response = await request('/api/news-feed/12/reviews');
+  const response = await request('/api/news-feed/12/reviews', { id: '42' });
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.reviews[0].avatarUrl, 'https://images.example.test/maya.png');
   assert.equal(body.reviews[0].imageData, 'data:image/png;base64,aGVsbG8=');
+  assert.equal(body.reviews[0].reactionCount, 2);
+  assert.equal(body.reviews[0].reactedByMe, true);
+  assert.deepEqual(body.reviews[0].replies[0], {
+    ...db.reviewReplies[0],
+    createdAt: '2026-11-02T08:31:00.000Z',
+  });
+  assert.ok(db.calls.some(({ sql, params }) =>
+    sql.includes('EXISTS (SELECT 1 FROM venue_review_reactions') &&
+    params[0] === 42 &&
+    params[1] === 12,
+  ));
   assert.ok(db.calls.some(({ sql }) => sql.includes('u.avatar_url AS avatarUrl')));
   assert.ok(db.calls.some(({ sql }) => sql.includes('r.image_data AS imageData')));
 });

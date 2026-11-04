@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../app_design_system.dart';
-import '../../../app_text.dart';
+import '../../../core/app_design_system.dart';
+import '../../../core/app_text.dart';
 import '../../../features/bookings/domain/booking.dart';
 
 class BookingStatusBanner extends StatelessWidget {

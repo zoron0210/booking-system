@@ -20,7 +20,7 @@ flutter run --dart-define=API_BASE_URL=http://<host-reachable-from-device>:3000
 ```
 
 The API listens on port 3000 by default. The development API URL defaults to
-`http://192.168.1.18:3000` for this LAN. This is a local developer address,
+`http://192.168.1.20:3000` for this LAN. This is a local developer address,
 not a public/live server. If the computer's LAN address changes, override it
 with `API_BASE_URL` as above. For the Android emulator, the host machine is
 usually reachable at `10.0.2.2`, so use `http://10.0.2.2:3000`. A physical
@@ -35,10 +35,14 @@ client ID; see the backend setup instructions.
 
 ## Architecture and quality checks
 
-The Flutter client keeps its shared HTTP/authentication primitives in
-`lib/auth_api.dart` and groups booking, venue, messaging, and saved-item API
-operations in `lib/features/*/data/`. Venue/news operations are exposed through
-`AuthApi.venues` and use typed models from
+The Flutter client keeps shared HTTP/authentication behavior in
+`lib/features/auth/data/auth_api.dart` and the `ApiTransport` contract in
+`lib/core/api_transport.dart`. Booking, venue, messaging, social, and saved-item
+operations are standalone repositories under their respective
+`lib/features/*/data/` directories and are accessed through `AuthApi`'s
+feature-specific properties. Flutter code imports canonical `lib/core/` and
+`lib/features/` paths directly; moved modules no longer retain root-level
+forwarding files. Venue/news operations use typed models from
 `lib/features/venues/domain/venue_models.dart`; venue catalog selection and
 disabled-event behavior live in `VenueCatalogRepository`, not the shared HTTP
 client. Venue API calls validate inputs against backend contracts, normalize
@@ -50,12 +54,18 @@ orchestration live under `lib/features/auth/`, and startup injects the app
 builder rather than importing the app shell back into the bootstrap module.
 The app composition, overview, auth, and discovery screens are grouped under
 `lib/features/app_shell/`; appearance and language settings live under
-`lib/features/settings/`. `lib/main.dart` is only the startup entry point, and
-root-level exports remain as compatibility facades during gradual migration.
+`lib/features/settings/`. `lib/main.dart` is the startup entry point.
+Shared preferences, session state, theming, design tokens, and motion utilities
+are canonical under `lib/core/`. Customer booking screens and session access
+are grouped under `lib/features/bookings/`; guest access and the shared
+message-notification host are owned by their auth and messaging features. The
+shared bottom navigation is owned by `lib/features/app_shell/`.
+Sports, event, and fitness booking screens and pricing logic are owned by
+`lib/features/bookings/`.
 Fitness category and coach form inputs and cards are separated under
-`lib/features/merchant_management/presentation/`; the larger merchant add form
-remains in its legacy screen while it is migrated incrementally. Its session
-access now goes through an injectable merchant-add session boundary under
+`lib/features/merchant_management/presentation/`, alongside the merchant
+dashboard, profile, and add form. The add form's session access goes through an
+injectable boundary under
 `lib/features/merchant_management/data/`, and focused merchant form tests run in
 CI. Messaging session reads are isolated behind an injectable provider in
 `lib/features/messaging/data/` and covered by controller tests.
@@ -81,7 +91,10 @@ items: JPEG, PNG, or WebP photos (10 MiB per photo maximum) or Tenor GIFs.
 The Express API uses shared infrastructure and normalizers under
 `backend/src/`; health and device-notification routes, authentication, social,
 and merchant news routes are registered from dedicated modules under
-`backend/src/routes/`. The API server no longer runs
+`backend/src/routes/`. New social photos upload directly to the configured
+private Firebase Storage bucket using short-lived signed URLs. Existing
+base64 photos can be migrated with `npm run migrate:social-media` from
+`backend` after configuring bucket credentials. The API server no longer runs
 schema changes on startup: apply them explicitly with `npm run migrate` from
 `backend` before starting or deploying the API. Applied schema migration
 versions are recorded in MySQL, and DDL privileges should be kept separate
@@ -92,10 +105,9 @@ Email/password credentials and password recovery are owned by the backend.
 Firebase is used for Google identity sign-in and related profile integrations,
 not as a parallel email/password store.
 
-The dependency-scan GitHub Actions workflow checks Flutter analysis and the
-focused Flutter API contract tests, the backend test suite and dependency
-audit, and a MySQL integration test against MySQL 8.4. Run the same checks
-locally with:
+The dependency-scan GitHub Actions workflow runs Flutter analysis and the full
+Flutter test suite, the backend test suite and dependency audit, and a MySQL
+integration test against MySQL 8.4. Run the same checks locally with:
 
 ```sh
 flutter analyze
@@ -108,23 +120,22 @@ flutter test test/customer_bookings_session_test.dart
 flutter test test/profile_session_provider_test.dart
 flutter test test/merchant_session_provider_test.dart test/merchant_profile_dashboard_test.dart test/merchant_dashboard_navigation_test.dart test/merchant_dashboard_polling_test.dart
 flutter test test/merchant_add_wizard_test.dart test/merchant_add_publish_test.dart test/merchant_add_multi_sport_test.dart test/merchant_add_fitness_test.dart test/merchant_add_form_layout_test.dart test/merchant_add_price_display_test.dart test/merchant_fitness_form_sections_test.dart
+flutter test
 cd backend
 npm test
 npm run test:integration
 ```
 
-Run the complete Flutter test suite locally with `flutter test`. CI gates
-analysis and focused authentication, startup, API, and news-feed interaction
-tests. The MySQL integration test needs a dedicated test database
-configuration; see the backend README. Other backend tests use isolated fakes
-and need no MySQL.
+The Flutter commands above are useful focused checks; CI additionally runs the
+complete Flutter suite with `flutter test`. The MySQL integration test needs a
+dedicated test database configuration; see the backend README. Other backend
+tests use isolated fakes and need no MySQL.
 
 ## UI styling
 
 Use the shared colors, spacing, radii, and text styles in
-`lib/app_design_system.dart`. The application-wide Material theme is defined in
-`lib/app_theme.dart`; reusable card and filter styles live in
-`lib/app_card_styles.dart` and `lib/filter_panel_style.dart`.
+`lib/core/app_design_system.dart`. The application-wide Material theme and card
+styles live in `lib/core/app_theme.dart` and `lib/core/app_card_styles.dart`.
 
 ## Match notifications
 

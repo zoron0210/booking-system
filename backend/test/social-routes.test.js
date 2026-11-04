@@ -84,6 +84,16 @@ test('validates supported photos and rejects mismatched content and excessive fi
   });
   assert.equal(validateImages(['data:image/png;base64,YWJj']).valid, false);
   assert.equal(validateImages(Array(6).fill(pngDataUrl)).valid, false);
+  const tenMiBPhoto = `data:image/jpeg;base64,${Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff]),
+    Buffer.alloc(10 * 1024 * 1024 - 3),
+  ]).toString('base64')}`;
+  assert.equal(validateImages([tenMiBPhoto]).valid, true);
+  const oversizedPhoto = `data:image/jpeg;base64,${Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff]),
+    Buffer.alloc(10 * 1024 * 1024 - 2),
+  ]).toString('base64')}`;
+  assert.equal(validateImages([oversizedPhoto]).valid, false);
   assert.equal(
     validateImages(['https://media.tenor.com/hash/sports.gif']).valid,
     true,
@@ -93,6 +103,75 @@ test('validates supported photos and rejects mismatched content and excessive fi
     false,
   );
   assert.equal(validateImages(null).valid, true);
+});
+
+test('creates an authenticated upload URL only for bounded supported photos', async () => {
+  const uploadCalls = [];
+  const routes = createRouteHarness({}, {
+    mediaStorage: {
+      async createUpload(...args) {
+        uploadCalls.push(args);
+        return {
+          uploadUrl: 'https://storage.googleapis.com/test-bucket/upload',
+          key: 'gcs://social-media-staging/7/11111111-1111-4111-8111-111111111111-1024',
+          headers: { 'Content-Type': 'image/png' },
+        };
+      },
+    },
+  });
+  const valid = await call(routes, 'POST /api/social/uploads', {
+    body: { contentType: 'image/png', size: 1024 },
+  });
+  const invalid = await call(routes, 'POST /api/social/uploads', {
+    body: { contentType: 'image/svg+xml', size: 1024 },
+  });
+
+  assert.equal(valid.statusCode, 201);
+  assert.match(valid.body.uploadUrl, /^https:\/\/storage\.googleapis\.com\//);
+  assert.equal(invalid.statusCode, 400);
+  assert.deepEqual(uploadCalls, [[7, 'image/png', 1024]]);
+
+  const unconfigured = createRouteHarness({});
+  const unavailable = await call(unconfigured, 'POST /api/social/uploads', {
+    body: { contentType: 'image/png', size: 1024 },
+  });
+  assert.equal(unavailable.statusCode, 503);
+});
+
+test('social feeds return expiring read URLs for stored media keys', async () => {
+  const mediaKey = 'gcs://social-posts/42/11111111-1111-4111-8111-111111111111.png';
+  const readUrl = 'https://storage.googleapis.com/test-bucket/photo?signature=read';
+  const routes = createRouteHarness({
+    async execute(sql) {
+      if (sql.includes('FROM social_posts p')) {
+        return [[{
+          id: 20,
+          userId: 42,
+          caption: 'Community experience',
+          imagesJson: JSON.stringify([mediaKey]),
+          createdAt: new Date('2026-10-26T08:00:00.000Z'),
+          firstName: 'Alex',
+          lastName: 'Player',
+          role: 'customer',
+        }], []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  }, {
+    mediaStorage: {
+      async signImages(images) {
+        assert.deepEqual(images, [mediaKey]);
+        return [readUrl];
+      },
+    },
+  });
+
+  const result = await call(routes, 'GET /api/social/feed', {
+    query: { scope: 'public' },
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.posts[0].images, [readUrl]);
 });
 
 test('social notifications are scoped to the signed-in user and include unread count', async () => {
@@ -411,7 +490,33 @@ test('guests can read public feed, search results, profiles, and connections', a
       7,
       7,
       7,
+      '',
+      '',
+      null,
+      null,
+      21,
     ]);
+  });
+
+  test('public feed search matches post captions and author names', async () => {
+    let feedQuery;
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        if (sql.includes('FROM social_posts p')) {
+          feedQuery = { sql, params };
+          return [[], []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+
+    const result = await call(routes, 'GET /api/social/feed', {
+      query: { scope: 'public', q: '  Alex   match  ' },
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.match(feedQuery.sql, /CONCAT_WS\(' ', u\.first_name, u\.last_name, p\.caption\)/);
+    assert.deepEqual(feedQuery.params.slice(-5, -3), ['Alex match', 'Alex match']);
   });
 
   test('following feed only returns posts from followed users', async () => {
@@ -449,7 +554,56 @@ test('guests can read public feed, search results, profiles, and connections', a
       7,
       7,
       7,
+      '',
+      '',
+      null,
+      null,
+      21,
     ]);
+  });
+
+  test('social feed supports bounded cursor pagination', async () => {
+    let feedQuery;
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        if (sql.includes('FROM social_posts p')) {
+          feedQuery = { sql, params };
+          return [[], []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    });
+
+    const result = await call(routes, 'GET /api/social/feed', {
+      query: { before_id: '42', limit: '75' },
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.match(feedQuery.sql, /p\.id < \?/);
+    assert.deepEqual(feedQuery.params.slice(-3), [42, 42, 51]);
+    assert.deepEqual(result.body, {
+      posts: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+
+  test('social feed rejects malformed pagination inputs', async () => {
+    const routes = createRouteHarness({
+      async execute() {
+        throw new Error('Invalid pagination must not query the database.');
+      },
+    });
+
+    const invalidLimit = await call(routes, 'GET /api/social/feed', {
+      query: { limit: '0' },
+    });
+    const invalidCursor = await call(routes, 'GET /api/social/feed', {
+      query: { before_id: 'not-an-id' },
+    });
+
+    assert.equal(invalidLimit.statusCode, 400);
+    assert.equal(invalidCursor.statusCode, 400);
   });
 
   test('guests cannot request the following feed', async () => {
@@ -633,6 +787,97 @@ test('saves a caption and valid photos in one transaction', async () => {
   assert.deepEqual(newPostNotifications.params, [7, 35, 35, 7, 7, 7]);
 });
 
+test('promotes owned staged photos before storing a post', async () => {
+  const calls = [];
+  const stagedKey =
+    'gcs://social-media-staging/7/11111111-1111-4111-8111-111111111111-68';
+  const postKey = 'gcs://social-posts/7/22222222-2222-4222-8222-222222222222.png';
+  let committed = false;
+  const connection = {
+    async beginTransaction() {},
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM users')) return [[{ id: 7 }], []];
+      if (sql.includes('FROM social_posts')) return [[{ postCount: 0 }], []];
+      if (sql.includes('INSERT INTO social_posts')) return [{ insertId: 36 }, []];
+      if (sql.includes('INSERT IGNORE INTO social_notifications')) {
+        return [{ affectedRows: 0 }, []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+    async rollback() {
+      throw new Error('A valid post must not roll back.');
+    },
+    async commit() {
+      committed = true;
+    },
+    release() {},
+  };
+  const routes = createRouteHarness({
+    async getConnection() {
+      return connection;
+    },
+  }, {
+    mediaStorage: {
+      async promoteUpload(key, userId) {
+        assert.equal(key, stagedKey);
+        assert.equal(userId, 7);
+        return postKey;
+      },
+      async signImages(images) {
+        assert.deepEqual(images, [postKey]);
+        return ['https://storage.googleapis.com/test-bucket/photo?signature=read'];
+      },
+      async deleteImages() {
+        throw new Error('Committed media must not be deleted.');
+      },
+    },
+  });
+
+  const res = await call(routes, 'POST /api/social/posts', {
+    body: { caption: 'A new match', images: [stagedKey] },
+  });
+
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(res.body.images, [
+    'https://storage.googleapis.com/test-bucket/photo?signature=read',
+  ]);
+  assert.deepEqual(
+    JSON.parse(calls.find(({ sql }) => sql.includes('INSERT INTO social_posts')).params[2]),
+    [postKey],
+  );
+  assert.equal(committed, true);
+});
+
+test('rejects staged photos that do not belong to the authenticated user', async () => {
+  let databaseRequested = false;
+  const routes = createRouteHarness({
+    async getConnection() {
+      databaseRequested = true;
+      throw new Error('An unverified upload must not acquire a connection.');
+    },
+  }, {
+    mediaStorage: {
+      async promoteUpload() {
+        return null;
+      },
+      async deleteImages() {},
+    },
+  });
+
+  const res = await call(routes, 'POST /api/social/posts', {
+    body: {
+      caption: 'A new match',
+      images: [
+        'gcs://social-media-staging/7/11111111-1111-4111-8111-111111111111-68',
+      ],
+    },
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(databaseRequested, false);
+});
+
 test('rejects posts without content before acquiring a database connection', async () => {
   let connectionRequested = false;
   const routes = createRouteHarness({
@@ -644,6 +889,25 @@ test('rejects posts without content before acquiring a database connection', asy
 
   const res = await call(routes, 'POST /api/social/posts', {
     body: { caption: '   ', images: [] },
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(connectionRequested, false);
+});
+
+test('rejects legacy base64 photos when compatibility mode is disabled', async () => {
+  let connectionRequested = false;
+  const routes = createRouteHarness({
+    async getConnection() {
+      connectionRequested = true;
+      throw new Error('Rejected legacy content must not acquire a connection.');
+    },
+  }, {
+    allowLegacyBase64: false,
+  });
+
+  const res = await call(routes, 'POST /api/social/posts', {
+    body: { caption: 'A new match', images: [pngDataUrl] },
   });
 
   assert.equal(res.statusCode, 400);
@@ -832,4 +1096,123 @@ test('creates a one-way follow after checking the target account and block list'
   assert.deepEqual(res.body, { isFollowing: true });
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[1].params, [7, 42]);
+});
+
+test('social post comments include reviewer profiles, relative-time data, and replies', async () => {
+  const calls = [];
+  const routes = createRouteHarness({
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT p.id')) return [[{ id: 35, ownerId: 42 }], []];
+      if (sql.includes('FROM social_post_comments c')) {
+        return [[{
+          id: 91,
+          text: 'Great game!',
+          gifUrl: null,
+          createdAt: '2026-11-02 08:00:00',
+          userId: 12,
+          firstName: 'Alex',
+          lastName: 'Player',
+          avatarUrl: 'https://example.com/avatar.png',
+          reactionCount: 2,
+          reactedByMe: 1,
+        }], []];
+      }
+      if (sql.includes('FROM social_post_comment_replies r')) {
+        return [[{
+          id: 92,
+          commentId: 91,
+          text: 'Thanks!',
+          createdAt: '2026-11-02 08:01:00',
+          userId: 13,
+          firstName: 'Sam',
+          lastName: 'Player',
+          avatarUrl: 'https://example.com/reply-avatar.png',
+        }], []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+
+  const response = await call(
+    routes,
+    'GET /api/social/posts/:postId/comments',
+    { params: { postId: '35' } },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.comments[0].displayName, 'Alex Player');
+  assert.equal(response.body.comments[0].avatarUrl, 'https://example.com/avatar.png');
+  assert.equal(response.body.comments[0].reactionCount, 2);
+  assert.equal(response.body.comments[0].reactedByMe, 1);
+  assert.equal(response.body.comments[0].replies[0].displayName, 'Sam Player');
+  assert.equal(
+    response.body.comments[0].replies[0].avatarUrl,
+    'https://example.com/reply-avatar.png',
+  );
+  assert.equal(typeof response.body.comments[0].createdAt, 'string');
+  assert.equal(typeof response.body.comments[0].replies[0].createdAt, 'string');
+  assert.deepEqual(calls[2].params, [91, 7, 7, 7]);
+});
+
+test('social post comment reactions and replies are scoped and validated', async () => {
+  const calls = [];
+  const routes = createRouteHarness({
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT p.id')) return [[{ id: 35, ownerId: 42 }], []];
+      if (sql.includes('SELECT c.id, c.user_id AS ownerId')) {
+        return [[{ id: 91, ownerId: 12 }], []];
+      }
+      if (sql.includes('INSERT IGNORE INTO social_post_comment_reactions')) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('DELETE FROM social_post_comment_reactions')) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('INSERT INTO social_post_comment_replies')) {
+        return [{ insertId: 93 }, []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  const params = {
+    postId: '35',
+    commentId: '91',
+  };
+
+  const reacted = await call(
+    routes,
+    'POST /api/social/posts/:postId/comments/:commentId/reactions',
+    { params },
+  );
+  assert.deepEqual(reacted.body, { reactedByMe: true });
+
+  const unreacted = await call(
+    routes,
+    'DELETE /api/social/posts/:postId/comments/:commentId/reactions',
+    { params },
+  );
+  assert.deepEqual(unreacted.body, { reactedByMe: false });
+
+  const reply = await call(
+    routes,
+    'POST /api/social/posts/:postId/comments/:commentId/replies',
+    { params, body: { text: '  Well played!  ' } },
+  );
+  assert.equal(reply.statusCode, 201);
+  assert.deepEqual(reply.body, {
+    id: 93,
+    commentId: 91,
+    userId: 7,
+    text: 'Well played!',
+  });
+
+  const invalid = await call(
+    routes,
+    'POST /api/social/posts/:postId/comments/:commentId/replies',
+    { params, body: { text: ' '.repeat(2) } },
+  );
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(calls.filter(({ sql }) => sql.includes('SELECT p.id')).length, 3);
 });

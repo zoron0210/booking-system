@@ -72,7 +72,9 @@ class BookingTicketViewModel {
   factory BookingTicketViewModel.fromMap(Map<String, dynamic> data) {
     final type = '${data['type'] ?? ''}'.trim().toLowerCase();
     final status = '${data['status'] ?? ''}'.trim().toLowerCase();
-    final approvalStatus = '${data['approvalStatus'] ?? ''}'.trim().toLowerCase();
+    final approvalStatus = '${data['approvalStatus'] ?? ''}'
+        .trim()
+        .toLowerCase();
     final paymentStatus = '${data['paymentStatus'] ?? ''}'.trim().toLowerCase();
     final bookingIdValue = data['bookingId'];
     final bookingId = bookingIdValue == null ? '—' : '$bookingIdValue';
@@ -88,7 +90,9 @@ class BookingTicketViewModel {
       '${data['fitnessCoachDurationMonths'] ?? ''}',
     );
     final fitnessPlanPrice = num.tryParse('${data['fitnessPlanPrice'] ?? ''}');
-    final fitnessCoachPrice = num.tryParse('${data['fitnessCoachPrice'] ?? ''}');
+    final fitnessCoachPrice = num.tryParse(
+      '${data['fitnessCoachPrice'] ?? ''}',
+    );
     final fullStudio = data['fullStudio'] == true;
     final slotNumber = '${data['slotNumber'] ?? ''}'.trim();
     final rawSlotNumbers = data['slotNumbers'];
@@ -217,38 +221,35 @@ class BookingTicketViewModel {
 
   String get bookingReference => 'BK-$bookingId';
 
-  String get detailTitle =>
-      paymentExpired
-          ? 'PAYMENT WINDOW EXPIRED'
-          : expired
-          ? 'BOOKING REQUEST EXPIRED'
-          : awaitingOnlinePayment
-          ? 'APPROVED · PAYMENT DUE'
-          : isDownpaymentReceived
-          ? 'DOWNPAYMENT RECEIVED'
-          : approved
-          ? 'BOOKING CONFIRMED'
-          : isBookingRequest
-          ? 'BOOKING SUBMITTED'
-          : 'PAYMENT RECEIVED';
+  String get detailTitle => paymentExpired
+      ? 'PAYMENT WINDOW EXPIRED'
+      : expired
+      ? 'BOOKING REQUEST EXPIRED'
+      : awaitingOnlinePayment
+      ? 'APPROVED · PAYMENT DUE'
+      : isDownpaymentReceived
+      ? 'DOWNPAYMENT RECEIVED'
+      : approved
+      ? 'BOOKING CONFIRMED'
+      : isBookingRequest
+      ? 'BOOKING SUBMITTED'
+      : 'PAYMENT RECEIVED';
 
-  String get badgeLabel =>
-      paymentExpired
-          ? 'WINDOW ENDED'
-          : expired
-          ? 'EXPIRED'
-          : awaitingOnlinePayment
-          ? 'PAYMENT DUE'
-          : isDownpaymentReceived
-          ? 'DOWNPAYMENT RECEIVED'
-          : approved
-          ? 'APPROVED'
-          : isBookingRequest
-          ? 'PENDING REVIEW'
-          : 'PENDING APPROVAL';
+  String get badgeLabel => paymentExpired
+      ? 'WINDOW ENDED'
+      : expired
+      ? 'EXPIRED'
+      : awaitingOnlinePayment
+      ? 'PAYMENT DUE'
+      : isDownpaymentReceived
+      ? 'DOWNPAYMENT RECEIVED'
+      : approved
+      ? 'APPROVED'
+      : isBookingRequest
+      ? 'PENDING REVIEW'
+      : 'PENDING APPROVAL';
 
-  String get totalLabel =>
-      isPaid
+  String get totalLabel => isPaid
       ? 'TOTAL PAID'
       : expired
       ? 'PAYMENT WINDOW ENDED'
@@ -266,40 +267,37 @@ class BookingTicketViewModel {
       ? 'PAYABLE NOW'
       : 'DUE AFTER APPROVAL';
 
-  String get titleText =>
-      isFitnessBooking
-          ? 'TINKERPRO  ·  FITNESS PASS'
-          : isEventBooking
-          ? 'TINKERPRO  ·  EVENT PASS'
-          : 'TINKERPRO  ·  COURT PASS';
+  String get titleText => isFitnessBooking
+      ? 'SPOTGO  ·  FITNESS PASS'
+      : isEventBooking
+      ? 'SPOTGO  ·  EVENT PASS'
+      : 'SPOTGO  ·  COURT PASS';
 
-  String get statusText =>
-      paymentExpired
-          ? 'PAYMENT WINDOW EXPIRED'
-          : expired
-          ? 'BOOKING REQUEST EXPIRED'
-          : isDownpaymentReceived
-          ? 'DOWNPAYMENT RECEIPT'
-          : awaitingOnlinePayment
-          ? 'PAYMENT REQUIRED'
-          : isBookingRequest
-          ? 'BOOKING REQUEST'
-          : isPaid
-          ? 'PAYMENT RECEIPT'
-          : 'BOOKING CONFIRMATION';
+  String get statusText => paymentExpired
+      ? 'PAYMENT WINDOW EXPIRED'
+      : expired
+      ? 'BOOKING REQUEST EXPIRED'
+      : isDownpaymentReceived
+      ? 'DOWNPAYMENT RECEIPT'
+      : awaitingOnlinePayment
+      ? 'PAYMENT REQUIRED'
+      : isBookingRequest
+      ? 'BOOKING REQUEST'
+      : isPaid
+      ? 'PAYMENT RECEIPT'
+      : 'BOOKING CONFIRMATION';
 
-  String get accessLabel =>
-      paymentExpired
-          ? 'PAYMENT WINDOW EXPIRED'
-          : expired
-          ? 'BOOKING REQUEST EXPIRED'
-          : isDownpaymentReceived
-          ? 'DOWNPAYMENT RECEIVED'
-          : isBookingRequest
-          ? 'BOOKING REQUEST'
-          : awaitingOnlinePayment
-          ? 'PAYMENT REQUIRED'
-          : approved
-          ? 'BOOKING CONFIRMED'
-          : 'PAYMENT RECEIVED';
+  String get accessLabel => paymentExpired
+      ? 'PAYMENT WINDOW EXPIRED'
+      : expired
+      ? 'BOOKING REQUEST EXPIRED'
+      : isDownpaymentReceived
+      ? 'DOWNPAYMENT RECEIVED'
+      : isBookingRequest
+      ? 'BOOKING REQUEST'
+      : awaitingOnlinePayment
+      ? 'PAYMENT REQUIRED'
+      : approved
+      ? 'BOOKING CONFIRMED'
+      : 'PAYMENT RECEIVED';
 }

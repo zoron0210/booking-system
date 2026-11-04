@@ -69,6 +69,123 @@ test('migration lock contention aborts before running schema upgrades', async ()
   assert.equal(released, true);
 });
 
+test('migration 21 creates venue review reactions and replies', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 20 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS venue_review_reactions'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS venue_review_replies'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 21 &&
+    params[1] === 'venue-review-interactions',
+  ));
+});
+
+test('migration 22 creates social post comment reactions and replies', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 21 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_post_comment_reactions'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_post_comment_replies'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 22 &&
+    params[1] === 'social-post-comment-interactions',
+  ));
+});
+
+test('migration 23 creates refresh-token sessions', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 22 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS refresh_tokens'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 23 &&
+    params[1] === 'refresh-token-sessions',
+  ));
+});
+
 test('migration 16 creates social follows and experience posts', async () => {
   const calls = [];
   const connection = {

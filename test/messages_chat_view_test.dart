@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_theme.dart';
-import 'package:myapp/messages_chat_view.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_theme.dart';
+import 'package:myapp/features/messaging/presentation/messages_chat_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

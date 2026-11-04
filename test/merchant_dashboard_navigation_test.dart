@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/merchant_dashboard.dart';
-import 'package:myapp/messages_dashboard.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_dashboard.dart';
+import 'package:myapp/features/messaging/presentation/messages_dashboard.dart';
 
 import 'merchant_dashboard_test_support.dart';
 
@@ -16,7 +16,7 @@ void main() {
   testWidgets('back from merchant Messages restores the dashboard', (
     tester,
   ) async {
-    setMerchantDashboardSession();
+    setMerchantDashboardSession(role: 'customer');
     final api = AuthApi(
       client: MockClient((request) async {
         switch (request.url.path) {
@@ -45,7 +45,7 @@ void main() {
           case '/api/auth/me':
             return http.Response(
               jsonEncode({
-                'user': {'id': 42},
+                'user': {'id': 42, 'role': 'merchant'},
               }),
               200,
             );
@@ -87,6 +87,24 @@ void main() {
       tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
       0,
     );
+
+    await tester.tap(
+      find.byKey(const ValueKey('merchant-dashboard-nav-messages')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(MessagesDashboardPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('news-feed-nav-explore')), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(MessagesDashboardPage), findsNothing);
+    expect(find.text('Data analytics'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('merchant-dashboard-nav-messages')),

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/merchant_business_status.dart';
+import 'package:myapp/features/venues/domain/merchant_business_status.dart';
 
 void main() {
   test('merchant-disabled fields mark a venue unavailable', () {

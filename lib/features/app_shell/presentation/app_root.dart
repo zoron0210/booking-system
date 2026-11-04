@@ -4,23 +4,25 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_session.dart';
-import 'package:myapp/app_startup.dart';
-import 'package:myapp/news_feed.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/app_shell/application/app_startup.dart';
+import 'package:myapp/features/app_shell/presentation/customer_navigation_shell.dart';
 import 'package:myapp/features/session/application/session_service.dart';
-import 'package:myapp/app_theme.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/booking_push_notifications.dart';
-import 'package:myapp/guest_access.dart';
-import 'package:myapp/merchant_dashboard.dart';
-import 'package:myapp/message_notification_host.dart';
-import 'package:myapp/messages_dashboard.dart';
-import 'package:myapp/reserve_dashboard.dart';
-import 'package:myapp/scroll_to_top_overlay.dart';
+import 'package:myapp/core/app_theme.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/auth/application/auth_service.dart';
+import 'package:myapp/features/notifications/data/booking_push_notifications.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_dashboard.dart';
+import 'package:myapp/features/messaging/presentation/message_notification_host.dart';
+import 'package:myapp/features/messaging/presentation/messages_dashboard.dart';
+import 'package:myapp/features/app_shell/presentation/reserve_dashboard.dart';
+import 'package:myapp/core/scroll_to_top_overlay.dart';
+import 'package:myapp/core/premium_motion.dart';
 
-part 'overview_page.dart';
+import 'first_launch_onboarding.dart';
+
 part 'auth_page.dart';
 part 'discovery_pages.dart';
 
@@ -58,71 +60,80 @@ class MyApp extends StatelessWidget {
 
   Widget get _initialHome {
     if (initialPage != null) return initialPage!;
-    final currentSession = session;
+    final currentSession = session ?? AppSessionService.instance.currentSession;
     final isAuthenticatedMerchant =
         currentSession?.role == 'merchant' &&
         currentSession?.isAuthenticated == true &&
         currentSession?.apiToken?.isNotEmpty == true;
+    final Widget destination;
     if (!isAuthenticatedMerchant) {
-      final lastBookingPage = bookingTypeDashboard(
-        currentSession?.lastBookingType,
+      destination = CustomerNavigationShell(
+        api: homeApi,
         onLogout: logoutToBookingPicker,
+        businessType: currentSession?.lastBookingType,
       );
-      if (lastBookingPage != null) return lastBookingPage;
-      return CustomerHomePage(api: homeApi, onLogout: logoutToBookingPicker);
+    } else {
+      destination = MerchantDashboardPage(onLogout: logoutToBookingPicker);
     }
-    return const OverviewPage();
+    return FirstLaunchOnboardingGate(
+      session: currentSession,
+      child: destination,
+    );
   }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _preferences,
-    builder: (context, _) {
-      return MaterialApp(
-        navigatorKey: _rootNavigatorKey,
-        navigatorObservers: [_scrollObserver],
-        title: 'SpotGo',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.configured(
-          darkMode: _preferences.darkMode,
-          accentColor: _preferences.accentColor,
-        ),
-        locale: AppLanguage.fromCode(_preferences.languageCode).locale,
-        supportedLocales: AppLanguage.supportedLocales,
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: _initialHome,
-        builder: (context, child) {
-          final media = MediaQuery.of(context);
-          return MediaQuery(
-            data: media.copyWith(
-              textScaler: _PreferenceTextScaler(
-                media.textScaler,
-                _preferences.textScale,
+    animation: session ?? AppSessionService.instance,
+    builder: (context, _) => AnimatedBuilder(
+      animation: _preferences,
+      builder: (context, _) {
+        return MaterialApp(
+          navigatorKey: _rootNavigatorKey,
+          navigatorObservers: [_scrollObserver],
+          title: 'SpotGo',
+          debugShowCheckedModeBanner: false,
+          scrollBehavior: const PremiumScrollBehavior(),
+          theme: AppTheme.configured(
+            darkMode: _preferences.darkMode,
+            accentColor: _preferences.accentColor,
+          ),
+          locale: AppLanguage.fromCode(_preferences.languageCode).locale,
+          supportedLocales: AppLanguage.supportedLocales,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: _initialHome,
+          builder: (context, child) {
+            final media = MediaQuery.of(context);
+            return MediaQuery(
+              data: media.copyWith(
+                textScaler: _PreferenceTextScaler(
+                  media.textScaler,
+                  _preferences.textScale,
+                ),
               ),
-            ),
-            child: ScrollToTopOverlay(
-              controller: _scrollToTopController,
-              child: MessageNotificationHost(
-                child: child ?? const SizedBox.shrink(),
-                onOpenConversation: (conversationId) {
-                  _rootNavigatorKey.currentState?.push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => MessagesDashboardPage(
-                        initialConversationId: conversationId,
+              child: ScrollToTopOverlay(
+                controller: _scrollToTopController,
+                child: MessageNotificationHost(
+                  child: child ?? const SizedBox.shrink(),
+                  onOpenConversation: (conversationId) {
+                    _rootNavigatorKey.currentState?.push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => MessagesDashboardPage(
+                          initialConversationId: conversationId,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-          );
-        },
-      );
-    },
+            );
+          },
+        );
+      },
+    ),
   );
 }
 
@@ -133,7 +144,7 @@ Future<void> logoutToBookingPicker(BuildContext context) async {
   final session = await AppSessionService.instance.load();
   await BookingPushNotifications.instance.unregister(session);
   await session.clearLastBookingType();
-  await session.clear();
+  final sessionRevoked = await revokeAndClearCurrentSession();
   navigator.pushAndRemoveUntil(
     MaterialPageRoute(
       builder: (_) => ReserveDashboardPage(onLogout: logoutToBookingPicker),
@@ -143,9 +154,11 @@ Future<void> logoutToBookingPicker(BuildContext context) async {
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: AppText(
-          'You’ve been signed out. You’re now browsing as a guest.',
+          sessionRevoked
+              ? 'You’ve been signed out. You’re now browsing as a guest.'
+              : 'You’re signed out on this device, but the server session could not be revoked. Connect to the internet and sign in again.',
           localize: true,
         ),
       ),

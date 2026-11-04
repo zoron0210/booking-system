@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_design_system.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
 
 import '../data/activity_log_repository.dart';
 import 'activity_log_controller.dart';
-import '../../../skeleton_loader.dart';
+import '../../../core/skeleton_loader.dart';
 import 'widgets/activity_log_controls.dart';
-import '../../../app_preferences.dart';
+
+import 'package:myapp/core/app_preferences.dart';
+
+import '../../../core/scroll_aware_header.dart';
 
 Color get _activityInk => AppColors.ink;
 Color get _activityMuted => AppColors.muted;
@@ -49,20 +52,13 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
     builder: (context, _) => Scaffold(
       backgroundColor: _activityPage,
       appBar: AppBar(
-        toolbarHeight: widget.isMerchant ? 56 : null,
+        toolbarHeight: widget.isMerchant ? 64 : null,
         titleSpacing: widget.isMerchant ? 16 : null,
         leadingWidth: widget.isMerchant ? 56 : null,
         titleTextStyle: AppTypography.pageTitle,
         backgroundColor: _activityPage,
         foregroundColor: _activityInk,
         title: const AppText('Activity log', localize: true),
-        actions: [
-          ActivityLogDateFilter(
-            selectedDate: _controller.selectedDate,
-            onSelected: _controller.selectDate,
-            onClear: () => _controller.selectDate(null),
-          ),
-        ],
       ),
       body: _buildBody(),
     ),
@@ -108,56 +104,64 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
       );
     }
     final listItems = _controller.visibleGroups;
-    return Column(
-      children: [
-        ActivityLogSearchField(
-          controller: _searchController,
-          isEmpty: _controller.isSearchEmpty,
-          onChanged: _controller.search,
-          onClear: () {
-            _searchController.clear();
-            _controller.search('');
-          },
+    return ScrollAwareHeader(
+      header: Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: ActivityLogSearchField(
+                controller: _searchController,
+                isEmpty: _controller.isSearchEmpty,
+                onChanged: _controller.search,
+                onClear: () {
+                  _searchController.clear();
+                  _controller.search('');
+                },
+              ),
+            ),
+            ActivityLogDateFilter(
+              selectedDate: _controller.selectedDate,
+              onSelected: _controller.selectDate,
+              onClear: () => _controller.selectDate(null),
+            ),
+          ],
         ),
-        Expanded(
-          child: listItems.isEmpty
-              ? SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  child: SizedBox(
-                    height: 220,
-                    child: ActivityLogMessage(
-                      icon: Icons.history_rounded,
-                      message: !_controller.hasActivities
-                          ? 'Your account activity will appear here.'
-                          : _controller.selectedDate != null
-                          ? 'No activity found on ${_formatDate(_controller.selectedDate!)}.'
-                          : 'No activity matches your search.',
-                    ),
-                  ),
-                )
-              : ListView.separated(
-                  key: const ValueKey('activity-log-list'),
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: listItems.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    final group = listItems[index];
-                    return group.venueName == null
-                        ? _ActivityTile(activity: group.activities.first)
-                        : _VenueActivityTile(
-                            key: ValueKey('activity-log-venue-${group.key}'),
-                            venueName: group.venueName!,
-                            sportType: group.sportType,
-                            activities: group.activities,
-                          );
-                  },
+      ),
+      body: listItems.isEmpty
+          ? SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: SizedBox(
+                height: 220,
+                child: ActivityLogMessage(
+                  icon: Icons.history_rounded,
+                  message: !_controller.hasActivities
+                      ? 'Your account activity will appear here.'
+                      : _controller.selectedDate != null
+                      ? 'No activity found on ${_formatDate(_controller.selectedDate!)}.'
+                      : 'No activity matches your search.',
                 ),
-        ),
-      ],
+              ),
+            )
+          : ListView.separated(
+              key: const ValueKey('activity-log-list'),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.all(16),
+              itemCount: listItems.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
+              itemBuilder: (context, index) {
+                final group = listItems[index];
+                return group.venueName == null
+                    ? _ActivityTile(activity: group.activities.first)
+                    : _VenueActivityTile(
+                        key: ValueKey('activity-log-venue-${group.key}'),
+                        venueName: group.venueName!,
+                        sportType: group.sportType,
+                        activities: group.activities,
+                      );
+              },
+            ),
     );
   }
 }

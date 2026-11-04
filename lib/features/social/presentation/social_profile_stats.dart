@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../app_text.dart';
+import '../../../core/app_text.dart';
+import '../../../core/premium_motion.dart';
 
 class SocialProfileStats extends StatelessWidget {
   const SocialProfileStats({
@@ -43,8 +44,8 @@ class SocialProfileStats extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppText(
-            '${value is num ? value.toInt() : 0}',
+          RollingNumber(
+            value: value is num ? value.toInt() : 0,
             style: TextStyle(
               color: foregroundColor,
               fontSize: 16,

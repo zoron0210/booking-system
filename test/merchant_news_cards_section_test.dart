@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/merchant_news_cards_section.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_news_cards_section.dart';
 
 void main() {
   testWidgets('draft cards expose delete before they are published', (

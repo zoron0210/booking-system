@@ -1,5 +1,5 @@
 name: myapp
-description: "A new Flutter project."
+description: "Sports venue discovery and booking app."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -36,6 +36,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^2.0.0
+  cached_network_image: ^3.4.1
   google_fonts: ^9.0.0
   firebase_core: ^4.15.0
   http: ^1.6.0
@@ -55,6 +56,7 @@ dependencies:
   qr_flutter: ^4.1.0
   firebase_messaging: ^16.7.0
   share_plus: ^13.3.1
+  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:

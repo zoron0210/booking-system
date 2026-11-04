@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/fitness_booking_pricing.dart';
+import 'package:myapp/features/bookings/domain/fitness_booking_pricing.dart';
 
 void main() {
   const category = {
@@ -11,10 +11,11 @@ void main() {
   };
 
   test('lists only configured plans and discounts annual free months', () {
-    expect(
-      FitnessBookingPricing.availablePlans(category),
-      ['session', 'monthly', 'yearly'],
-    );
+    expect(FitnessBookingPricing.availablePlans(category), [
+      'session',
+      'monthly',
+      'yearly',
+    ]);
     expect(FitnessBookingPricing.planPrice(category, 'yearly'), 9600);
     expect(FitnessBookingPricing.planDurationDays(category, 'monthly'), 30);
     expect(FitnessBookingPricing.planDurationDays(category, 'yearly'), 425);
@@ -53,12 +54,12 @@ void main() {
       'yearlyDiscountType': 'percentage',
       'yearlyDiscountValue': 10,
     };
-    expect(FitnessBookingPricing.planPrice(percentageCategory, 'yearly'), 10800);
     expect(
-      FitnessBookingPricing.yearlyOfferLabel(
-        percentageCategory,
-        'yearly',
-      ),
+      FitnessBookingPricing.planPrice(percentageCategory, 'yearly'),
+      10800,
+    );
+    expect(
+      FitnessBookingPricing.yearlyOfferLabel(percentageCategory, 'yearly'),
       'Yearly offer: 10% off',
     );
     const coach = {'monthlyPrice': 300};

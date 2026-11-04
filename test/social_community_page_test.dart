@@ -5,9 +5,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/social_community_page.dart';
-import 'package:myapp/social_profile_section.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/social/presentation/social_community_page.dart';
+import 'package:myapp/features/social/presentation/social_profile_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -102,6 +102,77 @@ void main() {
       'images': [],
     });
     expect(find.text('Your experience has been shared.'), findsOneWidget);
+  });
+
+  testWidgets('community feed appends older posts while scrolling', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/social/feed') {
+          final cursor = request.url.queryParameters['before_id'];
+          return http.Response(
+            jsonEncode(
+              cursor == null
+                  ? {
+                      'posts': List.generate(
+                        20,
+                        (index) => {
+                          'id': 100 - index,
+                          'userId': 42,
+                          'displayName': 'Alex Player',
+                          'caption': 'Post $index',
+                          'images': [],
+                          'createdAt': '2026-10-26T08:00:00.000Z',
+                        },
+                      ),
+                      'hasMore': true,
+                      'nextCursor': 81,
+                    }
+                  : {
+                      'posts': [
+                        {
+                          'id': 80,
+                          'userId': 42,
+                          'displayName': 'Alex Player',
+                          'caption': 'Older post',
+                          'images': [],
+                          'createdAt': '2026-10-25T08:00:00.000Z',
+                        },
+                      ],
+                      'hasMore': false,
+                      'nextCursor': null,
+                    },
+            ),
+            200,
+          );
+        }
+        if (request.url.path == '/api/social/users') {
+          return http.Response(jsonEncode({'users': []}), 200);
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: SocialCommunityPage(api: api)));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('social-community-feed-list')),
+      const Offset(0, -5000),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Older post'), findsOneWidget);
+    expect(
+      requests.any(
+        (request) =>
+            request.url.path == '/api/social/feed' &&
+            request.url.queryParameters['before_id'] == '81',
+      ),
+      isTrue,
+    );
   });
 
   testWidgets('guests can browse posts without opening another profile', (
@@ -213,6 +284,7 @@ void main() {
     tester,
   ) async {
     final requests = <http.Request>[];
+    final openedProfiles = <int>[];
     var commentCount = 0;
     final api = AuthApi(
       client: MockClient((request) async {
@@ -243,18 +315,61 @@ void main() {
         }
         if (request.url.path == '/api/social/posts/5/comments' &&
             request.method == 'GET') {
-          return http.Response(jsonEncode({'comments': []}), 200);
+          return http.Response(
+            jsonEncode({
+              'comments': [
+                {
+                  'id': 11,
+                  'userId': 88,
+                  'displayName': 'Jamie Reviewer',
+                  'avatarUrl': null,
+                  'text': 'Well played!',
+                  'createdAt': DateTime.now()
+                      .toUtc()
+                      .subtract(const Duration(minutes: 1, seconds: 5))
+                      .toIso8601String(),
+                  'reactionCount': 0,
+                  'reactedByMe': false,
+                  'replies': [
+                    {
+                      'id': 12,
+                      'userId': 89,
+                      'displayName': 'Alex Replier',
+                      'avatarUrl': null,
+                      'text': 'Thanks!',
+                      'createdAt': DateTime.now()
+                          .toUtc()
+                          .subtract(const Duration(minutes: 2))
+                          .toIso8601String(),
+                    },
+                  ],
+                },
+              ],
+            }),
+            200,
+          );
         }
         if (request.url.path == '/api/social/posts/5/comments' &&
             request.method == 'POST') {
           commentCount++;
           return http.Response(jsonEncode({'id': 11}), 201);
         }
+        if (request.url.path == '/api/social/posts/5/comments/11/reactions' ||
+            request.url.path == '/api/social/posts/5/comments/11/replies') {
+          return http.Response('{}', 201);
+        }
         return http.Response('{}', 200);
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: SocialCommunityPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SocialCommunityPage(
+          api: api,
+          onOpenProfile: (userId) async => openedProfiles.add(userId),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('social-post-like-5')));
     await tester.pumpAndSettle();
@@ -279,6 +394,43 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('social-post-comment-5')));
     await tester.pumpAndSettle();
+    expect(find.text('1 min ago'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('social-comment-avatar-88')));
+    await tester.pumpAndSettle();
+    expect(openedProfiles, [88]);
+    await tester.tap(
+      find.byKey(const ValueKey('social-comment-reply-avatar-89')),
+    );
+    await tester.pumpAndSettle();
+    expect(openedProfiles, [88, 89]);
+    await tester.tap(find.byKey(const ValueKey('social-comment-react-11')));
+    await tester.pumpAndSettle();
+    expect(
+      requests.any(
+        (request) =>
+            request.method == 'POST' &&
+            request.url.path == '/api/social/posts/5/comments/11/reactions',
+      ),
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey('social-comment-reply-11')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('social-comment-reply-input-11')),
+      'Thanks!',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('social-comment-reply-send-11')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      requests.any(
+        (request) =>
+            request.method == 'POST' &&
+            request.url.path == '/api/social/posts/5/comments/11/replies',
+      ),
+      isTrue,
+    );
     await tester.enterText(
       find.byKey(const ValueKey('social-comment-input')),
       'Well played!',

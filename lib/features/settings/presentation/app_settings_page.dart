@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
 
 class AppSettingsPage extends StatelessWidget {
   const AppSettingsPage({super.key, this.preferences});

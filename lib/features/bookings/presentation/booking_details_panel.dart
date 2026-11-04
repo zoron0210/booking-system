@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../../../app_design_system.dart';
-import '../../../app_text.dart';
+import '../../../core/app_design_system.dart';
+import '../../../core/app_text.dart';
 import '../../../features/bookings/domain/booking.dart';
 import 'customer_booking_controller.dart';
 
@@ -37,8 +37,8 @@ class BookingDetailsPanel extends StatelessWidget {
       'done',
       'completed',
     }.contains(normalizedStatus);
-    final total = _amount(booking['total']);
-    final downpayment = _amount(booking['downpayment']);
+    final total = booking.total;
+    final downpayment = booking.downpayment;
     final paidAmount = booking.paidAmount;
     final paymentStatus = booking.paymentStatus.toLowerCase();
     final isCashOnArrival = booking.paymentMethod == 'cash_on_arrival';
@@ -46,13 +46,11 @@ class BookingDetailsPanel extends StatelessWidget {
         CustomerBookingController.awaitingApprovalPayment(booking);
     final paymentDeadline = DateTime.tryParse(booking.paymentDueAt);
     final remainingBalance = (total - paidAmount).clamp(0, total).toDouble();
-    final fitnessPlanType = '${booking['fitnessPlanType'] ?? ''}';
-    final coachName = '${booking['fitnessCoachName'] ?? ''}';
-    final coachDurationMonths = int.tryParse(
-      '${booking['fitnessCoachDurationMonths'] ?? ''}',
-    );
-    final isEvent = '${booking['businessType']}'.toLowerCase() == 'event';
-    final eventType = '${booking['eventType'] ?? ''}';
+    final fitnessPlanType = booking.fitnessPlanType;
+    final coachName = booking.fitnessCoachName;
+    final coachDurationMonths = booking.fitnessCoachDurationMonths;
+    final isEvent = booking.venue.businessType.toLowerCase() == 'event';
+    final eventType = booking.eventType;
 
     return Container(
       width: double.infinity,
@@ -71,7 +69,7 @@ class BookingDetailsPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: AppText(
-                  '${booking['venueName'] ?? 'Venue'}',
+                  booking.venue.name,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -113,9 +111,9 @@ class BookingDetailsPanel extends StatelessWidget {
             '${fitnessPlanType.isNotEmpty
                 ? 'First visit'
                 : isEvent
-                ? '${booking['players']} guests'
-                : '${booking['players']} players'} · '
-            '${booking['paymentMethod']}',
+                ? '${booking.players} guests'
+                : '${booking.players} players'} · '
+            '${booking.paymentMethod}',
             style: TextStyle(fontSize: 14, color: AppColors.muted),
             localize: true,
           ),
@@ -134,7 +132,7 @@ class BookingDetailsPanel extends StatelessWidget {
           if (fitnessPlanType.isNotEmpty) ...[
             const SizedBox(height: 6),
             AppText(
-              '${booking['fitnessCategory']} · ${booking['fitnessPlanType']}',
+              '${booking.fitnessCategory} · ${booking.fitnessPlanType}',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -149,11 +147,11 @@ class BookingDetailsPanel extends StatelessWidget {
             ),
             AppText(
               coachName.isEmpty
-                  ? 'Plan: \u{20B1} ${_amount(booking['fitnessPlanPrice']).toStringAsFixed(2)}'
-                  : 'Plan: \u{20B1} ${_amount(booking['fitnessPlanPrice']).toStringAsFixed(2)}\n'
+                  ? 'Plan: \u{20B1} ${booking.fitnessPlanPrice.toStringAsFixed(2)}'
+                  : 'Plan: \u{20B1} ${booking.fitnessPlanPrice.toStringAsFixed(2)}\n'
                         'Coach: $coachName'
                         '${coachDurationMonths == null ? '' : ' · ${coachDurationMonths == 1 ? '1 month' : '$coachDurationMonths months'}'}'
-                        ' · \u{20B1} ${_amount(booking['fitnessCoachPrice']).toStringAsFixed(2)}',
+                        ' · \u{20B1} ${booking.fitnessCoachPrice.toStringAsFixed(2)}',
               localize: true,
               style: TextStyle(fontSize: 13, color: AppColors.muted),
             ),
@@ -168,12 +166,12 @@ class BookingDetailsPanel extends StatelessWidget {
               color: AppColors.ink,
             ),
           ),
-          if (_amount(booking['extraPlayerCharge']) > 0)
+          if (booking.extraPlayerCharge > 0)
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: AppText(
-                'Includes extra-player fee: ? '
-                '${_amount(booking['extraPlayerCharge']).toStringAsFixed(2)}',
+                'Includes extra-player fee: \u{20B1} '
+                '${booking.extraPlayerCharge.toStringAsFixed(2)}',
                 style: TextStyle(fontSize: 13, color: AppColors.muted),
                 localize: true,
               ),
@@ -250,14 +248,16 @@ class BookingDetailsPanel extends StatelessWidget {
           const SizedBox(height: 6),
           _venueDetail(
             Icons.person_outline_rounded,
-            _labelValue('Venue owner', booking['ownerName']),
+            _labelValue('Venue owner', booking.venue.ownerName),
           ),
-          _venueDetail(Icons.location_on_outlined, booking['address']),
+          _venueDetail(Icons.location_on_outlined, booking.venue.address),
           _venueDetail(
             Icons.sports_rounded,
             _labelValue(
               fitnessPlanType.isNotEmpty ? 'Fitness category' : 'Sport',
-              booking['sportType'] ?? booking['category'],
+              booking.sportType.isNotEmpty
+                  ? booking.sportType
+                  : booking.venue.category,
             ),
           ),
           if (fitnessPlanType.isEmpty)
@@ -265,33 +265,33 @@ class BookingDetailsPanel extends StatelessWidget {
               Icons.grid_view_rounded,
               _labelValue(
                 'Booked area',
-                booking['occupiesFullStudio'] == true
+                booking.occupiesFullStudio
                     ? 'Whole studio'
                     : booking.slotNumbers.length > 1
                     ? 'Slots ${booking.slotNumbers.join(', ')}'
-                    : 'Slot ${booking.slotNumbers.isNotEmpty ? booking.slotNumbers.first : booking['slotNumber'] ?? '—'}',
+                    : 'Slot ${booking.slotNumbers.isNotEmpty ? booking.slotNumbers.first : booking.slotNumber ?? '—'}',
               ),
             ),
           _venueDetail(
             Icons.business_center_outlined,
-            _labelValue('Type', booking['facilityType']),
+            _labelValue('Type', booking.venue.facilityType),
           ),
           _venueDetail(
             Icons.grid_3x3,
-            _labelValue('Details', booking['details']),
+            _labelValue('Details', booking.venue.details),
           ),
           _venueDetail(
             Icons.access_time,
-            _labelValue('Hours', booking['hours']),
+            _labelValue('Hours', booking.venue.hours),
           ),
           _venueDetail(
             Icons.check_circle_outline,
-            _labelValue('Availability', booking['availability']),
+            _labelValue('Availability', booking.venue.availability),
           ),
           const SizedBox(height: 6),
           _bookingField(
             'Rate',
-            '\u{20B1} ${_amount(booking['pricePerHour'] ?? booking['venuePricePerHour']).toStringAsFixed(2)} / hr',
+            '\u{20B1} ${(booking.pricePerHour > 0 ? booking.pricePerHour : booking.venue.pricePerHour).toStringAsFixed(2)} / hr',
           ),
           const SizedBox(height: 6),
           AppText(
@@ -304,18 +304,18 @@ class BookingDetailsPanel extends StatelessWidget {
             localize: true,
           ),
           const SizedBox(height: 6),
-          _bookingField('Date', booking['date']),
+          _bookingField('Date', booking.date),
           if (isEvent)
             _bookingField(
               'Venue hours',
-              '${_formatTime(booking['startTime'])} - '
-                  '${_endTime(booking['startTime'], _amount(booking['durationHours'])) ?? '—'}',
+              '${_formatTime(booking.startTime)} - '
+                  '${_endTime(booking.startTime, booking.durationHours) ?? '—'}',
             )
           else ...[
-            _bookingField('Start time', _formatTime(booking['startTime'])),
+            _bookingField('Start time', _formatTime(booking.startTime)),
             _bookingField(
               fitnessPlanType.isNotEmpty ? 'First visit session' : 'Duration',
-              '${_amount(booking['durationHours']).toStringAsFixed(0)} hour(s)',
+              '${booking.durationHours.toStringAsFixed(0)} hour(s)',
             ),
           ],
           if (fitnessPlanType.isNotEmpty)
@@ -323,8 +323,8 @@ class BookingDetailsPanel extends StatelessWidget {
               'Plan duration',
               _fitnessPlanDuration(fitnessPlanType),
             ),
-          _bookingField('Players', booking['players']),
-          _bookingField('Payment method', booking['paymentMethod']),
+          _bookingField('Players', booking.players),
+          _bookingField('Payment method', booking.paymentMethod),
           if (booking.checkedInAt case final checkedInAt?)
             _bookingField('Venue arrival', 'Checked in · $checkedInAt')
           else if (status.toLowerCase() == 'approved')
@@ -476,34 +476,9 @@ class BookingDetailsPanel extends StatelessWidget {
   }
 
   List<String> _imageUrls(Booking booking) {
-    final images = <String>[];
-    final raw = booking['imageUrls'];
-    if (raw is List) {
-      images.addAll(raw.map((value) => '$value').where(_validImage));
-    } else if (raw is String && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          images.addAll(decoded.map((value) => '$value').where(_validImage));
-        }
-      } on FormatException {
-        if (_validImage(raw)) images.add(raw.trim());
-      }
-    }
-
-    final direct = '${booking['imageUrl'] ?? ''}'.trim();
-    if (images.isEmpty && _validImage(direct)) {
-      try {
-        final decoded = jsonDecode(direct);
-        if (decoded is List) {
-          images.addAll(decoded.map((value) => '$value').where(_validImage));
-        } else {
-          images.add(direct);
-        }
-      } on FormatException {
-        images.add(direct);
-      }
-    }
+    final images = booking.venue.imageUrls.where(_validImage).toList();
+    final direct = booking.venue.imageUrl.trim();
+    if (images.isEmpty && _validImage(direct)) images.add(direct);
     return images.isEmpty ? ['assets/court/pickle-court.jpg'] : images;
   }
 
@@ -578,15 +553,15 @@ class BookingDetailsPanel extends StatelessWidget {
   }
 
   String _scheduleLabel(Booking booking) {
-    final date = '${booking['date'] ?? ''}';
-    final start = _formatTime(booking['startTime']);
-    final duration = _amount(booking['durationHours']);
-    final end = _endTime(booking['startTime'], duration);
-    final isEvent = '${booking['businessType'] ?? ''}'.toLowerCase() == 'event';
+    final date = booking.date;
+    final start = _formatTime(booking.startTime);
+    final duration = booking.durationHours;
+    final end = _endTime(booking.startTime, duration);
+    final isEvent = booking.venue.businessType.toLowerCase() == 'event';
     if (isEvent) {
       return end == null ? '$date · $start' : '$date · $start - $end';
     }
-    final fitnessPlanType = '${booking['fitnessPlanType'] ?? ''}';
+    final fitnessPlanType = booking.fitnessPlanType;
     final sessionLabel = fitnessPlanType.isNotEmpty
         ? 'First visit session'
         : 'Duration';
@@ -636,10 +611,6 @@ class BookingDetailsPanel extends StatelessWidget {
     final period = normalizedHour >= 12 ? 'PM' : 'AM';
     final displayHour = normalizedHour % 12 == 0 ? 12 : normalizedHour % 12;
     return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
-  }
-
-  double _amount(dynamic value) {
-    return value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
   }
 }
 

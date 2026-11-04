@@ -5,12 +5,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/auth/application/auth_service.dart';
 import 'package:myapp/features/auth/presentation/auth_dashboard.dart';
-import 'package:myapp/guest_access.dart';
-import 'package:myapp/news_feed.dart';
+import 'package:myapp/features/auth/presentation/guest_access.dart';
+import 'package:myapp/features/app_shell/presentation/news_feed.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _TestAuthSessionStore implements AuthSessionStore {
@@ -23,9 +23,15 @@ class _TestAuthSessionStore implements AuthSessionStore {
   Future<void> save({
     required String email,
     required String token,
+    required String refreshToken,
     required String role,
   }) async {
     this.token = token;
+  }
+
+  @override
+  Future<void> clear() async {
+    token = null;
   }
 }
 
@@ -45,6 +51,7 @@ void main() {
           return http.Response(
             jsonEncode({
               'token': 'login-token',
+              'refreshToken': 'login-refresh-token',
               'user': {
                 'email': 'player@example.com',
                 'role': 'customer',
@@ -108,6 +115,7 @@ void main() {
               return http.Response(
                 jsonEncode({
                   'token': 'new-customer-token',
+                  'refreshToken': 'new-customer-refresh-token',
                   'user': {
                     'email': 'new-player@example.com',
                     'firstName': 'Sam',

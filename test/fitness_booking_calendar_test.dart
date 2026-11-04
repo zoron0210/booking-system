@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/fitness_booking_calendar.dart';
+import 'package:myapp/features/bookings/presentation/fitness_booking_calendar.dart';
 
 void main() {
   test('fitness plan end dates include the start day in plan duration', () {

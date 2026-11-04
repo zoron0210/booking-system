@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.1.18:3000',
+  defaultValue: 'http://192.168.1.20:3000',
 );
 
 final _requestIdPattern = RegExp(
@@ -44,9 +44,42 @@ class AuthApiException implements Exception {
 }
 
 class ApiHttpClient {
-  ApiHttpClient({http.Client? client}) : _client = client ?? http.Client();
+  ApiHttpClient({http.Client? client, String? baseUrl})
+    : _client = client ?? http.Client(),
+      _baseUrl = baseUrl ?? apiBaseUrl;
 
   final http.Client _client;
+  final String _baseUrl;
+
+  Future<void> putBytes(
+    Uri uri, {
+    required List<int> body,
+    required Map<String, String> headers,
+  }) async {
+    late final http.Response response;
+    try {
+      response = await _client
+          .put(uri, headers: headers, body: body)
+          .timeout(const Duration(minutes: 2));
+    } on TimeoutException {
+      throw const AuthApiException(
+        'The photo upload took too long. Check your connection and try again.',
+        408,
+      );
+    } on Exception {
+      throw const AuthApiException(
+        'Could not upload the photo. Check your connection and try again.',
+        0,
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthApiException(
+        'The photo could not be uploaded. Please try again.',
+        response.statusCode,
+      );
+    }
+  }
 
   Future<Map<String, dynamic>> request(
     String method,
@@ -54,7 +87,52 @@ class ApiHttpClient {
     Map<String, dynamic>? body,
     Map<String, String>? headers,
   }) async {
-    final uri = Uri.parse('$apiBaseUrl$path');
+    final value = await requestJson(method, path, body: body, headers: headers);
+    if (value is Map<String, dynamic>) return value;
+    if (value is List) return {'data': value};
+    throw AuthApiException(
+      'The server returned an invalid response.',
+      502,
+      const {},
+    );
+  }
+
+  Future<List<dynamic>> requestList(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? headers,
+  }) async {
+    final value = await requestJson(method, path, body: body, headers: headers);
+    if (value is List) return value;
+    throw AuthApiException(
+      'The server returned an invalid list response.',
+      502,
+      value is Map<String, dynamic> ? value : const {},
+    );
+  }
+
+  Future<Object?> requestJson(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? headers,
+  }) async {
+    final baseUri = Uri.parse(_baseUrl);
+    final endpointUri = Uri.parse(path);
+    final basePath = baseUri.path.replaceFirst(RegExp(r'/+$'), '');
+    final requestPath = endpointUri.path.replaceFirst(RegExp(r'^/+'), '');
+    final uri = Uri(
+      scheme: baseUri.scheme,
+      userInfo: baseUri.userInfo,
+      host: baseUri.host,
+      port: baseUri.hasPort ? baseUri.port : null,
+      path: '$basePath/$requestPath',
+      queryParameters: endpointUri.hasQuery
+          ? endpointUri.queryParametersAll
+          : null,
+      fragment: endpointUri.hasFragment ? endpointUri.fragment : null,
+    );
     late final http.Response response;
     try {
       response = method == 'GET'
@@ -92,11 +170,11 @@ class ApiHttpClient {
       );
     }
 
-    Map<String, dynamic> decoded = {};
+    Object? decoded = <String, dynamic>{};
     if (response.body.isNotEmpty) {
       try {
         final value = jsonDecode(response.body);
-        if (value is Map<String, dynamic>) {
+        if (value is Map<String, dynamic> || value is List) {
           decoded = value;
         } else if (response.statusCode >= 200 && response.statusCode < 300) {
           throw AuthApiException(
@@ -129,13 +207,16 @@ class ApiHttpClient {
       }
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final rawMessage = decoded['error'];
+      final responseData = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{'data': decoded};
+      final rawMessage = responseData['error'];
       throw AuthApiException(
         rawMessage is String && rawMessage.trim().isNotEmpty
             ? rawMessage.trim()
             : 'The server returned an error.',
         response.statusCode,
-        decoded,
+        responseData,
         _validRequestId(response.headers['x-request-id']),
       );
     }

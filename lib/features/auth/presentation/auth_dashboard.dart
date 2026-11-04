@@ -4,9 +4,12 @@ import 'package:flutter/services.dart';
 
 import 'package:google_sign_in/google_sign_in.dart';
 
-import '../../../auth_api.dart';
-import '../../../app_design_system.dart';
-import '../../../app_preferences.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+
+import '../../../core/app_design_system.dart';
+
+import 'package:myapp/core/app_preferences.dart';
+
 import '../../session/application/session_service.dart';
 import '../application/auth_service.dart';
 import 'customer_onboarding_page.dart';
@@ -20,16 +23,16 @@ Color get _ink => AppColors.ink;
 Color get _orange => AppColors.accent;
 Color get _page => AppColors.page;
 Color get _muted => AppColors.muted;
-const _authSectionGap = 12.0;
-const _authFieldGap = 8.0;
-const _authPrimaryButtonHeight = 48.0;
+const _authSectionGap = AppSpacing.large;
+const _authFieldGap = AppSpacing.medium;
+const _authPrimaryButtonHeight = 52.0;
 TextStyle get _authHeadingStyle =>
-    TextStyle(color: _ink, fontSize: 27, fontWeight: FontWeight.w900);
+    TextStyle(color: _ink, fontSize: 28, fontWeight: FontWeight.w800);
 TextStyle get _authDescriptionStyle =>
-    TextStyle(color: _muted, fontSize: 13, height: 1.4);
+    TextStyle(color: _muted, fontSize: 14, height: 1.45);
 const _authPrimaryButtonTextStyle = TextStyle(
   fontSize: 15,
-  fontWeight: FontWeight.w900,
+  fontWeight: FontWeight.w800,
 );
 const _googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
@@ -403,7 +406,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: AppSpacing.small),
               _RoleCard(
                 icon: Icons.storefront_rounded,
                 title: 'Merchant',
@@ -452,7 +455,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
               onPressed: () => Navigator.of(context).pop(selectedRole),
               style: FilledButton.styleFrom(
                 backgroundColor: _orange,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.onAccent,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -583,16 +586,18 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                 key: const ValueKey('auth-form-panel'),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(AppRadii.bottomSheet),
+                  ),
                   border: Border(top: BorderSide(color: AppColors.border)),
                 ),
                 child: SingleChildScrollView(
                   key: const ValueKey('auth-content-scroll'),
                   padding: EdgeInsets.fromLTRB(
-                    22,
-                    10,
-                    22,
-                    MediaQuery.paddingOf(context).bottom + 4,
+                    AppSpacing.large,
+                    AppSpacing.large,
+                    AppSpacing.large,
+                    MediaQuery.paddingOf(context).bottom + AppSpacing.large,
                   ),
                   child: Center(
                     child: ConstrainedBox(
@@ -611,7 +616,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                               child: const SpotGoLogo(size: 46),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: AppSpacing.small),
                           Center(
                             child: AppText(
                               appLanguageText(
@@ -625,7 +630,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                               style: _authHeadingStyle,
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: AppSpacing.small),
                           Center(
                             child: AppText(
                               appLanguageText(
@@ -662,7 +667,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: AppSpacing.small),
                             IntrinsicHeight(
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -685,7 +690,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: AppSpacing.small),
                                   Expanded(
                                     child: _RoleCard(
                                       key: const ValueKey('auth-role-merchant'),
@@ -707,7 +712,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: AppSpacing.small),
                           ],
                           _AuthField(
                             label: appLanguageText(
@@ -777,7 +782,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                           if (isLogin)
                             SizedBox(
                               key: const ValueKey('auth-reset-slot'),
-                              height: 36,
+                              height: 44,
                               child: Row(
                                 children: [
                                   Expanded(
@@ -827,8 +832,9 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                             ),
                                           ),
                                     style: TextButton.styleFrom(
+                                      minimumSize: const Size(44, 44),
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
+                                        horizontal: AppSpacing.small,
                                       ),
                                     ),
                                     child: AppText(
@@ -836,7 +842,7 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                         'Forgot password?',
                                         'Nakalimutan ang password?',
                                       ),
-                                      style: const TextStyle(fontSize: 12),
+                                      style: const TextStyle(fontSize: 13),
                                     ),
                                   ),
                                 ],
@@ -854,12 +860,14 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                               onPressed: _loading ? null : _submit,
                               style: FilledButton.styleFrom(
                                 backgroundColor: _orange,
-                                foregroundColor: Colors.white,
+                                foregroundColor: AppColors.onAccent,
                                 fixedSize: const Size.fromHeight(
                                   _authPrimaryButtonHeight,
                                 ),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(15),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadii.button,
+                                  ),
                                 ),
                                 textStyle: _authPrimaryButtonTextStyle,
                               ),
@@ -882,11 +890,13 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                     ),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: AppSpacing.medium),
                           const _OrDivider(),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: AppSpacing.medium),
                           Padding(
-                            padding: EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.small,
+                            ),
                             child: Center(
                               child: AppText(
                                 appLanguageText(
@@ -895,8 +905,8 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                                 ),
                                 style: TextStyle(
                                   color: _muted,
-                                  fontSize: 12,
-                                  height: 1.3,
+                                  fontSize: 13,
+                                  height: 1.4,
                                 ),
                               ),
                             ),
@@ -909,14 +919,12 @@ class _AuthDashboardPageState extends State<AuthDashboardPage> {
                             logoAsset: 'assets/google_logo.png',
                             onTap: _signInWithGoogle,
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: AppSpacing.small),
                           Center(
                             child: TextButton(
                               style: TextButton.styleFrom(
-                                minimumSize: const Size(0, 36),
+                                minimumSize: const Size(0, 44),
                                 padding: AppSpacing.buttonPadding,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                visualDensity: VisualDensity.compact,
                               ),
                               onPressed: () => setState(
                                 () => _mode = isLogin

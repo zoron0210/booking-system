@@ -5,8 +5,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/public_user_profile.dart';
+import 'package:myapp/core/premium_motion.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/social/presentation/public_user_profile.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -72,9 +73,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Taylor Player'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
-    expect(find.text('5'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
+    expect(_socialCount(tester, 'followers'), 3);
+    expect(_socialCount(tester, 'following'), 5);
+    expect(_socialCount(tester, 'posts'), 2);
     expect(find.text('Follow'), findsOneWidget);
     expect(find.text('Message'), findsOneWidget);
     expect(find.text('Bio'), findsOneWidget);
@@ -129,7 +130,7 @@ void main() {
       }),
     );
 
-    final users = await api.socialUserConnections(
+    final users = await api.social.socialUserConnections(
       token: 'test-token',
       userId: 42,
       type: 'followers',
@@ -279,3 +280,13 @@ void main() {
     expect(messageRequest?['type'], 'direct');
   });
 }
+
+int _socialCount(WidgetTester tester, String label) => tester
+    .widget<RollingNumber>(
+      find.descendant(
+        of: find.byKey(ValueKey('profile-social-count-$label')),
+        matching: find.byType(RollingNumber),
+      ),
+    )
+    .value
+    .toInt();

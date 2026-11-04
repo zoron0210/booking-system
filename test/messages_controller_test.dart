@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myapp/core/live_updates_client.dart';
 import 'package:myapp/features/messaging/data/messages_session_provider.dart';
-import 'package:myapp/messages_controller.dart';
-import 'package:myapp/messages_service.dart';
+import 'package:myapp/features/messaging/application/messages_controller.dart';
+import 'package:myapp/features/messaging/data/messages_service.dart';
 
 class _FakeMessagesSessionProvider implements MessagesSessionProvider {
   _FakeMessagesSessionProvider({
@@ -17,6 +18,31 @@ class _FakeMessagesSessionProvider implements MessagesSessionProvider {
   @override
   Future<MessagesSession> load() async =>
       MessagesSession(apiToken: apiToken, role: role);
+}
+
+class _OfflineLiveUpdatesClient extends LiveUpdatesClient {
+  @override
+  Stream<Map<String, dynamic>> get events => const Stream.empty();
+
+  @override
+  Future<void> connect(String token) async {
+    throw StateError('WebSocket unavailable in this test.');
+  }
+}
+
+class _ConnectedLiveUpdatesClient extends LiveUpdatesClient {
+  final _events = StreamController<Map<String, dynamic>>.broadcast();
+
+  @override
+  Stream<Map<String, dynamic>> get events => _events.stream;
+
+  @override
+  Future<void> connect(String token) async {}
+
+  void emit(Map<String, dynamic> event) => _events.add(event);
+
+  @override
+  Future<void> close() => _events.close();
 }
 
 class _FakeMessagesService extends MessagesService {
@@ -89,6 +115,7 @@ void main() {
     controller = MessagesController(
       service: service,
       sessionProvider: sessionProvider,
+      liveUpdatesClientFactory: _OfflineLiveUpdatesClient.new,
     );
   });
 
@@ -114,7 +141,30 @@ void main() {
     expect(controller.conversations.single['id'], 3);
     expect(controller.contacts.single['id'], 8);
     expect(controller.unreadMessageCount, 2);
+    await Future<void>.delayed(Duration.zero);
     expect(controller.realtimeTimer, isNotNull);
+  });
+
+  test('connected live updates refresh messages without polling', () async {
+    final liveUpdates = _ConnectedLiveUpdatesClient();
+    controller.disposeController();
+    controller.dispose();
+    controller = MessagesController(
+      service: service,
+      sessionProvider: sessionProvider,
+      liveUpdatesClientFactory: () => liveUpdates,
+    );
+
+    await controller.load();
+    await Future<void>.delayed(Duration.zero);
+    final fetchesBeforeUpdate = service.conversationFetches;
+    expect(controller.realtimeTimer, isNull);
+
+    liveUpdates.emit({'type': 'message.created', 'conversationId': 9});
+
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(service.conversationFetches, fetchesBeforeUpdate + 1);
+    expect(controller.realtimeTimer, isNull);
   });
 
   test(
@@ -128,6 +178,7 @@ void main() {
           apiToken: null,
           role: 'guest',
         ),
+        liveUpdatesClientFactory: _OfflineLiveUpdatesClient.new,
       );
 
       await controller.load();
@@ -146,6 +197,7 @@ void main() {
     controller = MessagesController(
       service: service,
       sessionProvider: sessionProvider,
+      liveUpdatesClientFactory: _OfflineLiveUpdatesClient.new,
       businessType: 'Fitness & Wellness',
     );
 

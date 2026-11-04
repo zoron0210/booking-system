@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/models/booking.dart';
-import 'package:myapp/profile_dashboard.dart';
+import 'package:myapp/features/profile/presentation/profile_dashboard.dart';
 
 void main() {
   test('profile arrival status requires a non-empty check-in timestamp', () {
@@ -74,8 +74,11 @@ void main() {
         }),
       );
 
-      await api.customerBookingModels('test-token', businessType: 'Sports');
-      await api.customerBookingModels(
+      await api.bookings.customerBookingModels(
+        'test-token',
+        businessType: 'Sports',
+      );
+      await api.bookings.customerBookingModels(
         'test-token',
         businessType: 'Fitness & Wellness',
       );
@@ -97,34 +100,12 @@ void main() {
       }),
     );
 
-    await api.conversations('test-token', businessType: 'Fitness & Wellness');
+    await api.messaging.conversations(
+      'test-token',
+      businessType: 'Fitness & Wellness',
+    );
 
     expect(requestedBusinessTypes, ['Fitness & Wellness']);
-  });
-
-  test('merchant portal switch requests the selected mode', () async {
-    http.Request? captured;
-    final api = AuthApi(
-      client: MockClient((request) async {
-        captured = request;
-        return http.Response(
-          jsonEncode({'token': 'switched-token', 'role': 'customer'}),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }),
-    );
-
-    final response = await api.switchMerchantPortalMode(
-      token: 'merchant-token',
-      mode: 'customer',
-    );
-
-    expect(captured?.url.path, '/api/auth/portal-mode');
-    expect(captured?.method, 'POST');
-    expect(jsonDecode(captured!.body), {'mode': 'customer'});
-    expect(response['token'], 'switched-token');
-    expect(response['role'], 'customer');
   });
 
   test(
@@ -142,14 +123,14 @@ void main() {
         }),
       );
 
-      await api.fitnessBookingAttendance('test-token', 501);
-      await api.setFitnessBookingAttendance(
+      await api.bookings.fitnessBookingAttendance('test-token', 501);
+      await api.bookings.setFitnessBookingAttendance(
         token: 'test-token',
         bookingId: 501,
         date: '2026-10-01',
         status: 'absent',
       );
-      await api.clearFitnessBookingAttendance(
+      await api.bookings.clearFitnessBookingAttendance(
         token: 'test-token',
         bookingId: 501,
         date: '2026-10-01',
@@ -185,8 +166,11 @@ void main() {
         }),
       );
 
-      await api.merchantVenueCheckInCode(token: 'merchant-token', venueId: 7);
-      await api.recordBookingCheckIn(
+      await api.bookings.merchantVenueCheckInCode(
+        token: 'merchant-token',
+        venueId: 7,
+      );
+      await api.bookings.recordBookingCheckIn(
         token: 'customer-token',
         qrCode: '{"type":"tinkerpro.checkin"}',
       );

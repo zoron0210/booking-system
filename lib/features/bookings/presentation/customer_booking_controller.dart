@@ -34,19 +34,25 @@ class CustomerBookingController {
   }
 
   static Booking? selectStatusBannerBooking(List<Booking> bookings) {
-    final notifications = bookings
-        .where(isNotificationRelevant)
-        .toList()
+    final notifications = bookings.where(isNotificationRelevant).toList()
       ..sort((first, second) {
         final firstStatus = bookingStatus(first);
         final secondStatus = bookingStatus(second);
         if (firstStatus == 'expired' && secondStatus != 'expired') return -1;
         if (secondStatus == 'expired' && firstStatus != 'expired') return 1;
 
-        final firstIsInactive = {'finished', 'done', 'completed', 'cancelled'}
-            .contains(firstStatus);
-        final secondIsInactive = {'finished', 'done', 'completed', 'cancelled'}
-            .contains(secondStatus);
+        final firstIsInactive = {
+          'finished',
+          'done',
+          'completed',
+          'cancelled',
+        }.contains(firstStatus);
+        final secondIsInactive = {
+          'finished',
+          'done',
+          'completed',
+          'cancelled',
+        }.contains(secondStatus);
         if (firstIsInactive != secondIsInactive) {
           return firstIsInactive ? -1 : 1;
         }

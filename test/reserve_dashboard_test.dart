@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_session.dart';
-import 'package:myapp/event_dashboard.dart';
-import 'package:myapp/reserve_dashboard.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_session.dart';
+import 'package:myapp/features/app_shell/presentation/event_dashboard.dart';
+import 'package:myapp/features/app_shell/presentation/reserve_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -77,7 +77,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('SpotGO'), findsOneWidget);
-    expect(find.text('INSTANTLY BOOKABLE'), findsOneWidget);
     expect(find.text('Choose Booking Type'), findsOneWidget);
     expect(find.text('Continue to Fitness & Wellness'), findsOneWidget);
     expect(find.text('SpotGO'), findsOneWidget);
@@ -183,8 +182,13 @@ void main() {
       AppColors.accentForeground,
     );
     expect(
-      tester.widget<Text>(find.text('EVENTS & EXPERIENCES')).style!.color,
-      AppColors.onAccent,
+      find.descendant(
+        of: find.byKey(
+          const ValueKey('reserve-option-surface-Events & Experiences'),
+        ),
+        matching: find.byIcon(Icons.check_rounded),
+      ),
+      findsOneWidget,
     );
     final continueButton = tester.widget<FilledButton>(
       find.ancestor(

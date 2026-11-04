@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:myapp/auth_api.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
 
 import 'activity_log_page.dart';
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:myapp/app_design_system.dart';
-import '../../../../app_preferences.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
 
 class ActivityLogSearchField extends StatelessWidget {
   const ActivityLogSearchField({
@@ -40,11 +40,11 @@ class ActivityLogSearchField extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(vertical: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide:  BorderSide(color: AppColors.border),
+          borderSide: BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide:  BorderSide(color: AppColors.border),
+          borderSide: BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -133,7 +133,7 @@ class ActivityLogMessage extends StatelessWidget {
           AppText(
             message,
             textAlign: TextAlign.center,
-            style:  TextStyle(color: AppColors.muted),
+            style: TextStyle(color: AppColors.muted),
           ),
           if (supportRequestId != null &&
               supportRequestId!.trim().isNotEmpty) ...[
@@ -141,7 +141,7 @@ class ActivityLogMessage extends StatelessWidget {
             SelectableText(
               'Support reference: $supportRequestId',
               textAlign: TextAlign.center,
-              style:  TextStyle(color: AppColors.muted, fontSize: 12),
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
             ),
           ],
           if (actionLabel != null && onAction != null) ...[

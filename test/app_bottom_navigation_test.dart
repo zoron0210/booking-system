@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_bottom_navigation.dart';
+import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
 
 void main() {
   testWidgets(

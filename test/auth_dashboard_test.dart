@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/app_preferences.dart';
+import 'package:myapp/core/app_preferences.dart';
 import 'package:myapp/features/auth/presentation/auth_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -60,5 +60,30 @@ void main() {
     );
     expect(customerTitle.style?.fontSize, merchantTitle.style?.fontSize);
     expect(customerTitle.style?.fontWeight, merchantTitle.style?.fontWeight);
+  });
+
+  testWidgets('sign-in controls keep clear and accessible touch sizes', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await AppPreferences.instance.update(languageCode: 'en');
+
+    await tester.pumpWidget(const MaterialApp(home: AuthDashboardPage()));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('auth-primary-button'))).height,
+      greaterThanOrEqualTo(48),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('auth-mode-toggle'))).height,
+      greaterThanOrEqualTo(44),
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('auth-field-email-address')))
+          .height,
+      greaterThanOrEqualTo(44),
+    );
   });
 }

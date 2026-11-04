@@ -6,9 +6,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_bottom_navigation.dart';
-import 'package:myapp/message_notification_host.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
+import 'package:myapp/features/messaging/presentation/message_notification_host.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

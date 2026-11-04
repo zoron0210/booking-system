@@ -5,9 +5,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_text.dart';
-import 'package:myapp/news_feed.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_text.dart';
+import 'package:myapp/features/app_shell/presentation/news_feed.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -61,9 +61,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('news-feed-mini-business-42')));
     await tester.pumpAndSettle();
     expect(find.text('Community Sports Center'), findsWidgets);
-    expect(find.text('Reserve'), findsOneWidget);
+    expect(find.text('Choose date & time'), findsOneWidget);
 
-    await tester.tap(find.text('Reserve'));
+    await tester.tap(find.text('Choose date & time'));
     await tester.pumpAndSettle();
     expect(find.text('Log in to continue'), findsOneWidget);
     expect(find.text('Continue to log in'), findsOneWidget);
@@ -148,10 +148,12 @@ void main() {
     expect(savedFeed.savedOnly, isTrue);
     expect(savedFeed.savedItemType, 'sports');
     final profileScroll = tester.state<ScrollableState>(
-      find.descendant(
-        of: find.byKey(const ValueKey('profile-page-scroll-view')),
-        matching: find.byType(Scrollable),
-      ).first,
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('profile-page-scroll-view')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
     expect(profileScroll.position.maxScrollExtent, greaterThan(0));
     await tester.drag(

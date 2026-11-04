@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../auth_api.dart';
-import '../../../public_user_profile.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+
+import 'public_user_profile.dart';
 import 'social_home_palette.dart';
 
 class SocialNotificationsPage extends StatefulWidget {
@@ -40,13 +41,15 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
       _error = null;
     });
     try {
-      final response = await widget.api.socialNotifications(widget.token);
+      final response = await widget.api.social.socialNotifications(
+        widget.token,
+      );
       if (!mounted) return;
       final notifications = (response['notifications'] as List<dynamic>? ?? [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList();
-      final unreadCount = (response['unreadCount'] as num?)?.toInt() ?? 0;
+      final unreadCount = _asInt(response['unreadCount']) ?? 0;
       setState(() {
         _notifications = notifications;
         _unreadCount = unreadCount;
@@ -63,15 +66,17 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
     if (_updating || _unreadCount == 0) return;
     setState(() => _updating = true);
     try {
-      await widget.api.markAllSocialNotificationsRead(widget.token);
+      await widget.api.social.markAllSocialNotificationsRead(widget.token);
       if (!mounted) return;
       setState(() {
         _unreadCount = 0;
         _notifications = _notifications
-            .map((notification) => {
-                  ...notification,
-                  'readAt': DateTime.now().toIso8601String(),
-                })
+            .map(
+              (notification) => {
+                ...notification,
+                'readAt': DateTime.now().toIso8601String(),
+              },
+            )
             .toList();
       });
       widget.onUnreadCountChanged?.call(0);
@@ -83,23 +88,22 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
   }
 
   Future<void> _openNotification(Map<String, dynamic> notification) async {
-    final id = (notification['id'] as num?)?.toInt();
-    final isUnread = notification['readAt'] == null;
+    final id = _asInt(notification['id']);
+    final isUnread =
+        notification['readAt'] == null || notification['readAt'] == 'null';
     if (isUnread && id != null) {
       try {
-        await widget.api.markSocialNotificationRead(
+        await widget.api.social.markSocialNotificationRead(
           token: widget.token,
           notificationId: id,
         );
         if (!mounted) return;
+        final notificationId = _asInt(notification['id']);
         setState(() {
           _notifications = _notifications
               .map(
-                (item) => item['id'] == notification['id']
-                    ? {
-                        ...item,
-                        'readAt': DateTime.now().toIso8601String(),
-                      }
+                (item) => _asInt(item['id']) == notificationId
+                    ? {...item, 'readAt': DateTime.now().toIso8601String()}
                     : item,
               )
               .toList();
@@ -114,7 +118,7 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
     final targetUserId = notification['type'] == 'follow'
         ? notification['actorUserId']
         : notification['postOwnerId'];
-    final userId = (targetUserId as num?)?.toInt();
+    final userId = _asInt(targetUserId);
     if (userId == null || !mounted) return;
     await openPublicUserProfile(
       context: context,
@@ -154,7 +158,9 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
   Widget _buildBody(SocialHomeColors colors) {
     if (_loading && _notifications.isEmpty) {
       return const Center(
-        child: CircularProgressIndicator(key: ValueKey('social-notifications-loading')),
+        child: CircularProgressIndicator(
+          key: ValueKey('social-notifications-loading'),
+        ),
       );
     }
     if (_error != null && _notifications.isEmpty) {
@@ -219,11 +225,8 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
         key: const ValueKey('social-notifications-list'),
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: _notifications.length,
-        separatorBuilder: (_, _) => Divider(
-          height: 1,
-          indent: 72,
-          color: colors.border,
-        ),
+        separatorBuilder: (_, _) =>
+            Divider(height: 1, indent: 72, color: colors.border),
         itemBuilder: (context, index) {
           final notification = _notifications[index];
           final actorName = _actorName(notification);
@@ -279,10 +282,18 @@ class _SocialNotificationsPageState extends State<SocialNotificationsPage> {
   }
 }
 
+int? _asInt(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  final parsed = int.tryParse(value.toString());
+  return parsed;
+}
+
 String _actorName(Map<String, dynamic> notification) {
   final name = [notification['actorFirstName'], notification['actorLastName']]
+      .map((part) => part?.toString().trim())
       .whereType<String>()
-      .map((part) => part.trim())
       .where((part) => part.isNotEmpty)
       .join(' ');
   return name.isEmpty ? 'Someone' : name;

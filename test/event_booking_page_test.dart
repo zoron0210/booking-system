@@ -5,11 +5,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:myapp/auth_api.dart';
-import 'package:myapp/app_design_system.dart';
-import 'package:myapp/app_preferences.dart';
-import 'package:myapp/app_theme.dart';
-import 'package:myapp/event_booking_page.dart';
+import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
+import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_theme.dart';
+import 'package:myapp/features/bookings/presentation/event_booking_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -259,95 +259,91 @@ void main() {
     expect(find.text('Open booking'), findsOneWidget);
   });
 
-  testWidgets(
-    'online event request does not start payment before approval',
-    (tester) async {
-      tester.view.physicalSize = const Size(320, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      SharedPreferences.setMockInitialValues({});
-      FlutterSecureStorage.setMockInitialValues({
-        'session_api_token': 'test-token',
-      });
-      var bookingRequests = 0;
-      var checkoutRequests = 0;
-      var configRequests = 0;
-      final api = AuthApi(
-        client: MockClient((request) async {
-          if (request.method == 'GET' && request.url.path == '/api/bookings') {
-            return http.Response(jsonEncode({'bookings': []}), 200);
-          }
-          if (request.url.path == '/api/payments/paymongo/config') {
-            configRequests++;
-            return http.Response(
-              jsonEncode({'onlinePaymentsEnabled': false}),
-              200,
-            );
-          }
-          if (request.method == 'GET' && request.url.path == '/api/bookings') {
-            return http.Response(jsonEncode({'bookings': []}), 200);
-          }
-          if (request.method == 'POST' && request.url.path == '/api/bookings') {
-            bookingRequests++;
-            return http.Response(
-              jsonEncode({
-                'booking': {'id': 501},
-              }),
-              201,
-            );
-          }
-          if (request.url.path == '/api/payments/paymongo/checkout') {
-            checkoutRequests++;
-          }
-          return http.Response('{}', 404);
-        }),
-      );
+  testWidgets('online event request does not start payment before approval', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({
+      'session_api_token': 'test-token',
+    });
+    var bookingRequests = 0;
+    var checkoutRequests = 0;
+    var configRequests = 0;
+    final api = AuthApi(
+      client: MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/api/bookings') {
+          return http.Response(jsonEncode({'bookings': []}), 200);
+        }
+        if (request.url.path == '/api/payments/paymongo/config') {
+          configRequests++;
+          return http.Response(
+            jsonEncode({'onlinePaymentsEnabled': false}),
+            200,
+          );
+        }
+        if (request.method == 'GET' && request.url.path == '/api/bookings') {
+          return http.Response(jsonEncode({'bookings': []}), 200);
+        }
+        if (request.method == 'POST' && request.url.path == '/api/bookings') {
+          bookingRequests++;
+          return http.Response(
+            jsonEncode({
+              'booking': {'id': 501},
+            }),
+            201,
+          );
+        }
+        if (request.url.path == '/api/payments/paymongo/checkout') {
+          checkoutRequests++;
+        }
+        return http.Response('{}', 404);
+      }),
+    );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: EventBookingPage(
-            api: api,
-            asCheckoutSheet: true,
-            business: {
-              'id': 7,
-              'name': 'Garden Venue',
-              'hours': '9:00 AM - 5:00 PM',
-              'eventTypes': ['Wedding'],
-              'attendanceMin': 50,
-              'eventFee': 10000,
-            },
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EventBookingPage(
+          api: api,
+          asCheckoutSheet: true,
+          business: {
+            'id': 7,
+            'name': 'Garden Venue',
+            'hours': '9:00 AM - 5:00 PM',
+            'eventTypes': ['Wedding'],
+            'attendanceMin': 50,
+            'eventFee': 10000,
+          },
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      final submitButton = find.byKey(const ValueKey('event-booking-submit'));
-      expect(find.text('Book Event'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        submitButton,
-        120,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.drag(find.byType(ListView), const Offset(0, -400));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(submitButton);
-      expect(find.text('Online'), findsOneWidget);
-      expect(
-        find.text('Request booking'),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-      await tester.tap(find.text('Online'));
-      await tester.pumpAndSettle();
-      await tester.tap(submitButton);
-      await tester.pumpAndSettle();
-      expect(find.text('Confirm event booking'), findsOneWidget);
-      await tester.tap(find.text('Confirm booking'));
-      await tester.pumpAndSettle();
-      expect(bookingRequests, 1);
-      expect(configRequests, 0);
-      expect(checkoutRequests, 0);
-    },
-  );
+    final submitButton = find.byKey(const ValueKey('event-booking-submit'));
+    expect(find.text('Book Event'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      submitButton,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(submitButton);
+    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('Request booking'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Online'));
+    await tester.pumpAndSettle();
+    await tester.tap(submitButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm event booking'), findsOneWidget);
+    await tester.tap(find.text('Confirm booking'));
+    await tester.pumpAndSettle();
+    expect(bookingRequests, 1);
+    expect(configRequests, 0);
+    expect(checkoutRequests, 0);
+  });
 }

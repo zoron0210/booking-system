@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../app_design_system.dart';
-import '../../../app_preferences.dart';
+import '../../../core/app_design_system.dart';
+
+import 'package:myapp/core/app_preferences.dart';
+
+import '../../../core/premium_motion.dart';
 import '../domain/merchant_profile_performance.dart';
 
 Color get _profileInk => AppColors.ink;
@@ -112,8 +115,10 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
                   localize: true,
                 ),
                 const SizedBox(height: 6),
-                AppText(
-                  '₱${performance.confirmedRevenue.toStringAsFixed(2)}',
+                RollingNumber(
+                  value: performance.confirmedRevenue,
+                  prefix: '₱',
+                  fractionDigits: 2,
                   key: const ValueKey('merchant-profile-performance-revenue'),
                   style: TextStyle(
                     color: _profileAccent,
@@ -121,7 +126,6 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
                     height: 1.1,
                     fontWeight: FontWeight.w800,
                   ),
-                  localize: true,
                 ),
                 const SizedBox(height: 6),
                 AppText(
@@ -241,8 +245,8 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        AppText(
-          value,
+        RollingDigits(
+          value: value,
           key: ValueKey('merchant-profile-metric-$label'),
           style: TextStyle(
             color: _profileInk,

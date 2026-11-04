@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:myapp/booking_notifications.dart';
+import 'package:myapp/features/notifications/data/booking_notifications.dart';
 
 void main() {
   group('parseBookingReminderStart', () {

@@ -1,4 +1,7 @@
-part of '../../../auth_api.dart';
+import 'package:myapp/core/api_http_client.dart';
+import 'package:myapp/core/api_transport.dart';
+import 'package:myapp/core/business_type.dart';
+import 'package:myapp/features/venues/domain/venue_models.dart';
 
 enum VenueApiErrorKind {
   invalidInput,
@@ -62,26 +65,14 @@ class VenueApiException extends AuthApiException {
   }
 }
 
-typedef _VenueRequest = Future<Map<String, dynamic>> Function(
-  String method,
-  String path, {
-  Map<String, dynamic>? body,
-  Map<String, String>? headers,
-});
-typedef _VenueAuthHeaders = Map<String, String> Function(
-  String? token, {
-  Map<String, String>? extra,
-});
-
 class VenueApi {
-  const VenueApi._({required this._request, required this._authHeaders});
+  const VenueApi(this._api);
 
-  final _VenueRequest _request;
-  final _VenueAuthHeaders _authHeaders;
+  final ApiTransport _api;
 
   Future<List<VenueBusiness>> businesses() async {
     final response = await _venueRequest(
-      () => _request('GET', '/api/businesses'),
+      () => _api.request('GET', '/api/businesses'),
     );
     return _venueObjects(response, 'businesses')
         .map(
@@ -101,7 +92,7 @@ class VenueApi {
       throw _invalidVenueInput('Business type cannot be empty.');
     }
     final response = await _venueRequest(
-      () => _request(
+      () => _api.request(
         'GET',
         Uri(
           path: '/api/news-feed',
@@ -109,7 +100,7 @@ class VenueApi {
               ? null
               : {'businessType': normalizedBusinessType},
         ).toString(),
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       ),
     );
     return _venueObjects(response, 'posts')
@@ -128,10 +119,10 @@ class VenueApi {
     _validateToken(token);
     _validatePositiveId(businessId, 'Business ID');
     final response = await _venueRequest(
-      () => _request(
+      () => _api.request(
         hearted ? 'PUT' : 'DELETE',
         '/api/businesses/$businessId/heart',
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       ),
     );
     final heartCount = parseVenueInteger(response['heartCount'], 'heartCount');
@@ -148,10 +139,10 @@ class VenueApi {
   Future<Set<int>> customerHeartedBusinessIds(String token) async {
     _validateToken(token);
     final response = await _venueRequest(
-      () => _request(
+      () => _api.request(
         'GET',
         '/api/customer/venue-hearts',
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       ),
     );
     return _venueObjects(response, 'businesses').map((business) {
@@ -173,10 +164,10 @@ class VenueApi {
     if (token != null && token.isNotEmpty) _validateToken(token);
     _validatePositiveId(businessId, 'Business ID');
     final response = await _venueRequest(
-      () => _request(
+      () => _api.request(
         'GET',
         '/api/news-feed/$businessId/reviews',
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       ),
     );
     return _venueObjects(response, 'reviews')
@@ -194,11 +185,55 @@ class VenueApi {
     _validatePositiveId(businessId, 'Business ID');
     _validateReview(rating, comment);
     await _venueRequest(
-      () => _request(
+      () => _api.request(
         'POST',
         '/api/news-feed/$businessId/reviews',
         body: {'rating': rating, 'comment': comment},
-        headers: _authHeaders(
+        headers: _api.authHeadersForToken(
+          token,
+          extra: {'Content-Type': 'application/json'},
+        ),
+      ),
+    );
+  }
+
+  Future<void> setNewsReviewReaction({
+    required String token,
+    required int reviewId,
+    required bool reacted,
+  }) async {
+    _validateToken(token);
+    _validatePositiveId(reviewId, 'Review ID');
+    await _venueRequest(
+      () => _api.request(
+        reacted ? 'POST' : 'DELETE',
+        '/api/venue-reviews/$reviewId/reactions',
+        headers: _api.authHeadersForToken(token),
+      ),
+    );
+  }
+
+  Future<void> replyToNewsReview({
+    required String token,
+    required int reviewId,
+    required String text,
+  }) async {
+    _validateToken(token);
+    _validatePositiveId(reviewId, 'Review ID');
+    final normalizedText = text.trim();
+    if (normalizedText.isEmpty || normalizedText.length > 2000) {
+      throw VenueApiException(
+        VenueApiErrorKind.invalidInput,
+        'Enter a reply of no more than 2,000 characters.',
+        400,
+      );
+    }
+    await _venueRequest(
+      () => _api.request(
+        'POST',
+        '/api/venue-reviews/$reviewId/replies',
+        body: {'text': normalizedText},
+        headers: _api.authHeadersForToken(
           token,
           extra: {'Content-Type': 'application/json'},
         ),
@@ -217,7 +252,7 @@ class VenueApi {
     _validatePositiveId(bookingId, 'Booking ID');
     _validateReview(rating, comment);
     await _venueRequest(
-      () => _request(
+      () => _api.request(
         'POST',
         '/api/customer/reviews',
         body: {
@@ -226,7 +261,7 @@ class VenueApi {
           'comment': comment,
           'imageData': ?imageData,
         },
-        headers: _authHeaders(
+        headers: _api.authHeadersForToken(
           token,
           extra: {'Content-Type': 'application/json'},
         ),
@@ -237,10 +272,10 @@ class VenueApi {
   Future<List<MerchantNewsPost>> merchantNewsPosts(String token) async {
     _validateToken(token);
     final response = await _venueRequest(
-      () => _request(
+      () => _api.request(
         'GET',
         '/api/merchant/news-posts',
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       ),
     );
     return _venueObjects(response, 'posts')
@@ -258,11 +293,11 @@ class VenueApi {
     _validateToken(token);
     _validateNewsPost(post, requireBusinessId: true);
     await _venueRequest(
-      () => _request(
+      () => _api.request(
         'POST',
         '/api/merchant/news-posts',
         body: post.toJson(),
-        headers: _authHeaders(
+        headers: _api.authHeadersForToken(
           token,
           extra: {'Content-Type': 'application/json'},
         ),
@@ -279,11 +314,11 @@ class VenueApi {
     _validatePositiveId(id, 'News post ID');
     _validateNewsPost(post);
     await _venueRequest(
-      () => _request(
+      () => _api.request(
         'PUT',
         '/api/merchant/news-posts/$id',
         body: post.toJson(),
-        headers: _authHeaders(
+        headers: _api.authHeadersForToken(
           token,
           extra: {'Content-Type': 'application/json'},
         ),
@@ -298,10 +333,10 @@ class VenueApi {
     _validateToken(token);
     _validatePositiveId(id, 'News post ID');
     await _venueRequest(
-      () => _request(
+      () => _api.request(
         'DELETE',
         '/api/merchant/news-posts/$id',
-        headers: _authHeaders(token),
+        headers: _api.authHeadersForToken(token),
       ),
     );
   }
@@ -310,12 +345,12 @@ class VenueApi {
 class VenueCatalogRepository {
   const VenueCatalogRepository(this._api);
 
-  final AuthApi _api;
+  final ApiTransport _api;
 
   Future<List<VenueBusiness>> customerBusinesses({
     bool includeDisabledEvents = false,
   }) async {
-    final businesses = await _api.venues.businesses();
+    final businesses = await VenueApi(_api).businesses();
     return businesses
         .where((business) {
           final isEvent =
@@ -359,7 +394,7 @@ List<Map<String, dynamic>> _venueObjects(
   Map<String, dynamic> response,
   String key,
 ) {
-  final value = response[key];
+  final value = response[key] ?? response['data'];
   if (value is! List) {
     throw _invalidVenueResponse('The server returned an invalid $key list.');
   }

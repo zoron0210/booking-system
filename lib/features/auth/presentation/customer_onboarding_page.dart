@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../../app_design_system.dart';
-import '../../../app_text.dart';
+import '../../../core/app_design_system.dart';
+import '../../../core/app_text.dart';
 import '../application/auth_service.dart';
 
 class CustomerOnboardingPage extends StatefulWidget {

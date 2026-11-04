@@ -1,13 +1,18 @@
-part of '../../../auth_api.dart';
+import 'package:myapp/core/api_http_client.dart';
+import 'package:myapp/core/api_transport.dart';
 
-extension AuthApiMessagingOperations on AuthApi {
+class MessagingApi {
+  const MessagingApi(this._api);
+
+  final ApiTransport _api;
+
   Future<Map<String, dynamic>> messageOwner({
     required String token,
     required String businessKey,
-  }) => _request(
+  }) => _api.request(
     'GET',
     '/api/messages/owner?businessKey=${Uri.encodeQueryComponent(businessKey)}',
-    headers: _authHeaders(token),
+    headers: _api.authHeadersForToken(token),
   );
 
   Future<List<Map<String, dynamic>>> conversations(
@@ -17,20 +22,28 @@ extension AuthApiMessagingOperations on AuthApi {
     final path = businessType == null || businessType.trim().isEmpty
         ? '/api/messages/conversations'
         : '/api/messages/conversations?businessType=${Uri.encodeQueryComponent(businessType.trim())}';
-    final response = await _request('GET', path, headers: _authHeaders(token));
-    return (response['conversations'] as List<dynamic>? ?? [])
+    final response = await _api.request(
+      'GET',
+      path,
+      headers: _api.authHeadersForToken(token),
+    );
+    return (response['conversations'] as List<dynamic>? ??
+            response['data'] as List<dynamic>? ??
+            [])
         .whereType<Map>()
         .map((value) => Map<String, dynamic>.from(value))
         .toList();
   }
 
   Future<List<Map<String, dynamic>>> messageContacts(String token) async {
-    final response = await _request(
+    final response = await _api.request(
       'GET',
       '/api/messages/contacts',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
-    return (response['contacts'] as List<dynamic>? ?? [])
+    return (response['contacts'] as List<dynamic>? ??
+            response['data'] as List<dynamic>? ??
+            [])
         .whereType<Map>()
         .map((value) => Map<String, dynamic>.from(value))
         .toList();
@@ -45,7 +58,7 @@ extension AuthApiMessagingOperations on AuthApi {
   }) async {
     final ids = [...?participantIds];
     if (recipientId != null) ids.add(recipientId);
-    final response = await _request(
+    final response = await _api.request(
       'POST',
       '/api/messages/conversations',
       body: {
@@ -54,7 +67,10 @@ extension AuthApiMessagingOperations on AuthApi {
         'title': title,
         'type': group ? 'group' : 'direct',
       },
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
     return (response['conversationId'] as num).toInt();
   }
@@ -67,8 +83,14 @@ extension AuthApiMessagingOperations on AuthApi {
     final path = businessType == null || businessType.trim().isEmpty
         ? '/api/messages/conversations/$conversationId'
         : '/api/messages/conversations/$conversationId?businessType=${Uri.encodeQueryComponent(businessType.trim())}';
-    final response = await _request('GET', path, headers: _authHeaders(token));
-    return (response['messages'] as List<dynamic>? ?? [])
+    final response = await _api.request(
+      'GET',
+      path,
+      headers: _api.authHeadersForToken(token),
+    );
+    return (response['messages'] as List<dynamic>? ??
+            response['data'] as List<dynamic>? ??
+            [])
         .whereType<Map>()
         .map((value) => Map<String, dynamic>.from(value))
         .toList();
@@ -81,7 +103,7 @@ extension AuthApiMessagingOperations on AuthApi {
     Map<String, dynamic>? attachment,
     String? businessType,
   }) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/messages/conversations/$conversationId',
       body: {
@@ -91,7 +113,10 @@ extension AuthApiMessagingOperations on AuthApi {
             : {'businessType': businessType.trim()}),
         ...?(attachment == null ? null : {'attachment': attachment}),
       },
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
@@ -107,11 +132,14 @@ extension AuthApiMessagingOperations on AuthApi {
         400,
       );
     }
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/messages/conversations/$conversationId/messages/$messageId',
       body: {'scope': scope},
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
@@ -121,14 +149,17 @@ extension AuthApiMessagingOperations on AuthApi {
     bool? archived,
     bool? unread,
   }) async {
-    await _request(
+    await _api.request(
       'PATCH',
       '/api/messages/conversations/$conversationId/state',
       body: {
         ...?(archived == null ? null : {'archived': archived}),
         ...?(unread == null ? null : {'unread': unread}),
       },
-      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+      headers: _api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 
@@ -136,10 +167,10 @@ extension AuthApiMessagingOperations on AuthApi {
     required String token,
     required int conversationId,
   }) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/messages/conversations/$conversationId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -147,10 +178,10 @@ extension AuthApiMessagingOperations on AuthApi {
     required String token,
     required int userId,
   }) async {
-    await _request(
+    await _api.request(
       'POST',
       '/api/messages/blocks/$userId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 
@@ -158,10 +189,10 @@ extension AuthApiMessagingOperations on AuthApi {
     required String token,
     required int userId,
   }) async {
-    await _request(
+    await _api.request(
       'DELETE',
       '/api/messages/blocks/$userId',
-      headers: _authHeaders(token),
+      headers: _api.authHeadersForToken(token),
     );
   }
 

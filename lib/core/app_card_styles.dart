@@ -40,19 +40,19 @@ abstract final class AppCardStyles {
     bool inset = false,
     Border? border,
   }) => BoxDecoration(
-    color: color ?? AppColors.surface,
+    color: color ?? AppColors.glassSurface,
     borderRadius: BorderRadius.circular(radius),
-    border: border ?? Border.all(color: AppColors.border),
+    border: border ?? Border.all(color: AppColors.glassBorder),
     boxShadow: inset ? insetShadows : raisedShadows,
   );
 
   static RoundedRectangleBorder get marketplaceShape => RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(marketplaceRadius)),
-    side: BorderSide(color: borderColor),
+    side: BorderSide(color: AppColors.glassBorder),
   );
 
   static RoundedRectangleBorder get merchantShape => RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(merchantRadius)),
-    side: BorderSide(color: borderColor),
+    side: BorderSide(color: AppColors.glassBorder),
   );
 }

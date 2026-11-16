@@ -4,17 +4,39 @@ import 'package:myapp/features/bookings/domain/booking.dart';
 class CustomerBookingController {
   const CustomerBookingController();
 
-  static String bookingStatus(Booking booking) =>
-      BookingStatusAnalyzer.effectiveStatus(booking);
+  static String bookingStatus(Booking booking) {
+    final status = BookingStatusAnalyzer.effectiveStatus(booking);
+    if (booking.bookingType != 'matchmaking') return status;
+    return switch (status) {
+      'matchmaking_pending_merchant' => 'pending',
+      'matchmaking_open' => 'approved',
+      _ => status,
+    };
+  }
 
   static bool awaitingApprovalPayment(Booking booking) =>
-      BookingStatusAnalyzer.isAwaitingApprovalPayment(booking);
+      booking.bookingType == 'matchmaking'
+      ? bookingStatus(booking) == 'approved' &&
+            booking.paymentStatus.trim().toLowerCase() == 'unpaid' &&
+            booking.paymentDueAt.trim().isNotEmpty
+      : BookingStatusAnalyzer.isAwaitingApprovalPayment(booking);
 
-  static bool isNotificationRelevant(Booking booking) =>
-      BookingStatusAnalyzer.isNotificationRelevant(booking);
+  static bool isNotificationRelevant(Booking booking) => const {
+    'approved',
+    'finished',
+    'done',
+    'completed',
+    'expired',
+    'cancelled',
+  }.contains(bookingStatus(booking));
 
-  static int compareBookingStatusNotifications(Booking first, Booking second) =>
-      BookingStatusAnalyzer.compareNotifications(first, second);
+  static int compareBookingStatusNotifications(Booking first, Booking second) {
+    final firstPriority = awaitingApprovalPayment(first) ? 0 : 1;
+    final secondPriority = awaitingApprovalPayment(second) ? 0 : 1;
+    final priorityComparison = firstPriority.compareTo(secondPriority);
+    if (priorityComparison != 0) return priorityComparison;
+    return BookingStatusAnalyzer.compareNotifications(first, second);
+  }
 
   static String bookingStatusKey(Booking booking) =>
       BookingStatusAnalyzer.bannerKey(booking);
@@ -65,7 +87,9 @@ class CustomerBookingController {
   static double prototypePayableAmount(Booking booking) {
     final paidAmount = booking.paidAmount;
     final totalAmount = amount(booking['total']);
-    final requiredAmount = booking.paymentMethod == 'cash_on_arrival'
+    final requiredAmount =
+        booking.bookingType == 'matchmaking' ||
+            booking.paymentMethod == 'cash_on_arrival'
         ? amount(booking['downpayment'])
         : totalAmount;
     return (requiredAmount - paidAmount).clamp(0, requiredAmount).toDouble();

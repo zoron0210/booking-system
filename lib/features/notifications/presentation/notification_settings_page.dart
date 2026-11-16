@@ -22,6 +22,11 @@ class NotificationSettingsPage extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          const AppText(
+            'Choose which alerts you want for matches and booking activity.',
+            localize: true,
+          ),
+          const SizedBox(height: 12),
           StatefulBuilder(
             builder: (context, setState) => settingsBuilder(context, setState),
           ),
@@ -34,7 +39,7 @@ class NotificationSettingsPage extends StatelessWidget {
               localize: true,
             ),
             subtitle: const AppText(
-              'Manage SpotGo permissions on this device.',
+              'Review SpotGo permissions and system alerts for this device.',
               localize: true,
             ),
             trailing: const Icon(Icons.open_in_new_rounded),

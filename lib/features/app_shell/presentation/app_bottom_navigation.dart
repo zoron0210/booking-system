@@ -93,9 +93,9 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
           widget.venueDiscoveryStyle && AppPreferences.instance.darkMode;
       final navigationBackground = widget.venueDiscoveryStyle
           ? venueDarkMode
-                ? const Color(0xFF131B2E)
-                : Colors.white
-          : AppColors.surface;
+                ? const Color(0xD9131B2E)
+                : const Color(0xD9FFFFFF)
+          : AppColors.glassSurface;
       final navigationIndicator = widget.venueDiscoveryStyle
           ? venueDarkMode
                 ? const Color(0xFF3935A8)
@@ -112,8 +112,8 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
       return Theme(
         data: Theme.of(context).copyWith(
           navigationBarTheme: NavigationBarThemeData(
-            backgroundColor: navigationBackground,
-            surfaceTintColor: navigationBackground,
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
             shadowColor: Colors.transparent,
             elevation: 0,
             height: barHeight,
@@ -157,8 +157,10 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
         ),
         child: SizedBox(
           height: barHeight,
-          child: ColoredBox(
+          child: GlassSurface(
             color: navigationBackground,
+            borderRadius: BorderRadius.zero,
+            border: Border(top: BorderSide(color: AppColors.glassBorder)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(

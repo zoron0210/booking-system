@@ -61,8 +61,10 @@ class BookingStatusParser {
   static BookingStatus parse(Object? value) {
     final normalized = '${value ?? ''}'.trim().toLowerCase();
     return switch (normalized) {
-      'pending' || 'awaiting_approval' => BookingStatus.pending,
-      'approved' => BookingStatus.approved,
+      'pending' ||
+      'awaiting_approval' ||
+      'matchmaking_pending_merchant' => BookingStatus.pending,
+      'approved' || 'matchmaking_open' => BookingStatus.approved,
       'confirmed' => BookingStatus.confirmed,
       'finished' => BookingStatus.finished,
       'completed' => BookingStatus.completed,

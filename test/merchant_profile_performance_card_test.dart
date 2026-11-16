@@ -53,7 +53,7 @@ void main() {
     expect(find.text('₱100.00'), findsOneWidget);
     expect(find.text('₱40.00'), findsOneWidget);
     expect(_metricValue(tester, 'Players today'), '3');
-    expect(_metricValue(tester, 'Active venues'), '2');
+    expect(_metricValue(tester, 'Venues in account'), '2');
 
     await tester.tap(
       find.byKey(const ValueKey('merchant-profile-date-filter')),
@@ -62,7 +62,7 @@ void main() {
     await tester.tap(find.text('7 days').last);
     await tester.pumpAndSettle();
     expect(selectedPeriod, '7 days');
-    expect(find.text('7 days performance'), findsOneWidget);
+    expect(find.text('CONFIRMED BOOKING VALUE · 7 DAYS'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('merchant-profile-estimated-paid')),

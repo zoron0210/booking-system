@@ -15,11 +15,13 @@ import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart
 import 'package:myapp/features/app_shell/presentation/customer_navigation_scope.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/bookings/data/customer_bookings_session_provider.dart';
+import 'package:myapp/features/bookings/data/matchmaking_api.dart';
 import 'package:myapp/features/bookings/domain/booking.dart';
 import 'package:myapp/features/bookings/presentation/booking_card_header.dart';
 import 'package:myapp/features/bookings/presentation/booking_details_panel.dart';
 import 'package:myapp/features/bookings/presentation/booking_status_banner.dart';
 import 'package:myapp/features/bookings/presentation/customer_booking_controller.dart';
+import 'package:myapp/features/bookings/presentation/matchmaking_lobby_list_page.dart';
 import 'package:myapp/features/app_shell/presentation/fitness_dashboard.dart';
 import 'package:myapp/features/messaging/presentation/messages_dashboard.dart';
 import 'package:myapp/features/app_shell/presentation/news_feed.dart';
@@ -30,6 +32,7 @@ import 'package:myapp/core/rating_widgets.dart';
 import 'package:myapp/features/saved_items/presentation/saved_dashboard.dart';
 import 'package:myapp/core/scroll_aware_header.dart';
 import 'package:myapp/core/skeleton_loader.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 String _bookingErrorMessage(Object error, String action) {
   if (error is AuthApiException) {
@@ -56,6 +59,7 @@ class CustomerBookingsPage extends StatefulWidget {
     this.businessType,
     this.sessionProvider,
     this.hideBottomNavigation = false,
+    this.initialBookingId,
   });
 
   final Future<void> Function(BuildContext context)? onLogout;
@@ -64,6 +68,7 @@ class CustomerBookingsPage extends StatefulWidget {
   final String? businessType;
   final CustomerBookingsSessionProvider? sessionProvider;
   final bool hideBottomNavigation;
+  final int? initialBookingId;
 
   @override
   State<CustomerBookingsPage> createState() => _CustomerBookingsPageState();
@@ -197,6 +202,7 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
   String? _messageCountError;
   String? _bookingStatusBannerKey;
   var _showBookingStatusBanner = true;
+  bool _appliedInitialBookingNavigation = false;
 
   @override
   void initState() {
@@ -233,6 +239,22 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
       token,
       businessType: widget.businessType,
     );
+    if (!_appliedInitialBookingNavigation && widget.initialBookingId != null) {
+      _appliedInitialBookingNavigation = true;
+      _bookingSearchQuery = 'BK-${widget.initialBookingId}';
+      _bookingSearchController.text = _bookingSearchQuery;
+      final target = bookings.where(
+        (booking) => booking.id == widget.initialBookingId,
+      );
+      if (target.isNotEmpty) {
+        final status = CustomerBookingController.bookingStatus(target.first);
+        _selectedBookingTab = switch (status) {
+          'pending' => 0,
+          'approved' => 1,
+          _ => 2,
+        };
+      }
+    }
     final bannerBooking = CustomerBookingController.selectStatusBannerBooking(
       bookings
           .where(CustomerBookingController.isNotificationRelevant)
@@ -285,8 +307,24 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
           ? 'We couldn’t check for new messages. Check your connection and try again.'
           : 'Your unread message count is temporarily unavailable.';
     }
+
     if (mounted) setState(() {});
     return bookings;
+  }
+
+  void _openMatchmaking() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const AppText('Find Matches', localize: true),
+            backgroundColor: AppColors.page,
+            foregroundColor: AppColors.ink,
+          ),
+          body: MatchmakingLobbyListPage(api: _api),
+        ),
+      ),
+    );
   }
 
   Future<void> _refresh() async {
@@ -362,6 +400,14 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
       backgroundColor: AppColors.page,
       appBar: AppBar(
         title: const AppText('Bookings', localize: true),
+        actions: [
+          IconButton(
+            key: const ValueKey('customer-bookings-find-matches'),
+            tooltip: 'Find matches',
+            onPressed: _openMatchmaking,
+            icon: const Icon(Icons.sports_handball_outlined),
+          ),
+        ],
         backgroundColor: AppColors.page,
         surfaceTintColor: Colors.transparent,
         foregroundColor: AppColors.ink,
@@ -474,7 +520,7 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
               _ => true,
             };
           }).toList();
-          final completed = bookings
+          final history = bookings
               .where(
                 (booking) =>
                     const {
@@ -490,6 +536,7 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
 
           return DefaultTabController(
             length: 3,
+            initialIndex: _selectedBookingTab,
             child: Column(
               children: [
                 if (_messageCountError != null)
@@ -512,10 +559,10 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
                   ),
                 if (_bookingStatusNotifications.isNotEmpty ||
                     approved.isNotEmpty ||
-                    completed.isNotEmpty)
+                    history.isNotEmpty)
                   PremiumExpandable(
                     expanded: _showBookingStatusBanner,
-                    child: _bookingStatusBanner(approved, completed),
+                    child: _bookingStatusBanner(approved, history),
                   ),
                 Expanded(
                   child: ScrollAwareHeader(
@@ -599,7 +646,7 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
                               ),
                               Tab(
                                 child: AppText(
-                                  'Completed (${completed.length})',
+                                  'History (${history.length})',
                                   localize: true,
                                 ),
                               ),
@@ -642,9 +689,9 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
                                 ],
                               ),
                               _bookingTab(
-                                completed,
+                                history,
                                 emptyMessage: _bookingEmptyMessage(
-                                  'No completed bookings.',
+                                  'No booking history.',
                                 ),
                                 controller: _bookingScrollControllers[2],
                                 refreshKey: _bookingRefreshKeys[2],
@@ -762,10 +809,10 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
     return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
   }
 
-  Widget _bookingStatusBanner(List<Booking> approved, List<Booking> completed) {
+  Widget _bookingStatusBanner(List<Booking> approved, List<Booking> history) {
     final booking =
         _activeBookingStatusBannerBooking ??
-        (completed.isNotEmpty ? completed.first : approved.first);
+        (history.isNotEmpty ? history.first : approved.first);
     final status = _bookingStatus(booking);
     final isCompleted = {'finished', 'done', 'completed'}.contains(status);
     final isInactive = {'expired', 'cancelled'}.contains(status);
@@ -902,13 +949,28 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
     return 0;
   }
 
-  Future<void> _payBookingPrototype(Booking booking) async {
-    final paymentProvider = await showDialog<String>(
-      context: context,
-      builder: (_) =>
-          PrototypePaymentDialog(amount: _prototypePayableAmount(booking)),
-    );
-    if (paymentProvider == null || !mounted) return;
+  Future<String?> _chooseOnlinePaymentMethod() => showDialog<String>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: const AppText('Choose online payment', localize: true),
+      children: [
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'gcash'),
+          child: const Text('GCash'),
+        ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'paymaya'),
+          child: const Text('PayMaya'),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _payBooking(Booking booking) async {
+    if (booking.bookingType == 'matchmaking') {
+      await _payMatchmakingBooking(booking);
+      return;
+    }
     try {
       final token = (await _sessionProvider.load()).apiToken;
       if (token == null || token.isEmpty) {
@@ -917,6 +979,65 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
           401,
         );
       }
+      if (booking.id == null) {
+        throw const FormatException('This booking cannot be paid right now.');
+      }
+
+      final payMongoEnabled = await _api.bookings.payMongoPaymentsEnabled(
+        token,
+      );
+      if (!mounted) return;
+      if (payMongoEnabled) {
+        final paymentMethod = await _chooseOnlinePaymentMethod();
+        if (paymentMethod == null || !mounted) return;
+        final checkout = await _api.bookings.createPayMongoCheckout(
+          token: token,
+          bookingId: booking.id!,
+          paymentMethod: paymentMethod,
+        );
+        final rawCheckoutUrl = checkout['checkoutUrl'];
+        final checkoutUri = rawCheckoutUrl is String
+            ? Uri.tryParse(rawCheckoutUrl)
+            : null;
+        if (checkoutUri == null ||
+            checkoutUri.scheme != 'https' ||
+            checkoutUri.host != 'checkout.paymongo.com' ||
+            checkoutUri.userInfo.isNotEmpty) {
+          throw const FormatException(
+            'The payment provider returned an invalid checkout URL.',
+          );
+        }
+        if (!mounted) return;
+        if (!await launchUrl(
+          checkoutUri,
+          mode: LaunchMode.externalApplication,
+        )) {
+          throw Exception('Could not open the payment checkout.');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: AppText(
+              'Checkout opened. Payment status updates after PayMongo confirms it.',
+              localize: true,
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!kDebugMode) {
+        throw const AuthApiException(
+          'Online provider checkout is not enabled. Prototype payments are disabled in release builds.',
+          503,
+        );
+      }
+      final paymentProvider = await showDialog<String>(
+        context: context,
+        builder: (_) =>
+            PrototypePaymentDialog(amount: _prototypePayableAmount(booking)),
+      );
+      if (paymentProvider == null || !mounted) return;
       await _api.bookings.recordPrototypeBookingPayment(
         token: token,
         bookingId: booking.id!,
@@ -947,6 +1068,49 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
     }
   }
 
+  Future<void> _payMatchmakingBooking(Booking booking) async {
+    if (booking.paymentMethod == 'cash_on_arrival') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: AppText(
+            'Pay the host downpayment in cash at the venue.',
+            localize: true,
+          ),
+        ),
+      );
+      return;
+    }
+    final paymentMethod = await _chooseOnlinePaymentMethod();
+    if (paymentMethod == null || !mounted || booking.id == null) return;
+    try {
+      final token = (await _sessionProvider.load()).apiToken;
+      if (token == null || token.isEmpty) {
+        throw const AuthApiException(
+          'Please sign in again to complete this payment.',
+          401,
+        );
+      }
+      final checkout = await MatchmakingApi(_api).createHostDownpaymentCheckout(
+        token: token,
+        bookingId: booking.id!,
+        paymentMethod: paymentMethod,
+      );
+      if (!await launchUrl(checkout, mode: LaunchMode.externalApplication)) {
+        throw Exception('Could not open the payment checkout.');
+      }
+    } on Exception catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: AppText(
+            _bookingErrorMessage(error, 'start this payment'),
+            localize: true,
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _bookingCard(Booking booking) {
     final status = _bookingStatus(booking);
     final canPayBookingPrototype = _awaitingApprovalPayment(booking);
@@ -955,7 +1119,6 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
       booking.approvalExpiresAt,
     );
     final images = _imageUrls(booking);
-    final type = booking.venue.businessType.trim();
     final category =
         (booking.sportType.isNotEmpty
                 ? booking.sportType
@@ -981,7 +1144,9 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
                   left: 12,
                   top: 12,
                   child: _imageBadge(
-                    type.isEmpty ? 'Booking' : type,
+                    booking.bookingType == 'matchmaking'
+                        ? 'Matchmaking booking'
+                        : 'Regular booking',
                     AppColors.surface.withValues(alpha: .94),
                     AppColors.ink,
                   ),
@@ -1423,7 +1588,7 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
     return BookingDetailsPanel(
       booking: booking,
       onDeleteBooking: _deleteBooking,
-      onPayBookingPrototype: _payBookingPrototype,
+      onPayBooking: _payBooking,
       onReviewBooking: _showRatingDialog,
       formatBookingApprovalDeadline: formatBookingApprovalDeadline,
     );

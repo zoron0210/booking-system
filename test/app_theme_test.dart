@@ -132,7 +132,7 @@ void main() {
     expect(AppColors.blue, const Color(0xFF214A94));
     expect(AppColors.ink, const Color(0xFF101B33));
     expect(AppColors.orange, const Color(0xFFFF8200));
-    expect(AppColors.page, const Color(0xFFFAFBFD));
+    expect(AppColors.page, const Color(0xFFF1F5FB));
     expect(AppSpacing.large, 16);
     expect(AppRadii.marketplaceCard, 14);
     expect(AppRadii.merchantCard, 12);
@@ -181,17 +181,17 @@ void main() {
       theme.segmentedButtonTheme.style!.padding!.resolve({}),
       AppSpacing.buttonPadding,
     );
-    expect(theme.cardTheme.color, Colors.white);
+    expect(theme.cardTheme.color, AppColors.glassSurface);
     expect(theme.cardTheme.elevation, AppCardStyles.elevation);
     expect(theme.cardTheme.shadowColor, Colors.transparent);
-    expect(theme.dialogTheme.backgroundColor, AppColors.surface);
+    expect(theme.dialogTheme.backgroundColor, AppColors.glassSurface);
     expect(theme.dialogTheme.elevation, 0);
     expect(
       (theme.dialogTheme.shape! as RoundedRectangleBorder).borderRadius,
       BorderRadius.circular(AppRadii.dialog),
     );
-    expect(theme.bottomSheetTheme.backgroundColor, AppColors.surface);
-    expect(theme.bottomSheetTheme.modalBackgroundColor, AppColors.surface);
+    expect(theme.bottomSheetTheme.backgroundColor, AppColors.glassSurface);
+    expect(theme.bottomSheetTheme.modalBackgroundColor, AppColors.glassSurface);
     expect(theme.bottomSheetTheme.showDragHandle, isTrue);
     expect(
       (theme.bottomSheetTheme.shape! as RoundedRectangleBorder).borderRadius,
@@ -213,11 +213,14 @@ void main() {
     );
     expect(configuredTheme.cardTheme.elevation, 0);
     expect(configuredTheme.cardTheme.shadowColor, Colors.transparent);
-    expect(configuredTheme.dialogTheme.backgroundColor, AppColors.darkSurface);
+    expect(
+      configuredTheme.dialogTheme.backgroundColor,
+      const Color(0xCC222A39),
+    );
     expect(configuredTheme.dialogTheme.elevation, 0);
     expect(
       configuredTheme.bottomSheetTheme.backgroundColor,
-      AppColors.darkSurface,
+      const Color(0xCC222A39),
     );
     expect(configuredTheme.bottomSheetTheme.showDragHandle, isTrue);
     expect(configuredTheme.navigationBarTheme.elevation, 0);

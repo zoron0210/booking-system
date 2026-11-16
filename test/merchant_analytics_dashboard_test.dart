@@ -21,6 +21,13 @@ Finder _managementScrollable(WidgetTester tester) {
   );
 }
 
+Finder _analyticsScrollable(WidgetTester tester) => find
+    .descendant(
+      of: find.byType(RefreshIndicator).first,
+      matching: find.byType(Scrollable),
+    )
+    .first;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -90,10 +97,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'bookings');
     await tester.tap(find.text('Booking'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Completed'));
@@ -233,10 +237,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'bookings');
     final mainManagementTabsFinder = find.byKey(
       const ValueKey('merchant-management-tabs'),
     );
@@ -536,7 +537,12 @@ void main() {
       find.textContaining('2 approved bookings to complete'),
       findsNothing,
     );
-    expect(find.text('1 pending'), findsOneWidget);
+    expect(find.text('1 pending'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('merchant-analytics-metric-collected')),
+      120,
+      scrollable: _analyticsScrollable(tester),
+    );
     final analyticsMetricKeys = ['collected', 'bookings', 'live-venues'];
     final analyticsMetricSizes = [
       for (final key in analyticsMetricKeys)
@@ -609,13 +615,18 @@ void main() {
       filteredDetailsScrollState.position.maxScrollExtent,
     );
     await tester.pumpAndSettle();
-    expect(find.text('Approve'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('merchant-booking-approve-11')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('merchant-booking-approve-11')));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
+    await tapMerchantDestination(tester, 'dashboard');
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('merchant-analytics-revenue-value')),
+      120,
+      scrollable: _analyticsScrollable(tester),
     );
-    await tester.pumpAndSettle();
 
     expect(find.text('Data analytics'), findsOneWidget);
     expect(find.text('\u{20B1} 0.00'), findsWidgets);
@@ -650,12 +661,26 @@ void main() {
       find.byKey(const ValueKey('merchant-analytics-view-Sales report')),
       findsOneWidget,
     );
+    await tester.tap(find.byKey(const ValueKey('merchant-sidebar-toggle')));
+    await tester.pumpAndSettle();
     expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Add'), findsOneWidget);
+    expect(find.text('Businesses'), findsOneWidget);
+    await tapMerchantDestination(tester, 'dashboard');
+    tester
+        .state<ScrollableState>(_analyticsScrollable(tester))
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
     final analyticsTypeFilter = find.byKey(
       const ValueKey('merchant-analytics-booking-type-filter'),
     );
+    await tester.scrollUntilVisible(
+      analyticsTypeFilter,
+      120,
+      scrollable: _analyticsScrollable(tester),
+    );
     await tester.ensureVisible(analyticsTypeFilter);
+    await tester.pumpAndSettle();
     await tester.tap(analyticsTypeFilter);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Event').last);
@@ -742,7 +767,13 @@ void main() {
     await tester.drag(find.byType(ListView).first, const Offset(0, 1800));
     await tester.pumpAndSettle();
     final customerCountLabel = find.text('Customer count');
+    await tester.scrollUntilVisible(
+      customerCountLabel,
+      120,
+      scrollable: _analyticsScrollable(tester),
+    );
     await tester.ensureVisible(customerCountLabel);
+    await tester.pumpAndSettle();
     await tester.tap(customerCountLabel);
     await tester.pumpAndSettle();
     expect(find.text('Customers by Annual'), findsOneWidget);
@@ -854,7 +885,13 @@ void main() {
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 1800));
     await tester.pumpAndSettle();
     final venuePerformanceLabel = find.text('Venue performance');
+    await tester.scrollUntilVisible(
+      venuePerformanceLabel,
+      120,
+      scrollable: _analyticsScrollable(tester),
+    );
     await tester.ensureVisible(venuePerformanceLabel);
+    await tester.pumpAndSettle();
     await tester.tap(venuePerformanceLabel);
     await tester.pumpAndSettle();
     expect(find.text('Bookings by venue'), findsOneWidget);
@@ -925,10 +962,7 @@ void main() {
     expect(find.textContaining('18 players'), findsOneWidget);
     expect(find.textContaining('4.8'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'bookings');
     expect(find.text('Customer'), findsOneWidget);
     expect(find.text('Payment'), findsOneWidget);
     expect(find.text('Booking'), findsOneWidget);
@@ -1047,14 +1081,20 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('merchant-management-clear-filters')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(find.text('Customer One'), findsWidgets);
     expect(find.text('Customer Two'), findsNothing);
     await tester.tap(
-      find.byKey(const ValueKey('merchant-payout-search-clear')),
+      find.byKey(const ValueKey('merchant-management-clear-filters')),
     );
     await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('merchant-management-result-count')),
+      findsNothing,
+    );
+    expect(find.text('Customer One'), findsWidgets);
+    expect(find.text('Customer Two'), findsNothing);
     await tester.tap(find.text('Awaiting arrival'));
     await tester.pumpAndSettle();
     expect(find.text('Customer Three'), findsOneWidget);
@@ -1239,14 +1279,10 @@ void main() {
     await tester.tap(markBalancePaid);
     await tester.pumpAndSettle();
     expect(find.text('Remaining balance marked as paid.'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'dashboard');
 
-    await tester.tap(find.text('Profile'));
-    await tester.pumpAndSettle();
-    expect(find.text("Today's performance"), findsOneWidget);
+    await tapMerchantDestination(tester, 'profile');
+    expect(find.text('Performance overview'), findsOneWidget);
     expect(
       tester
           .widget<RollingNumber>(
@@ -1265,8 +1301,7 @@ void main() {
           .value,
       '4',
     );
-    await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
-    await tester.pumpAndSettle();
+    await tapMerchantSettings(tester);
     expect(find.text('Edit profile'), findsOneWidget);
     final settingsList = find.ancestor(
       of: find.byKey(const ValueKey('merchant-settings-edit-profile')),
@@ -1415,10 +1450,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'bookings');
     await tester.tap(find.byKey(const ValueKey('merchant-payout-type-filter')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Fitness').last);
@@ -1589,10 +1621,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('merchant-booking-approve-11')));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'dashboard');
 
     expect(find.byKey(const ValueKey('merchant-action-center')), findsNothing);
   });
@@ -1606,13 +1635,27 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({
       'session_api_token': 'merchant-token',
     });
+    var profileRequests = 0;
     final api = AuthApi(
       client: MockClient((request) async {
         if (request.url.path == '/api/merchant/profile') {
-          return http.Response(
-            jsonEncode({'error': 'Merchant profile service unavailable'}),
-            503,
-          );
+          profileRequests++;
+          return profileRequests == 1
+              ? http.Response(
+                  jsonEncode({'error': 'Merchant profile service unavailable'}),
+                  503,
+                )
+              : http.Response(
+                  jsonEncode({
+                    'profile': {
+                      'firstName': 'Merchant',
+                      'lastName': 'Owner',
+                      'email': 'merchant@example.com',
+                      'businessType': 'Sports',
+                    },
+                  }),
+                  200,
+                );
         }
         return http.Response('{}', 200);
       }),
@@ -1629,24 +1672,406 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Merchant Dashboard'), findsOneWidget);
-    expect(find.text('Data analytics'), findsOneWidget);
+    expect(find.text('Data analytics'), findsNothing);
     expect(find.text('Business & facility information'), findsNothing);
     expect(find.text('Save merchant profile'), findsNothing);
     expect(find.text('Select a booking type'), findsNothing);
-    expect(find.text('Add'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('merchant-sidebar-toggle')),
+      findsOneWidget,
+    );
     expect(
       find.textContaining('Could not load merchant profile'),
       findsOneWidget,
     );
+    final retryButton = find.byKey(const ValueKey('merchant-profile-retry'));
+    expect(retryButton, findsOneWidget);
+    await tester.tap(retryButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('merchant-profile-load-status')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('merchant-first-business-onboarding')),
+      findsOneWidget,
+    );
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-profile')),
+    await tapMerchantDestination(tester, 'profile');
+    expect(find.text('Merchant Profile'), findsOneWidget);
+    await tapMerchantDestination(tester, 'dashboard');
+    expect(find.text('Merchant Dashboard'), findsOneWidget);
+  });
+
+  testWidgets('partial initial failure keeps successful sections usable', (
+    tester,
+  ) async {
+    setMerchantDashboardSession();
+    var businessRequests = 0;
+    final api = AuthApi(
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/merchant/profile':
+            return http.Response(
+              jsonEncode({
+                'profile': {
+                  'firstName': 'Merchant',
+                  'lastName': 'Owner',
+                  'businessType': 'Sports',
+                },
+              }),
+              200,
+            );
+          case '/api/merchant/businesses':
+            businessRequests++;
+            return businessRequests == 1
+                ? http.Response('{}', 503)
+                : http.Response(jsonEncode({'businesses': []}), 200);
+          case '/api/merchant/bookings':
+            return http.Response(
+              jsonEncode({
+                'bookings': [
+                  {
+                    'id': 51,
+                    'customerName': 'Waiting Customer',
+                    'status': 'pending',
+                  },
+                ],
+              }),
+              200,
+            );
+          case '/api/merchant/matchmaking/lobbies':
+            return http.Response(jsonEncode({'lobbies': []}), 200);
+          default:
+            return http.Response('{}', 200);
+        }
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Merchant Profile'), findsOneWidget);
-    await tester.pageBack();
+
+    expect(
+      find.byKey(const ValueKey('merchant-businesses-load-status')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('merchant-first-business-onboarding')),
+      findsNothing,
+    );
+    expect(find.text('1 booking awaiting approval'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('merchant-review-bookings')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('merchant-businesses-retry')));
     await tester.pumpAndSettle();
-    expect(find.text('Merchant Dashboard'), findsOneWidget);
+
+    expect(
+      find.byKey(const ValueKey('merchant-businesses-load-status')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('merchant-first-business-onboarding')),
+      findsOneWidget,
+    );
+    expect(find.text('1 booking awaiting approval'), findsOneWidget);
+    expect(find.text('No matchmaking requests need review.'), findsOneWidget);
+  });
+
+  testWidgets('refresh failure keeps the last successful booking data', (
+    tester,
+  ) async {
+    setMerchantDashboardSession();
+    var businessRequests = 0;
+    var bookingRequests = 0;
+    final api = AuthApi(
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/merchant/profile':
+            return http.Response(
+              jsonEncode({
+                'profile': {
+                  'firstName': 'Merchant',
+                  'lastName': 'Owner',
+                  'businessType': 'Sports',
+                },
+              }),
+              200,
+            );
+          case '/api/merchant/businesses':
+            businessRequests++;
+            return businessRequests == 1
+                ? http.Response(
+                    jsonEncode({
+                      'businesses': [
+                        {
+                          'id': 62,
+                          'businessName': 'Retained Venue',
+                          'businessType': 'Sports',
+                          'enabled': true,
+                          'hasPublishedNewsCard': false,
+                        },
+                      ],
+                    }),
+                    200,
+                  )
+                : http.Response('{}', 503);
+          case '/api/merchant/bookings':
+            bookingRequests++;
+            return bookingRequests == 1
+                ? http.Response(
+                    jsonEncode({
+                      'bookings': [
+                        {
+                          'id': 61,
+                          'customerName': 'Saved Booking',
+                          'status': 'pending',
+                        },
+                      ],
+                    }),
+                    200,
+                  )
+                : http.Response('{}', 503);
+          case '/api/merchant/matchmaking/lobbies':
+            return http.Response(jsonEncode({'lobbies': []}), 200);
+          default:
+            return http.Response('{}', 200);
+        }
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final refreshIndicator = tester.state<RefreshIndicatorState>(
+      find.byType(RefreshIndicator).first,
+    );
+    final refresh = refreshIndicator.show();
+    await tester.pumpAndSettle();
+    await refresh;
+
+    expect(
+      find.textContaining('Could not refresh bookings and payment data'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Could not refresh businesses'), findsOneWidget);
+    expect(find.text('1 booking awaiting approval'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('merchant-finish-business-setup')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('merchant-review-bookings')));
+    await tester.pumpAndSettle();
+    expect(find.text('Saved Booking'), findsOneWidget);
+  });
+
+  testWidgets('matchmaking can retry and retain data after refresh failure', (
+    tester,
+  ) async {
+    setMerchantDashboardSession();
+    var matchmakingRequests = 0;
+    final api = AuthApi(
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/merchant/profile':
+            return http.Response(
+              jsonEncode({
+                'profile': {
+                  'firstName': 'Merchant',
+                  'lastName': 'Owner',
+                  'businessType': 'Sports',
+                },
+              }),
+              200,
+            );
+          case '/api/merchant/businesses':
+            return http.Response(
+              jsonEncode({
+                'businesses': [
+                  {
+                    'id': 65,
+                    'businessName': 'Ready Venue',
+                    'businessType': 'Sports',
+                    'enabled': true,
+                    'hasPublishedNewsCard': true,
+                  },
+                ],
+              }),
+              200,
+            );
+          case '/api/merchant/bookings':
+            return http.Response(jsonEncode({'bookings': []}), 200);
+          case '/api/merchant/matchmaking/lobbies':
+            matchmakingRequests++;
+            return matchmakingRequests == 1
+                ? http.Response('{}', 503)
+                : matchmakingRequests == 2
+                ? http.Response(
+                    jsonEncode({
+                      'lobbies': [
+                        {
+                          'lobbyId': 66,
+                          'hostName': 'Retained Match Host',
+                          'sportType': 'Badminton',
+                          'slotNumber': 2,
+                        },
+                      ],
+                    }),
+                    200,
+                  )
+                : http.Response('{}', 503);
+          default:
+            return http.Response('{}', 200);
+        }
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('merchant-matchmaking-load-status')),
+      findsOneWidget,
+    );
+    expect(find.text('Data analytics'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('merchant-matchmaking-retry')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('merchant-matchmaking-load-status')),
+      findsNothing,
+    );
+    expect(find.text('Host: Retained Match Host'), findsOneWidget);
+
+    final refreshIndicator = tester.state<RefreshIndicatorState>(
+      find.byType(RefreshIndicator).first,
+    );
+    final refresh = refreshIndicator.show();
+    await tester.pumpAndSettle();
+    await refresh;
+    expect(
+      find.textContaining('Could not refresh matchmaking requests'),
+      findsOneWidget,
+    );
+    expect(find.text('Host: Retained Match Host'), findsOneWidget);
+  });
+
+  testWidgets('dashboard payment and business actions open their sections', (
+    tester,
+  ) async {
+    setMerchantDashboardSession();
+    final api = AuthApi(
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/merchant/profile':
+            return http.Response(
+              jsonEncode({
+                'profile': {
+                  'firstName': 'Merchant',
+                  'lastName': 'Owner',
+                  'businessType': 'Sports',
+                },
+              }),
+              200,
+            );
+          case '/api/merchant/businesses':
+            return http.Response(
+              jsonEncode({
+                'businesses': [
+                  {
+                    'id': 71,
+                    'businessName': 'Unpublished Venue',
+                    'businessType': 'Sports',
+                    'enabled': true,
+                    'hasPublishedNewsCard': false,
+                  },
+                ],
+              }),
+              200,
+            );
+          case '/api/merchant/bookings':
+            return http.Response(
+              jsonEncode({
+                'bookings': [
+                  {
+                    'id': 72,
+                    'customerName': 'Cash Customer',
+                    'status': 'approved',
+                    'paymentMethod': 'cash_on_arrival',
+                    'paymentStatus': 'unpaid',
+                    'total': 200,
+                    'downpayment': 100,
+                  },
+                ],
+              }),
+              200,
+            );
+          case '/api/merchant/matchmaking/lobbies':
+            return http.Response(jsonEncode({'lobbies': []}), 200);
+          default:
+            return http.Response('{}', 200);
+        }
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          liveUpdatesClientFactory: OfflineLiveUpdatesClient.new,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('merchant-review-payments')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('merchant-finish-business-setup')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('merchant-review-payments')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('merchant-payment-management-tabs')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('merchant-payment-card-72')),
+      findsOneWidget,
+    );
+
+    await tapMerchantDestination(tester, 'dashboard');
+    await tester.tap(
+      find.byKey(const ValueKey('merchant-finish-business-setup')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Add business'), findsOneWidget);
   });
 
   testWidgets('cash downpayment analytics follow the payment date', (
@@ -1734,6 +2159,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('merchant-analytics-revenue-value')),
+      120,
+      scrollable: _analyticsScrollable(tester),
+    );
     expect(
       tester
           .widget<Text>(

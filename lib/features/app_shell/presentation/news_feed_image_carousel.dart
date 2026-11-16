@@ -5,12 +5,14 @@ class NewsFeedImageCarousel extends StatefulWidget {
     super.key,
     required this.images,
     required this.imageBuilder,
+    this.height = cardHeight,
   });
 
   static const cardHeight = 160.0;
 
   final List<String> images;
   final Widget Function(String value) imageBuilder;
+  final double height;
 
   @override
   State<NewsFeedImageCarousel> createState() => _NewsFeedImageCarouselState();
@@ -38,9 +40,10 @@ class _NewsFeedImageCarouselState extends State<NewsFeedImageCarousel> {
   Widget build(BuildContext context) {
     final multiple = widget.images.length > 1;
     return SizedBox(
-      height: NewsFeedImageCarousel.cardHeight,
+      height: widget.height,
       width: double.infinity,
       child: Stack(
+        fit: StackFit.expand,
         children: [
           PageView.builder(
             controller: _controller,

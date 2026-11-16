@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:myapp/features/app_shell/presentation/news_feed.dart';
 import 'package:myapp/features/venues/presentation/all_venues_page.dart';
 import 'package:myapp/core/filter_panel_style.dart';
 
@@ -65,6 +67,47 @@ void main() {
     expect(venueFilterPrice(event), 1250);
   });
 
+  test('news feed defaults to the highest rated venue section label', () {
+    expect(const NewsFeedPage().highestRatedSectionTitle, 'Highest rated');
+  });
+
+  testWidgets('most visited collections show the visit heading', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AllVenuesPage(
+          title: 'Most visited',
+          visitedHeading: 'Courts with the most completed visits',
+          posts: const [
+            {'businessName': 'Busy court'},
+          ],
+          cardBuilder: (post) => Text('${post['businessName']}'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Courts with the most completed visits'), findsOneWidget);
+  });
+
+  testWidgets('near you collections use the near-you heading', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AllVenuesPage(
+          title: 'Near you',
+          posts: const [
+            {'businessName': 'Close court'},
+          ],
+          cardBuilder: (post) => Text('${post['businessName']}'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Near you'), findsWidgets);
+  });
+
   testWidgets(
     'search filters venues and the result list dismisses keyboard on scroll',
     (tester) async {
@@ -101,6 +144,158 @@ void main() {
       expect(find.text('Tennis court'), findsNothing);
     },
   );
+
+  testWidgets('filter result count uses singular venue wording', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AllVenuesPage(
+          title: 'Most popular',
+          posts: const [
+            {'businessName': 'One court'},
+            {'businessName': 'Two court'},
+          ],
+          cardBuilder: (post) => Text('${post['businessName']}'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('all-venues-open-filters')));
+    await tester.pumpAndSettle();
+    expect(find.text('Show 2 venues'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('all-venues-filter-apply')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('all-venues-search')),
+      'One court',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('all-venues-open-filters')));
+    await tester.pumpAndSettle();
+    expect(find.text('Show 1 venue'), findsOneWidget);
+    expect(find.text('Show 1 venues'), findsNothing);
+  });
+
+  testWidgets(
+    'permanently denied location opens app settings without blocking browsing',
+    (tester) async {
+      final originalPlatform = GeolocatorPlatform.instance;
+      final platform = _FakeGeolocatorPlatform(
+        permission: LocationPermission.deniedForever,
+      );
+      GeolocatorPlatform.instance = platform;
+      addTearDown(() => GeolocatorPlatform.instance = originalPlatform);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AllVenuesPage(
+            title: 'Most popular',
+            posts: const [
+              {'businessName': 'Manual venue'},
+            ],
+            cardBuilder: (post) => SizedBox(
+              height: 140,
+              child: Card(child: Text('${post['businessName']}')),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Manual venue'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('all-venues-open-filters')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('all-venues-use-my-location')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Location permission is blocked. Enable it in app settings.'),
+        findsOneWidget,
+      );
+      expect(find.text('Manual venue'), findsOneWidget);
+      expect(platform.requestPermissionCalls, 0);
+
+      await tester.tap(find.text('App settings'));
+      await tester.pumpAndSettle();
+      expect(platform.openAppSettingsCalls, 1);
+      await tester.tap(find.byTooltip('Close filters'));
+      await tester.pumpAndSettle();
+      expect(find.text('Manual venue'), findsOneWidget);
+    },
+  );
+
+  testWidgets('denied location permission explains recovery without settings', (
+    tester,
+  ) async {
+    final originalPlatform = GeolocatorPlatform.instance;
+    final platform = _FakeGeolocatorPlatform(
+      permission: LocationPermission.denied,
+      requestedPermission: LocationPermission.denied,
+    );
+    GeolocatorPlatform.instance = platform;
+    addTearDown(() => GeolocatorPlatform.instance = originalPlatform);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AllVenuesPage(
+          title: 'Most popular',
+          posts: const [],
+          cardBuilder: (_) => const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('all-venues-open-filters')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('all-venues-use-my-location')));
+    await tester.pumpAndSettle();
+
+    expect(platform.requestPermissionCalls, 1);
+    expect(
+      find.text(
+        'Location permission was denied. Allow access to sort venues by distance.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('App settings'), findsNothing);
+  });
+
+  testWidgets('disabled location services offer location settings', (
+    tester,
+  ) async {
+    final originalPlatform = GeolocatorPlatform.instance;
+    final platform = _FakeGeolocatorPlatform(locationServicesEnabled: false);
+    GeolocatorPlatform.instance = platform;
+    addTearDown(() => GeolocatorPlatform.instance = originalPlatform);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AllVenuesPage(
+          title: 'Most popular',
+          posts: const [],
+          cardBuilder: (_) => const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('all-venues-open-filters')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('all-venues-use-my-location')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Location services are off. Turn them on to find nearby venues.',
+      ),
+      findsOneWidget,
+    );
+    expect(platform.checkPermissionCalls, 0);
+    await tester.tap(find.text('Location settings'));
+    await tester.pumpAndSettle();
+    expect(platform.openLocationSettingsCalls, 1);
+  });
 
   testWidgets('All Venues search header hides down and returns up', (
     tester,
@@ -288,6 +483,49 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Filter venues'), findsNothing);
   });
+}
+
+class _FakeGeolocatorPlatform extends GeolocatorPlatform {
+  _FakeGeolocatorPlatform({
+    this.locationServicesEnabled = true,
+    this.permission = LocationPermission.whileInUse,
+    this.requestedPermission = LocationPermission.whileInUse,
+  });
+
+  final bool locationServicesEnabled;
+  final LocationPermission permission;
+  final LocationPermission requestedPermission;
+  int checkPermissionCalls = 0;
+  int requestPermissionCalls = 0;
+  int openAppSettingsCalls = 0;
+  int openLocationSettingsCalls = 0;
+
+  @override
+  Future<bool> isLocationServiceEnabled() async => locationServicesEnabled;
+
+  @override
+  Future<LocationPermission> checkPermission() async {
+    checkPermissionCalls += 1;
+    return permission;
+  }
+
+  @override
+  Future<LocationPermission> requestPermission() async {
+    requestPermissionCalls += 1;
+    return requestedPermission;
+  }
+
+  @override
+  Future<bool> openAppSettings() async {
+    openAppSettingsCalls += 1;
+    return true;
+  }
+
+  @override
+  Future<bool> openLocationSettings() async {
+    openLocationSettingsCalls += 1;
+    return true;
+  }
 }
 
 class _RouteObserver extends NavigatorObserver {

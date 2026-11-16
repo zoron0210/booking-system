@@ -12,14 +12,14 @@ class BookingDetailsPanel extends StatelessWidget {
     super.key,
     required this.booking,
     required this.onDeleteBooking,
-    required this.onPayBookingPrototype,
+    required this.onPayBooking,
     required this.onReviewBooking,
     required this.formatBookingApprovalDeadline,
   });
 
   final Booking booking;
   final Future<void> Function(Booking booking) onDeleteBooking;
-  final Future<void> Function(Booking booking) onPayBookingPrototype;
+  final Future<void> Function(Booking booking) onPayBooking;
   final Future<void> Function(Booking booking, {bool closeDetailsOnSubmit})
   onReviewBooking;
   final String Function(DateTime) formatBookingApprovalDeadline;
@@ -215,23 +215,31 @@ class BookingDetailsPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: ValueKey('customer-booking-pay-${booking.id}'),
-                onPressed: booking.id == null
-                    ? null
-                    : () => onPayBookingPrototype(booking),
-                icon: const Icon(Icons.credit_card_rounded, size: 18),
-                label: const AppText('Pay now (test payment)', localize: true),
+            if (booking.bookingType == 'matchmaking' &&
+                booking.paymentMethod == 'cash_on_arrival')
+              const AppText(
+                'Pay the host downpayment in cash at the venue.',
+                localize: true,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              )
+            else ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: ValueKey('customer-booking-pay-${booking.id}'),
+                  onPressed: booking.id == null
+                      ? null
+                      : () => onPayBooking(booking),
+                  icon: const Icon(Icons.credit_card_rounded, size: 18),
+                  label: AppText(
+                    booking.bookingType == 'matchmaking'
+                        ? 'Pay 50% downpayment'
+                        : 'Pay now',
+                    localize: true,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            AppText(
-              'Prototype only — no real payment is processed.',
-              localize: true,
-              style: TextStyle(fontSize: 11, color: AppColors.muted),
-            ),
+            ],
           ],
           const SizedBox(height: 6),
           const Divider(height: 1),
@@ -287,6 +295,13 @@ class BookingDetailsPanel extends StatelessWidget {
           _venueDetail(
             Icons.check_circle_outline,
             _labelValue('Availability', booking.venue.availability),
+          ),
+          const SizedBox(height: 6),
+          _bookingField(
+            'Booking identity',
+            booking.bookingType == 'matchmaking'
+                ? 'Matchmaking booking · Lobby #${booking.matchmakingLobbyId ?? '—'}'
+                : 'Regular booking',
           ),
           const SizedBox(height: 6),
           _bookingField(

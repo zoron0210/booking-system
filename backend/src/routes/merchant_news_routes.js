@@ -33,6 +33,7 @@ function newsPostResponse(row) {
     details: row.business_details || null,
     imageUrls: parseArray(row.image_urls),
     businessImageUrl: row.business_image_url || null,
+    businessLogoUrl: row.business_logo_url || null,
     visitUrl: row.visit_url || null,
     latitude:
       row.latitude === null || row.latitude === undefined
@@ -66,6 +67,10 @@ function newsPostResponse(row) {
     reviewCount: Number(row.review_count || 0),
     ratingUserCount: Number(row.rating_user_count || 0),
     heartCount: Number(row.heart_count || 0),
+    visitCount: Number(row.visit_count || row.completed_visit_count || 0),
+    completedVisitCount: Number(
+      row.completed_visit_count || row.visit_count || 0,
+    ),
     heartedByMe:
       row.hearted_by_me === true ||
       row.hearted_by_me === 1 ||

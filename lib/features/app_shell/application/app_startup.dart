@@ -11,6 +11,7 @@ import 'package:myapp/core/app_session.dart';
 import '../../../core/app_theme.dart';
 
 import 'package:myapp/features/notifications/data/booking_push_notifications.dart';
+import 'package:myapp/features/notifications/data/booking_notifications.dart';
 
 import '../../../features/session/application/session_service.dart';
 import '../../../firebase_options.dart';
@@ -63,6 +64,15 @@ class _AppStartupState extends State<AppStartup> {
       accountEmail: session.isAuthenticated ? session.accountEmail : null,
     );
     if (firebaseInitialized && session.isAuthenticated) {
+      if (BookingNotifications.instance.isSupported) {
+        unawaited(
+          BookingNotifications.instance.prepareTransactionAlerts().catchError((
+            Object error,
+          ) {
+            debugPrint('Could not initialize notification taps: $error');
+          }),
+        );
+      }
       unawaited(BookingPushNotifications.instance.initialize(session));
     }
     return session;

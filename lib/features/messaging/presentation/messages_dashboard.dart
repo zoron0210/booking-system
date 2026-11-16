@@ -11,7 +11,9 @@ import 'package:myapp/core/business_type.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/auth/presentation/guest_access.dart';
 import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_navigation_drawer.dart';
 import 'package:myapp/features/bookings/presentation/customer_bookings_page.dart';
+import 'package:myapp/features/bookings/data/matchmaking_api.dart';
 import 'package:myapp/features/messaging/data/messages_session_provider.dart';
 import 'package:myapp/features/app_shell/presentation/event_dashboard.dart';
 import 'package:myapp/features/app_shell/presentation/fitness_dashboard.dart';
@@ -28,6 +30,7 @@ import 'package:myapp/features/social/presentation/public_user_profile.dart';
 import 'package:myapp/features/saved_items/presentation/saved_dashboard.dart';
 import 'package:myapp/core/skeleton_loader.dart';
 import 'package:myapp/features/social/presentation/social_message_tools.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 Color get _messageBackground => AppColors.page;
 Color get _messageInk => AppColors.ink;
@@ -40,6 +43,10 @@ class MessagesDashboardPage extends StatefulWidget {
     this.businessTitle,
     this.initialConversationId,
     this.onFooterNavigate,
+    this.onSettingsSelected,
+    this.onLogout,
+    this.onHelpCenterSelected,
+    this.onTermsOfServiceSelected,
     this.initialUserPosition,
     this.api,
     this.businessType,
@@ -51,6 +58,10 @@ class MessagesDashboardPage extends StatefulWidget {
   final String? businessTitle;
   final int? initialConversationId;
   final ValueChanged<int>? onFooterNavigate;
+  final VoidCallback? onSettingsSelected;
+  final Future<void> Function(BuildContext context)? onLogout;
+  final VoidCallback? onHelpCenterSelected;
+  final VoidCallback? onTermsOfServiceSelected;
   final Position? initialUserPosition;
   final AuthApi? api;
   final String? businessType;
@@ -209,6 +220,7 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     if (token == null || id == null || _sending) {
       return;
     }
+
     if (text.isEmpty && _pendingImageData == null && _pendingGifUrl == null) {
       setState(() => _composerError = 'Write a message or attach an image.');
       return;
@@ -245,6 +257,118 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
       _show(error.toString());
     } finally {
       _controller.setSending(false);
+    }
+  }
+
+  Future<void> _handleMatchmakingAction(
+    Map<String, dynamic> ticket,
+    bool accept,
+  ) async {
+    final token = _token;
+    final lobbyId = _asInt(ticket['lobbyId']);
+    final requestId = _asInt(ticket['requestId']);
+    if (token == null || lobbyId == null || requestId == null) {
+      _show('This match request is invalid or your session has expired.');
+      return;
+    }
+    try {
+      final api = MatchmakingApi(_socialApi);
+      if (accept) {
+        await api.acceptRequest(
+          token: token,
+          lobbyId: lobbyId,
+          requestId: requestId,
+        );
+      } else {
+        await api.declineRequest(
+          token: token,
+          lobbyId: lobbyId,
+          requestId: requestId,
+        );
+      }
+      final conversationId = _selectedConversation;
+      if (conversationId != null) await _select(conversationId);
+      await _load();
+    } on Exception catch (error) {
+      _show('Could not update the match request: $error');
+    }
+  }
+
+  Future<void> _handleMatchmakingMerchantDecision(
+    Map<String, dynamic> ticket,
+    bool approve,
+  ) async {
+    final token = _token;
+    final lobbyId = _asInt(ticket['lobbyId']);
+    if (token == null || lobbyId == null || _role != 'merchant') {
+      _show(
+        'This match booking request is invalid or your session has expired.',
+      );
+      return;
+    }
+    try {
+      await MatchmakingApi(
+        _socialApi,
+      ).decideMerchantRequest(token: token, lobbyId: lobbyId, approve: approve);
+      final conversationId = _selectedConversation;
+      if (conversationId != null) await _select(conversationId);
+      await _load();
+    } on Exception catch (error) {
+      _show('Could not update the match booking request: $error');
+    }
+  }
+
+  Future<void> _handleOpponentPayment(
+    Map<String, dynamic> ticket,
+    String method,
+  ) async {
+    final token = _token;
+    final lobbyId = _asInt(ticket['lobbyId']);
+    if (token == null || lobbyId == null) {
+      _show('This match ticket is invalid or your session has expired.');
+      return;
+    }
+    try {
+      final api = MatchmakingApi(_socialApi);
+      if (method != 'online') {
+        _show('Online payment is required for this match.');
+        return;
+      }
+      final bookingId = _asInt(ticket['bookingId']);
+      if (bookingId == null) {
+        _show('This match ticket has no valid booking.');
+        return;
+      }
+      final paymentMethod = await showDialog<String>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('Choose online payment'),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'gcash'),
+              child: const Text('GCash'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'paymaya'),
+              child: const Text('PayMaya'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || paymentMethod == null) return;
+      final checkout = await api.createOpponentShareCheckout(
+        token: token,
+        bookingId: bookingId,
+        paymentMethod: paymentMethod,
+      );
+      if (!await launchUrl(checkout, mode: LaunchMode.externalApplication)) {
+        throw Exception('Could not open the payment checkout.');
+      }
+      final conversationId = _selectedConversation;
+      if (conversationId != null) await _select(conversationId);
+      await _load();
+    } on Exception catch (error) {
+      _show('Could not update opponent payment: $error');
     }
   }
 
@@ -787,6 +911,17 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     final selectedUser = _selectedConversationUser;
     return Scaffold(
       backgroundColor: _messageBackground,
+      drawer: _role == 'merchant'
+          ? MerchantNavigationDrawer(
+              owner: widget.owner ?? const {},
+              selectedIndex: 2,
+              onDestinationSelected: _selectMerchantDrawerDestination,
+              onSettingsSelected: _selectMerchantSettings,
+              onLogout: widget.onLogout,
+              onHelpCenterSelected: widget.onHelpCenterSelected,
+              onTermsOfServiceSelected: widget.onTermsOfServiceSelected,
+            )
+          : null,
       appBar: AppBar(
         toolbarHeight: _role == 'merchant' ? 56 : null,
         titleSpacing: _role == 'merchant' ? 16 : null,
@@ -802,6 +937,15 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
                 tooltip: appLanguageText('Back to inbox', 'Back to inbox'),
                 onPressed: _backToInbox,
                 icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : _role == 'merchant'
+            ? Builder(
+                builder: (context) => IconButton(
+                  key: const ValueKey('merchant-sidebar-toggle'),
+                  tooltip: 'Open merchant menu',
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                  icon: const Icon(Icons.menu_rounded),
+                ),
               )
             : null,
         title: _showChat && _selectedConversation != null
@@ -977,6 +1121,11 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
                           composerError: _composerError,
                           onComposerChanged: _onComposerChanged,
                           onDeleteMessage: _deleteMessage,
+                          onMatchmakingAction: _handleMatchmakingAction,
+                          onMatchmakingMerchantDecision:
+                              _handleMatchmakingMerchantDecision,
+                          isMerchant: _role == 'merchant',
+                          onOpponentPayment: _handleOpponentPayment,
                           onPickImage: _pickImage,
                           onRemovePendingImage: _removePendingImage,
                           onPickGif: _pickGif,
@@ -996,10 +1145,33 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
                 },
               ),
             ),
-      bottomNavigationBar: _role == null || widget.hideBottomNavigation
+      bottomNavigationBar:
+          _role == null || _role == 'merchant' || widget.hideBottomNavigation
           ? null
           : _footer(context),
     );
+  }
+
+  void _selectMerchantDrawerDestination(int index) {
+    if (index == 2) {
+      unawaited(_refreshAndScrollToTop());
+      return;
+    }
+    final onNavigate = widget.onFooterNavigate;
+    if (onNavigate != null) {
+      onNavigate(index);
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _selectMerchantSettings() {
+    final onSettingsSelected = widget.onSettingsSelected;
+    if (onSettingsSelected != null) {
+      onSettingsSelected();
+    } else if (widget.onFooterNavigate != null) {
+      widget.onFooterNavigate!(4);
+    }
   }
 
   Widget _footer(BuildContext context) {

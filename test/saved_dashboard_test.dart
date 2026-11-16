@@ -175,6 +175,7 @@ void main() {
             sport: 'Pilates',
             address: 'Cebu City',
             ownerName: 'Studio',
+            businessLogoUrl: '',
             type: 'Fitness',
             courts: '',
             hours: '',

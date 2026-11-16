@@ -7,12 +7,15 @@ import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/session/application/session_service.dart';
 import 'package:myapp/features/messaging/presentation/message_unread_count.dart';
 import 'package:myapp/features/messaging/presentation/messages_ui.dart';
+import 'package:myapp/features/notifications/data/booking_notifications.dart';
+import 'package:myapp/features/notifications/domain/booking_notification_destination.dart';
 
 class MessageNotificationHost extends StatefulWidget {
   const MessageNotificationHost({
     super.key,
     required this.child,
     this.onOpenConversation,
+    this.onOpenBookingNotification,
     this.api,
     this.pollingInterval = const Duration(seconds: 5),
     this.notificationDuration = const Duration(seconds: 5),
@@ -20,6 +23,7 @@ class MessageNotificationHost extends StatefulWidget {
 
   final Widget child;
   final ValueChanged<int>? onOpenConversation;
+  final ValueChanged<BookingNotificationDestination>? onOpenBookingNotification;
   final AuthApi? api;
   final Duration pollingInterval;
   final Duration notificationDuration;
@@ -35,6 +39,7 @@ class _MessageNotificationHostState extends State<MessageNotificationHost>
   final ValueNotifier<int> _unreadMessageCount = ValueNotifier<int>(-1);
   Timer? _pollingTimer;
   Timer? _dismissTimer;
+  StreamSubscription<String>? _notificationTapSubscription;
   Map<int, _ConversationSnapshot> _snapshots = {};
   _IncomingMessage? _notification;
   bool _hasBaseline = false;
@@ -45,6 +50,14 @@ class _MessageNotificationHostState extends State<MessageNotificationHost>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _notificationTapSubscription = BookingNotifications.instance.tapPayloads
+        .listen(_handleBookingNotificationTap);
+    final pendingTap = BookingNotifications.instance.takePendingTapPayload();
+    if (pendingTap != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _handleBookingNotificationTap(pendingTap);
+      });
+    }
     unawaited(_poll(showNotifications: false));
     _pollingTimer = Timer.periodic(
       widget.pollingInterval,
@@ -78,6 +91,7 @@ class _MessageNotificationHostState extends State<MessageNotificationHost>
         _observedToken = token;
       }
 
+      final unreadCountAtRequestStart = _unreadMessageCount.value;
       final conversations = await _api.messaging.conversations(token);
       final latestById = <int, _ConversationSnapshot>{};
       for (final conversation in conversations) {
@@ -125,7 +139,7 @@ class _MessageNotificationHostState extends State<MessageNotificationHost>
 
       _snapshots = latestById;
       _hasBaseline = true;
-      if (mounted) {
+      if (mounted && _unreadMessageCount.value == unreadCountAtRequestStart) {
         _unreadMessageCount.value = latestById.values.fold<int>(
           0,
           (total, conversation) => total + conversation.unreadCount,
@@ -262,10 +276,18 @@ class _MessageNotificationHostState extends State<MessageNotificationHost>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _notificationTapSubscription?.cancel();
     _pollingTimer?.cancel();
     _dismissTimer?.cancel();
     _unreadMessageCount.dispose();
     super.dispose();
+  }
+
+  void _handleBookingNotificationTap(String payload) {
+    final destination = BookingNotificationDestination.fromPayload(payload);
+    if (destination != null) {
+      widget.onOpenBookingNotification?.call(destination);
+    }
   }
 }
 

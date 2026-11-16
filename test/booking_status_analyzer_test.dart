@@ -82,5 +82,43 @@ void main() {
         isFalse,
       );
     });
+
+    test('matchmaking booking statuses share regular booking tabs', () {
+      final pending = Booking(
+        id: 51,
+        venue: const Venue(name: 'North Courts'),
+        bookingType: 'matchmaking',
+        matchmakingLobbyId: 31,
+        status: 'matchmaking_pending_merchant',
+      );
+      final awaitingPayment = Booking(
+        id: 52,
+        venue: const Venue(name: 'North Courts'),
+        bookingType: 'matchmaking',
+        matchmakingLobbyId: 32,
+        status: 'matchmaking_open',
+        paymentStatus: 'unpaid',
+        paymentDueAt: '2026-11-12T02:00:00Z',
+        downpayment: 125,
+      );
+
+      expect(CustomerBookingController.bookingStatus(pending), 'pending');
+      expect(
+        CustomerBookingController.bookingStatus(awaitingPayment),
+        'approved',
+      );
+      expect(
+        CustomerBookingController.awaitingApprovalPayment(awaitingPayment),
+        isTrue,
+      );
+      expect(
+        CustomerBookingController.prototypePayableAmount(awaitingPayment),
+        125,
+      );
+      expect(
+        CustomerBookingController.isNotificationRelevant(awaitingPayment),
+        isTrue,
+      );
+    });
   });
 }

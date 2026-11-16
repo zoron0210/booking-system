@@ -11,6 +11,15 @@ class AppSettingsPage extends StatelessWidget {
   String _text(String english, String filipino, String languageCode) =>
       appLanguageText(english, filipino, languageCode: languageCode);
 
+  String _userFriendlySaveError(Object error) {
+    final message = error.toString();
+    if (message.contains('Unsupported app language') ||
+        message.contains('Unsupported notification sound')) {
+      return 'That option is not supported yet. Please try a different choice.';
+    }
+    return 'Your settings could not be saved. Please try again.';
+  }
+
   Future<void> _update(
     BuildContext context,
     Future<void> Function() action,
@@ -19,14 +28,12 @@ class AppSettingsPage extends StatelessWidget {
       await action();
     } on Exception catch (error) {
       if (!context.mounted) return;
+      debugPrint('Settings save failed: $error');
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: AppText(
-              'Could not save your settings: $error',
-              localize: true,
-            ),
+            content: AppText(_userFriendlySaveError(error), localize: true),
           ),
         );
     }
@@ -283,32 +290,62 @@ class _PaletteChoice extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  String get _label => '${_titleCase(palette.key)} theme';
+
+  static String _titleCase(String value) => value
+      .split('_')
+      .map(
+        (part) => part.isEmpty
+            ? part
+            : '${part[0].toUpperCase()}${part.substring(1)}',
+      )
+      .join(' ');
+
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
     selected: selected,
-    label: '${palette.key} theme color',
-    child: InkResponse(
+    label: '$_label color${selected ? ', selected' : ''}',
+    child: InkWell(
       key: ValueKey('app-settings-color-${palette.key}'),
       onTap: onTap,
-      radius: 30,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: palette.color,
-          border: Border.all(
-            color: selected
-                ? Theme.of(context).colorScheme.onSurface
-                : Colors.transparent,
-            width: 2,
-          ),
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        width: 72,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: palette.color,
+                border: Border.all(
+                  color: selected
+                      ? Theme.of(context).colorScheme.onSurface
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: selected
+                  ? const Icon(
+                      Icons.check_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 6),
+            AppText(
+              _titleCase(palette.key),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
-        child: selected
-            ? const Icon(Icons.check_rounded, color: Colors.white, size: 22)
-            : null,
       ),
     ),
   );
@@ -329,29 +366,44 @@ class _CustomColorChoice extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     button: true,
     selected: selected,
-    label: 'Custom theme color',
-    child: InkResponse(
+    label: 'Custom theme color${selected ? ', selected' : ''}',
+    child: InkWell(
       key: const ValueKey('app-settings-color-custom'),
       onTap: onTap,
-      radius: 30,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color,
-          border: Border.all(
-            color: selected
-                ? Theme.of(context).colorScheme.onSurface
-                : Colors.transparent,
-            width: 2,
-          ),
-        ),
-        child: Icon(
-          selected ? Icons.check_rounded : Icons.colorize_rounded,
-          color: AppColors.contrastingForeground(color),
-          size: 22,
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        width: 72,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color,
+                border: Border.all(
+                  color: selected
+                      ? Theme.of(context).colorScheme.onSurface
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: Icon(
+                selected ? Icons.check_rounded : Icons.colorize_rounded,
+                color: AppColors.contrastingForeground(color),
+                size: 22,
+              ),
+            ),
+            const SizedBox(height: 6),
+            AppText(
+              'Custom',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     ),

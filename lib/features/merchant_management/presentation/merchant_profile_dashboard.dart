@@ -5,13 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/app_preferences.dart';
 import 'package:myapp/features/activity_log/presentation/activity_log_routes.dart';
-import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/merchant_management/data/merchant_booking_repository.dart';
 import 'package:myapp/features/merchant_management/data/merchant_session_provider.dart';
 import 'package:myapp/features/merchant_management/domain/merchant_profile_performance.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_profile_dialogs.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_profile_performance_card.dart';
+import 'package:myapp/features/merchant_management/presentation/merchant_navigation_drawer.dart';
 import 'package:myapp/features/notifications/data/booking_push_notifications.dart';
 import 'package:myapp/features/settings/presentation/app_settings_page.dart';
 import 'package:myapp/features/notifications/data/booking_notifications.dart';
@@ -31,6 +31,7 @@ enum _MerchantProfileSetting {
   venueCheckIn,
   activityLog,
   appPreferences,
+  switchToCustomerPortal,
   helpCenter,
   termsOfService,
   logOut,
@@ -49,7 +50,9 @@ class MerchantProfileDashboardPage extends StatefulWidget {
     this.api,
     this.bookingRepository,
     this.onNavigate,
+    this.onSwitchToCustomerPortal,
     this.openBookingDeadlinesOnStart = false,
+    this.openSettingsOnStart = false,
     this.sessionProvider,
   });
 
@@ -63,7 +66,9 @@ class MerchantProfileDashboardPage extends StatefulWidget {
   final AuthApi? api;
   final MerchantBookingRepository? bookingRepository;
   final ValueChanged<int>? onNavigate;
+  final Future<void> Function(BuildContext context)? onSwitchToCustomerPortal;
   final bool openBookingDeadlinesOnStart;
+  final bool openSettingsOnStart;
   final MerchantSessionProvider? sessionProvider;
 
   @override
@@ -85,6 +90,7 @@ class _MerchantProfileDashboardPageState
   String _performancePeriod = 'Today';
   bool _matchNotificationsEnabled = false;
   bool _updatingMatchNotificationSetting = false;
+  late bool _settingsVisible;
 
   MerchantProfilePerformance get _performance =>
       MerchantProfilePerformance.calculate(
@@ -104,6 +110,7 @@ class _MerchantProfileDashboardPageState
     _profileImage = widget.profileImage;
     _bookings = widget.bookings;
     _businesses = widget.businesses;
+    _settingsVisible = widget.openSettingsOnStart;
     _loadMatchNotificationSetting();
     if (widget.openBookingDeadlinesOnStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -343,18 +350,40 @@ class _MerchantProfileDashboardPageState
 
   @override
   Widget build(BuildContext context) {
+    if (_settingsVisible) return _settingsPage();
+
     final owner = _owner;
     final name = '${owner['firstName'] ?? ''} ${owner['lastName'] ?? ''}'
         .trim();
-    final email = owner['email'] as String? ?? 'Account email';
-    final phone = owner['phone'] as String? ?? 'Phone not provided';
+    final email = '${owner['email'] ?? ''}'.trim();
+    final phone = '${owner['phone'] ?? ''}'.trim();
 
     return Scaffold(
       backgroundColor: AppColors.page,
+      drawer: MerchantNavigationDrawer(
+        owner: owner,
+        profileImage: _profileImage,
+        selectedIndex: 4,
+        onDestinationSelected: _selectMerchantDrawerDestination,
+        onSettingsSelected: _openSettings,
+        onLogout: widget.onLogout,
+        onHelpCenterSelected: () =>
+            unawaited(_handleSetting(_MerchantProfileSetting.helpCenter)),
+        onTermsOfServiceSelected: () =>
+            unawaited(_handleSetting(_MerchantProfileSetting.termsOfService)),
+      ),
       appBar: AppBar(
         toolbarHeight: 56,
         titleSpacing: 16,
         leadingWidth: 56,
+        leading: Builder(
+          builder: (context) => IconButton(
+            key: const ValueKey('merchant-sidebar-toggle'),
+            tooltip: 'Open merchant menu',
+            icon: const Icon(Icons.menu_rounded),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         titleTextStyle: AppTypography.pageTitle,
         title: Row(
           children: [
@@ -404,14 +433,6 @@ class _MerchantProfileDashboardPageState
         foregroundColor: _profileInk,
         elevation: 0,
         scrolledUnderElevation: 0,
-        actions: [
-          IconButton(
-            key: const ValueKey('merchant-profile-settings'),
-            tooltip: appLanguageText('Settings', 'Settings'),
-            onPressed: _openSettings,
-            icon: const Icon(Icons.settings_outlined),
-          ),
-        ],
       ),
       body: RefreshIndicator(
         key: _profileRefreshKey,
@@ -424,300 +445,198 @@ class _MerchantProfileDashboardPageState
             const SizedBox(height: 6),
             _profileCard(name, email, phone),
             const SizedBox(height: 6),
+            _businessOverviewCard(),
+            const SizedBox(height: 6),
             _performanceCard(),
             const SizedBox(height: 6),
             _quickToolsCard(),
-            const SizedBox(height: 6),
-            _businessOverviewCard(),
           ],
         ),
-      ),
-      bottomNavigationBar: AppBottomNavigation(
-        merchantMode: true,
-        selectedIndex: 4,
-        onDestinationReselected: _refreshAndScrollToTop,
-        onDestinationSelected: (index) {
-          if (index == 4) return;
-          widget.onNavigate?.call(index);
-          Navigator.of(context).pop();
-        },
       ),
     );
   }
 
-  Future<void> _openSettings() async {
-    final setting = await showGeneralDialog<_MerchantProfileSetting>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Close settings',
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 280),
-      pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
-        alignment: Alignment.centerRight,
-        child: Material(
-          color: Theme.of(dialogContext).colorScheme.surface,
-          elevation: 12,
-          child: SizedBox(
-            width: MediaQuery.sizeOf(dialogContext).width * .82,
-            height: double.infinity,
-            child: SafeArea(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.settings_outlined,
-                          color: Color(0xFFFF8200),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: AppText(
-                            appLanguageText('Settings', 'Mga Setting'),
-                            style: Theme.of(dialogContext).textTheme.titleLarge
-                                ?.copyWith(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: appLanguageText(
-                            'Close settings',
-                            'Close settings',
-                          ),
-                          onPressed: () => Navigator.pop(dialogContext),
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                      ],
+  void _selectMerchantDrawerDestination(int index) {
+    if (index == 4) {
+      unawaited(_refreshAndScrollToTop());
+      return;
+    }
+    widget.onNavigate?.call(index);
+    Navigator.of(context).pop();
+  }
+
+  void _openSettings() {
+    setState(() => _settingsVisible = true);
+  }
+
+  Widget _settingsPage() => Scaffold(
+    backgroundColor: AppColors.page,
+    appBar: AppBar(
+      leading: IconButton(
+        key: const ValueKey('merchant-settings-close'),
+        tooltip: appLanguageText('Close settings', 'Close settings'),
+        onPressed: () {
+          if (widget.openSettingsOnStart) {
+            Navigator.of(context).pop();
+          } else {
+            setState(() => _settingsVisible = false);
+          }
+        },
+        icon: const Icon(Icons.arrow_back_rounded),
+      ),
+      title: Row(
+        children: [
+          const Icon(Icons.settings_outlined, color: Color(0xFFFF8200)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: AppText(
+              appLanguageText('Settings', 'Mga Setting'),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    ),
+    body: SafeArea(
+      child: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                Divider(height: 1, color: _profileLine),
+                const SizedBox(height: 6),
+                if (BookingNotifications.instance.isSupported ||
+                    BookingPushNotifications.instance.isSupported)
+                  ListTile(
+                    key: const ValueKey('merchant-settings-notifications'),
+                    leading: const Icon(Icons.notifications_active_outlined),
+                    title: AppText(
+                      appLanguageText(
+                        'Notification settings',
+                        'Mga setting ng notification',
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      children: [
-                        Divider(height: 1, color: _profileLine),
-                        const SizedBox(height: 6),
-                        if (BookingNotifications.instance.isSupported ||
-                            BookingPushNotifications.instance.isSupported)
-                          ListTile(
-                            key: const ValueKey(
-                              'merchant-settings-notifications',
-                            ),
-                            leading: const Icon(
-                              Icons.notifications_active_outlined,
-                            ),
-                            title: AppText(
-                              appLanguageText(
-                                'Notification settings',
-                                'Mga setting ng notification',
-                              ),
-                            ),
-                            subtitle: const AppText(
-                              'Manage booking and match alerts',
-                              localize: true,
-                            ),
-                            trailing: const Icon(Icons.chevron_right_rounded),
-                            onTap: () =>
-                                _openInAppNotificationSettings(dialogContext),
-                          ),
-                        ListTile(
-                          key: const ValueKey('merchant-settings-appearance'),
-                          leading: const Icon(Icons.palette_outlined),
-                          title: AppText(
-                            appLanguageText(
-                              'Appearance & language',
-                              'Hitsura at wika',
-                            ),
-                          ),
-                          onTap: () => Navigator.pop(
-                            dialogContext,
-                            _MerchantProfileSetting.appPreferences,
-                          ),
-                        ),
-                        ListTile(
-                          key: const ValueKey('merchant-settings-edit-profile'),
-                          leading: const Icon(Icons.edit_outlined),
-                          title: AppText(
-                            appLanguageText(
-                              'Edit profile',
-                              'I-edit ang profile',
-                            ),
-                          ),
-                          onTap: () => Navigator.pop(
-                            dialogContext,
-                            _MerchantProfileSetting.editProfile,
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: AppText(
-                              appLanguageText(
-                                'VENUE TOOLS',
-                                'MGA TOOL SA VENUE',
-                              ),
-                              style: TextStyle(
-                                color: _profileMuted,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: .8,
-                              ),
-                            ),
-                          ),
-                        ),
-                        ListTile(
-                          key: const ValueKey(
-                            'merchant-settings-venue-check-in',
-                          ),
-                          leading: const Icon(Icons.qr_code_2_rounded),
-                          title: const AppText(
-                            'Venue arrival check-in',
-                            localize: true,
-                          ),
-                          subtitle: const AppText(
-                            'Show a venue QR code to record customer arrivals',
-                            localize: true,
-                          ),
-                          trailing: const Icon(Icons.chevron_right_rounded),
-                          onTap: () => Navigator.pop(
-                            dialogContext,
-                            _MerchantProfileSetting.venueCheckIn,
-                          ),
-                        ),
-                        ListTile(
-                          key: const ValueKey(
-                            'merchant-settings-booking-deadlines',
-                          ),
-                          leading: const Icon(Icons.timer_outlined),
-                          title: AppText(
-                            appLanguageText(
-                              'Booking deadlines',
-                              'Mga deadline ng booking',
-                            ),
-                          ),
-                          subtitle: AppText(
-                            appLanguageText(
-                              'Set approval and payment time limits',
-                              'Itakda ang oras para sa pag-apruba at pagbabayad',
-                            ),
-                          ),
-                          onTap: () => Navigator.pop(
-                            dialogContext,
-                            _MerchantProfileSetting.bookingDeadlines,
-                          ),
-                        ),
-                        ListTile(
-                          key: const ValueKey('merchant-settings-activity-log'),
-                          leading: const Icon(Icons.history_rounded),
-                          title: AppText(
-                            appLanguageText(
-                              'Activity log',
-                              'Tala ng aktibidad',
-                            ),
-                          ),
-                          onTap: () => Navigator.pop(
-                            dialogContext,
-                            _MerchantProfileSetting.activityLog,
-                          ),
-                        ),
-                        ListTile(
-                          key: const ValueKey('merchant-settings-logout'),
-                          leading: const Icon(
-                            Icons.logout_rounded,
-                            color: Colors.red,
-                          ),
-                          title: AppText(
-                            appLanguageText('Log out', 'Mag-log out'),
-                            style: TextStyle(color: Colors.red),
-                          ),
-                          onTap: () => Navigator.pop(
-                            dialogContext,
-                            _MerchantProfileSetting.logOut,
-                          ),
-                        ),
-                      ],
+                    subtitle: const AppText(
+                      'Manage booking and match alerts',
+                      localize: true,
                     ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => _openInAppNotificationSettings(context),
                   ),
-                  Divider(height: 1, color: _profileLine),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: AppText(
-                        appLanguageText('SUPPORT', 'TULONG'),
-                        style: TextStyle(
-                          color: _profileMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: .8,
-                        ),
+                ListTile(
+                  key: const ValueKey('merchant-settings-appearance'),
+                  leading: const Icon(Icons.palette_outlined),
+                  title: AppText(
+                    appLanguageText('Appearance & language', 'Hitsura at wika'),
+                  ),
+                  onTap: () => unawaited(
+                    _handleSetting(_MerchantProfileSetting.appPreferences),
+                  ),
+                ),
+                ListTile(
+                  key: const ValueKey('merchant-settings-edit-profile'),
+                  leading: const Icon(Icons.edit_outlined),
+                  title: AppText(
+                    appLanguageText('Edit profile', 'I-edit ang profile'),
+                  ),
+                  onTap: () => unawaited(
+                    _handleSetting(_MerchantProfileSetting.editProfile),
+                  ),
+                ),
+                if (widget.onSwitchToCustomerPortal != null)
+                  ListTile(
+                    key: const ValueKey('merchant-settings-switch-to-customer'),
+                    leading: const Icon(Icons.person_outline_rounded),
+                    title: const AppText(
+                      'Switch to customer portal',
+                      localize: true,
+                    ),
+                    onTap: () => unawaited(
+                      _handleSetting(
+                        _MerchantProfileSetting.switchToCustomerPortal,
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: MerchantSupportSettingTile(
-                            key: const ValueKey(
-                              'merchant-settings-help-center',
-                            ),
-                            icon: Icons.help_outline_rounded,
-                            title: appLanguageText(
-                              'Help Center',
-                              'Sentro ng Tulong',
-                            ),
-                            onTap: () => Navigator.pop(
-                              dialogContext,
-                              _MerchantProfileSetting.helpCenter,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: MerchantSupportSettingTile(
-                            key: const ValueKey(
-                              'merchant-settings-terms-of-service',
-                            ),
-                            icon: Icons.description_outlined,
-                            title: appLanguageText(
-                              'Terms of Service',
-                              'Mga Tuntunin',
-                            ),
-                            onTap: () => Navigator.pop(
-                              dialogContext,
-                              _MerchantProfileSetting.termsOfService,
-                            ),
-                          ),
-                        ),
-                      ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: AppText(
+                      appLanguageText('VENUE TOOLS', 'MGA TOOL SA VENUE'),
+                      style: TextStyle(
+                        color: _profileMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .8,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      transitionBuilder: (context, animation, secondaryAnimation, child) =>
-          SlideTransition(
-            position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
-                .animate(
-                  CurvedAnimation(
-                    parent: animation,
-                    curve: Curves.easeOutCubic,
+                ),
+                ListTile(
+                  key: const ValueKey('merchant-settings-venue-check-in'),
+                  leading: const Icon(Icons.qr_code_2_rounded),
+                  title: const AppText(
+                    'Venue arrival check-in',
+                    localize: true,
+                  ),
+                  subtitle: const AppText(
+                    'Show a venue QR code to record customer arrivals',
+                    localize: true,
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => unawaited(
+                    _handleSetting(_MerchantProfileSetting.venueCheckIn),
                   ),
                 ),
-            child: child,
+                ListTile(
+                  key: const ValueKey('merchant-settings-booking-deadlines'),
+                  leading: const Icon(Icons.timer_outlined),
+                  title: AppText(
+                    appLanguageText(
+                      'Booking deadlines',
+                      'Mga deadline ng booking',
+                    ),
+                  ),
+                  subtitle: AppText(
+                    appLanguageText(
+                      'Set approval and payment time limits',
+                      'Itakda ang oras para sa pag-apruba at pagbabayad',
+                    ),
+                  ),
+                  onTap: () => unawaited(
+                    _handleSetting(_MerchantProfileSetting.bookingDeadlines),
+                  ),
+                ),
+                ListTile(
+                  key: const ValueKey('merchant-settings-activity-log'),
+                  leading: const Icon(Icons.history_rounded),
+                  title: AppText(
+                    appLanguageText('Activity log', 'Tala ng aktibidad'),
+                  ),
+                  onTap: () => unawaited(
+                    _handleSetting(_MerchantProfileSetting.activityLog),
+                  ),
+                ),
+                ListTile(
+                  key: const ValueKey('merchant-settings-logout'),
+                  leading: const Icon(Icons.logout_rounded, color: Colors.red),
+                  title: AppText(
+                    appLanguageText('Log out', 'Mag-log out'),
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () =>
+                      unawaited(_handleSetting(_MerchantProfileSetting.logOut)),
+                ),
+              ],
+            ),
           ),
-    );
-    if (!mounted || setting == null) return;
-    await _handleSetting(setting);
-  }
+          Divider(height: 1, color: _profileLine),
+        ],
+      ),
+    ),
+  );
 
   Future<void> _handleSetting(_MerchantProfileSetting setting) async {
     switch (setting) {
@@ -746,6 +665,9 @@ class _MerchantProfileDashboardPageState
                 AppSettingsPage(preferences: AppPreferences.instance),
           ),
         );
+        return;
+      case _MerchantProfileSetting.switchToCustomerPortal:
+        await widget.onSwitchToCustomerPortal?.call(context);
         return;
       case _MerchantProfileSetting.helpCenter:
         await Navigator.of(context).push(
@@ -949,46 +871,45 @@ class _MerchantProfileDashboardPageState
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 3),
               AppText(
-                email,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: _profileMuted),
+                'Merchant account',
+                style: TextStyle(color: _profileMuted, fontSize: 12),
+                localize: true,
               ),
-              AppText(
-                phone,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: _profileMuted),
-              ),
-              const SizedBox(height: 6),
-              const Row(
-                children: [
-                  Icon(Icons.verified_rounded, size: 15, color: Colors.green),
-                  SizedBox(width: 6),
-                  AppText(
-                    'Verified Host',
-                    style: TextStyle(
-                      color: Colors.green,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    localize: true,
-                  ),
-                ],
-              ),
-              if ('${_owner['businessName'] ?? ''}'.trim().isNotEmpty) ...[
-                const SizedBox(height: 6),
+              if (email.isNotEmpty)
                 AppText(
-                  '${_owner['businessName']}',
-                  maxLines: 1,
+                  email,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _profileInk,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
+                  style: TextStyle(color: _profileMuted),
+                ),
+              if (phone.isNotEmpty)
+                AppText(
+                  phone,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: _profileMuted),
+                ),
+              if (email.isEmpty && phone.isEmpty)
+                AppText(
+                  'Add contact details to complete your account information.',
+                  style: TextStyle(color: _profileMuted, fontSize: 12),
+                  localize: true,
+                ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('merchant-profile-edit-account'),
+                  onPressed: () => unawaited(
+                    _handleSetting(_MerchantProfileSetting.editProfile),
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const AppText('Edit account details', localize: true),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),
@@ -1005,26 +926,26 @@ class _MerchantProfileDashboardPageState
   );
 
   Widget _quickToolsCard() => _sectionCard(
-    title: 'Quick tools',
+    title: 'Manage your business',
     children: [
       _quickTool(
         icon: Icons.calendar_month_rounded,
-        title: 'Schedule',
-        subtitle: 'Review booking requests and schedule',
+        title: 'Bookings & payments',
+        subtitle: 'Review requests, arrivals, and customer payments',
         color: const Color(0xFF1C69C9),
         onTap: () => _navigateToManagement(3),
       ),
       _quickTool(
-        icon: Icons.sell_outlined,
-        title: 'Pricing / Promo',
-        subtitle: 'Manage venues, pricing, and offers',
+        icon: Icons.storefront_outlined,
+        title: 'Venues & listings',
+        subtitle: 'Update venue details and published cards',
         color: const Color(0xFFE28A16),
         onTap: () => _navigateToManagement(1),
       ),
       _quickTool(
         icon: Icons.query_stats_rounded,
-        title: 'Stats',
-        subtitle: 'Open full performance analytics',
+        title: 'Business analytics',
+        subtitle: 'Compare bookings, revenue, and venue performance',
         color: const Color(0xFF7655C5),
         onTap: () => _navigateToManagement(0),
       ),
@@ -1033,25 +954,29 @@ class _MerchantProfileDashboardPageState
 
   Widget _businessOverviewCard() {
     final businessName = '${_owner['businessName'] ?? ''}'.trim();
-    final completionChecks = [
-      businessName.isNotEmpty,
-      '${_owner['address'] ?? ''}'.trim().isNotEmpty,
-      _businesses.any(_businessHasImage),
-      _businesses.isNotEmpty,
-    ];
-    final completed = completionChecks.where((value) => value).length;
-    final ratings = _businesses
-        .map((business) => _number(business['averageRating']))
-        .where((rating) => rating > 0)
-        .toList();
-    final rating = ratings.isEmpty
+    final publishedNewsCardCount = _businesses
+        .where(_hasPublishedNewsCard)
+        .length;
+    final reviewCounts = _businesses.map(_businessReviewCount).toList();
+    final reviewCount = reviewCounts.fold<int>(
+      0,
+      (total, count) => total + count,
+    );
+    var weightedRatingTotal = 0.0;
+    var ratingDataIsComplete = true;
+    for (var index = 0; index < _businesses.length; index++) {
+      final count = reviewCounts[index];
+      if (count == 0) continue;
+      final rating = _businessAverageRating(_businesses[index]);
+      if (rating == null) {
+        ratingDataIsComplete = false;
+        continue;
+      }
+      weightedRatingTotal += rating * count;
+    }
+    final averageRating = reviewCount == 0 || !ratingDataIsComplete
         ? null
-        : ratings.reduce((first, second) => first + second) / ratings.length;
-    final openVenues = _businesses.where((business) {
-      final availability = '${business['availability'] ?? ''}'.toLowerCase();
-      return availability.contains('open') ||
-          availability.contains('available');
-    }).length;
+        : weightedRatingTotal / reviewCount;
     final recentBookings = [..._bookings]
       ..sort((first, second) {
         final firstDate = DateTime.tryParse(
@@ -1066,7 +991,7 @@ class _MerchantProfileDashboardPageState
       });
 
     return _sectionCard(
-      title: 'Business overview',
+      title: 'Your business at a glance',
       children: [
         Row(
           children: [
@@ -1082,14 +1007,19 @@ class _MerchantProfileDashboardPageState
                 ),
               ),
             ),
-            if (rating != null) ...[
-              AppRatingStars(rating: rating, size: 14, spacing: 1),
+            if (averageRating != null) ...[
+              AppRatingStars(rating: averageRating, size: 14, spacing: 1),
               AppText(
-                rating.toStringAsFixed(1),
+                averageRating.toStringAsFixed(1),
                 style: TextStyle(
                   color: _profileInk,
                   fontWeight: FontWeight.w800,
                 ),
+              ),
+              const SizedBox(width: 3),
+              AppText(
+                '($reviewCount)',
+                style: TextStyle(color: _profileMuted, fontSize: 11),
               ),
             ],
           ],
@@ -1098,37 +1028,50 @@ class _MerchantProfileDashboardPageState
         Row(
           children: [
             Icon(
-              openVenues > 0 ? Icons.circle : Icons.circle_outlined,
-              size: 10,
-              color: openVenues > 0 ? const Color(0xFF168B69) : _profileMuted,
+              _businesses.isEmpty
+                  ? Icons.info_outline_rounded
+                  : Icons.campaign_outlined,
+              size: 16,
+              color: _businesses.isEmpty ? _profileMuted : _profileAccent,
             ),
             const SizedBox(width: 6),
             Expanded(
               child: AppText(
                 _businesses.isEmpty
-                    ? 'No venues added yet'
-                    : '$openVenues of ${_businesses.length} venues marked open or available',
+                    ? 'Add a venue to start accepting customer bookings.'
+                    : '$publishedNewsCardCount of ${_businesses.length} venues have a published News Card',
                 style: TextStyle(color: _profileMuted, fontSize: 12),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        AppText(
-          'Profile completion · $completed/${completionChecks.length}',
-          style: TextStyle(
-            color: _profileInk,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
+        if (_businesses.isNotEmpty &&
+            publishedNewsCardCount < _businesses.length) ...[
+          const SizedBox(height: 3),
+          AppText(
+            'A published News Card helps eligible listings appear to customers.',
+            style: TextStyle(color: _profileMuted, fontSize: 11),
+            localize: true,
           ),
-        ),
-        const SizedBox(height: 6),
-        LinearProgressIndicator(
-          value: completed / completionChecks.length,
-          minHeight: 6,
-          borderRadius: BorderRadius.circular(6),
-          backgroundColor: AppColors.surfaceVariant,
-          color: const Color(0xFF1C69C9),
+        ],
+        if (reviewCount > 0) ...[
+          const SizedBox(height: 3),
+          AppText(
+            '$reviewCount customer review${reviewCount == 1 ? '' : 's'} across your venues',
+            style: TextStyle(color: _profileMuted, fontSize: 11),
+            localize: true,
+          ),
+        ],
+        const SizedBox(height: 3),
+        TextButton.icon(
+          key: const ValueKey('merchant-profile-manage-venues'),
+          onPressed: () => _navigateToManagement(1),
+          icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+          label: const AppText('Manage venues and listings', localize: true),
+          style: TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+          ),
         ),
         if (recentBookings.isNotEmpty) ...[
           const SizedBox(height: 6),
@@ -1218,17 +1161,34 @@ class _MerchantProfileDashboardPageState
     ),
   );
 
-  bool _businessHasImage(Map<String, dynamic> business) {
-    final image = '${business['imageUrl'] ?? business['image_url'] ?? ''}'
-        .trim();
-    final images = business['imageUrls'] ?? business['image_urls'];
-    return image.isNotEmpty ||
-        (images is List &&
-            images.whereType<String>().any((value) => value.trim().isNotEmpty));
+  bool _hasPublishedNewsCard(Map<String, dynamic> business) {
+    final value =
+        business['hasPublishedNewsCard'] ?? business['has_published_news_card'];
+    return value == true ||
+        value == 1 ||
+        value == '1' ||
+        value == 'true' ||
+        value == 'TRUE';
   }
 
-  double _number(dynamic value) =>
-      value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+  int _integer(dynamic value) =>
+      value is num ? value.toInt() : int.tryParse('$value') ?? 0;
+
+  int _businessReviewCount(Map<String, dynamic> business) {
+    final count = _integer(business['reviewCount']);
+    return count > 0 ? count : 0;
+  }
+
+  double? _businessAverageRating(Map<String, dynamic> business) {
+    final rawRating = business['averageRating'];
+    final rating = rawRating is num
+        ? rawRating.toDouble()
+        : double.tryParse('$rawRating');
+    if (rating == null || !rating.isFinite || rating < 0 || rating > 5) {
+      return null;
+    }
+    return rating;
+  }
 
   void _navigateToManagement(int index) {
     widget.onNavigate?.call(index);

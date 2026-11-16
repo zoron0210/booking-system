@@ -86,6 +86,9 @@ class Booking {
   const Booking({
     required this.id,
     required this.venue,
+    this.bookingType = 'regular',
+    this.matchmakingLobbyId,
+    this.matchmakingStatus = '',
     this.date = '',
     this.startTime = '',
     this.durationHours = 0,
@@ -122,6 +125,9 @@ class Booking {
 
   final int? id;
   final Venue venue;
+  final String bookingType;
+  final int? matchmakingLobbyId;
+  final String matchmakingStatus;
   final String date;
   final String startTime;
   final double durationHours;
@@ -158,6 +164,9 @@ class Booking {
   factory Booking.fromJson(Map<String, dynamic> json) => Booking(
     id: _intValue(json['id']),
     venue: Venue.fromJson(json),
+    bookingType: _text(json['bookingType'], fallback: 'regular').toLowerCase(),
+    matchmakingLobbyId: _intValue(json['matchmakingLobbyId']),
+    matchmakingStatus: _text(json['matchmakingStatus']),
     date: _text(json['date']),
     startTime: _text(json['startTime']),
     durationHours: _doubleValue(json['durationHours']),
@@ -204,6 +213,9 @@ class Booking {
   @Deprecated('Use typed Booking fields and booking.venue properties instead.')
   dynamic operator [](String key) => switch (key) {
     'id' => id,
+    'bookingType' => bookingType,
+    'matchmakingLobbyId' => matchmakingLobbyId,
+    'matchmakingStatus' => matchmakingStatus,
     'venueId' => venue.id,
     'venueName' => venue.name,
     'businessType' => venue.businessType,

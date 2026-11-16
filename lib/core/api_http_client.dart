@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.1.20:3000',
+  defaultValue: 'http://192.168.1.15:3000',
 );
 
 final _requestIdPattern = RegExp(

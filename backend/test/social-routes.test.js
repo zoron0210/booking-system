@@ -136,14 +136,24 @@ test('creates an authenticated upload URL only for bounded supported photos', as
     body: { contentType: 'image/png', size: 1024 },
   });
   assert.equal(unavailable.statusCode, 503);
+  assert.equal(unavailable.body.legacyUploadsAllowed, true);
+
+  const legacyDisabled = createRouteHarness({}, { allowLegacyBase64: false });
+  const storageRequired = await call(legacyDisabled, 'POST /api/social/uploads', {
+    body: { contentType: 'image/png', size: 1024 },
+  });
+  assert.equal(storageRequired.statusCode, 503);
+  assert.equal(storageRequired.body.legacyUploadsAllowed, false);
 });
 
 test('social feeds return expiring read URLs for stored media keys', async () => {
   const mediaKey = 'gcs://social-posts/42/11111111-1111-4111-8111-111111111111.png';
   const readUrl = 'https://storage.googleapis.com/test-bucket/photo?signature=read';
+  let feedQuery;
   const routes = createRouteHarness({
     async execute(sql) {
       if (sql.includes('FROM social_posts p')) {
+        feedQuery = sql;
         return [[{
           id: 20,
           userId: 42,
@@ -171,6 +181,8 @@ test('social feeds return expiring read URLs for stored media keys', async () =>
   });
 
   assert.equal(result.statusCode, 200);
+  assert.match(feedQuery, /p\.club_id IS NULL/);
+  assert.match(feedQuery, /ORDER BY p\.created_at DESC, p\.id DESC/);
   assert.deepEqual(result.body.posts[0].images, [readUrl]);
 });
 
@@ -345,7 +357,7 @@ test('merchant profiles include only currently enabled published venues', async 
   assert.match(profileQuery.sql, /u\.hobby/);
   assert.match(
     profileQuery.sql,
-    /\(SELECT COUNT\(\*\) FROM social_posts p\s+WHERE p\.user_id = u\.id\) AS postsCount/,
+    /\(SELECT COUNT\(\*\) FROM social_posts p\s+WHERE p\.user_id = u\.id AND p\.club_id IS NULL\) AS postsCount/,
   );
   assert.doesNotMatch(profileQuery.sql, /merchant_news/);
   const venueQuery = calls.find(({ sql }) => sql.includes('FROM merchant_businesses b'));
@@ -787,6 +799,62 @@ test('saves a caption and valid photos in one transaction', async () => {
   assert.deepEqual(newPostNotifications.params, [7, 35, 35, 7, 7, 7]);
 });
 
+test('requires club membership before creating a club post', async () => {
+  const calls = [];
+  let rolledBack = false;
+  const connection = {
+    async beginTransaction() {},
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM users')) return [[{ id: 7 }], []];
+      if (sql.includes('FROM social_club_members')) return [[], []];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+    async rollback() {
+      rolledBack = true;
+    },
+    async commit() {
+      throw new Error('A non-member must not post.');
+    },
+    release() {},
+  };
+  const routes = createRouteHarness({
+    async getConnection() {
+      return connection;
+    },
+  });
+
+  const result = await call(routes, 'POST /api/social/posts', {
+    body: { caption: 'Club update', images: [pngDataUrl], clubId: 31 },
+  });
+
+  assert.equal(result.statusCode, 403);
+  assert.match(result.body.error, /Join this club/);
+  assert.equal(rolledBack, true);
+  assert.equal(
+    calls.some(({ sql }) => sql.includes('INSERT INTO social_posts')),
+    false,
+  );
+});
+
+test('requires a photo before creating a club post', async () => {
+  let connections = 0;
+  const routes = createRouteHarness({
+    async getConnection() {
+      connections += 1;
+      throw new Error('A club post without a photo must be rejected.');
+    },
+  });
+
+  const result = await call(routes, 'POST /api/social/posts', {
+    body: { caption: 'Club update', images: [], clubId: 31 },
+  });
+
+  assert.equal(result.statusCode, 400);
+  assert.match(result.body.error, /at least one .* photo/i);
+  assert.equal(connections, 0);
+});
+
 test('promotes owned staged photos before storing a post', async () => {
   const calls = [];
   const stagedKey =
@@ -843,7 +911,7 @@ test('promotes owned staged photos before storing a post', async () => {
     'https://storage.googleapis.com/test-bucket/photo?signature=read',
   ]);
   assert.deepEqual(
-    JSON.parse(calls.find(({ sql }) => sql.includes('INSERT INTO social_posts')).params[2]),
+    JSON.parse(calls.find(({ sql }) => sql.includes('INSERT INTO social_posts')).params[3]),
     [postKey],
   );
   assert.equal(committed, true);
@@ -1007,6 +1075,57 @@ test('creates a one-way follow after checking the target account and block list'
     });
     assert.deepEqual(unsaved.body, { isSaved: false });
     assert.equal(calls.length, 3);
+  });
+
+  test('users can delete only their own posts and remove their stored media', async () => {
+    const calls = [];
+    const deletedImages = [];
+    const routes = createRouteHarness({
+      async execute(sql, params) {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT images_json AS imagesJson')) {
+          return [[{ imagesJson: JSON.stringify([
+            'gcs://social-posts/7/11111111-1111-4111-8111-111111111111.png',
+          ]) }], []];
+        }
+        if (sql.includes('DELETE FROM social_posts')) {
+          return [{ affectedRows: 1 }, []];
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    }, {
+      mediaStorage: {
+        async deleteImages(images) {
+          deletedImages.push(...images);
+        },
+      },
+    });
+
+    const deleted = await call(routes, 'DELETE /api/social/posts/:postId', {
+      params: { postId: '35' },
+    });
+
+    assert.equal(deleted.statusCode, 200);
+    assert.deepEqual(deleted.body, { deleted: true });
+    assert.deepEqual(deletedImages, [
+      'gcs://social-posts/7/11111111-1111-4111-8111-111111111111.png',
+    ]);
+    assert.deepEqual(calls.map(({ params }) => params), [[35, 7], [35, 7]]);
+    assert.match(calls[1].sql, /id = \? AND user_id = \?/);
+
+    const notOwner = createRouteHarness({
+      async execute(sql) {
+        assert.match(sql, /user_id = \?/);
+        return [[], []];
+      },
+    });
+    const rejected = await call(
+      notOwner,
+      'DELETE /api/social/posts/:postId',
+      { params: { postId: '35' }, auth: { sub: 8, role: 'customer' } },
+    );
+    assert.equal(rejected.statusCode, 404);
+    assert.equal(rejected.body.error, 'Post not found.');
   });
 
   test('reports a visible post once and validates the report reason', async () => {

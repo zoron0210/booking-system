@@ -150,6 +150,31 @@ class AuthApi implements ApiTransport {
     );
   }
 
+  Future<void> registerMatchDiscoveryDevice({
+    required String token,
+    required String fcmToken,
+    required String sound,
+  }) async {
+    await _request(
+      'PUT',
+      '/api/notifications/match-discovery-device',
+      body: {'fcmToken': fcmToken, 'sound': sound},
+      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    );
+  }
+
+  Future<void> unregisterMatchDiscoveryDevice({
+    required String token,
+    required String fcmToken,
+  }) async {
+    await _request(
+      'DELETE',
+      '/api/notifications/match-discovery-device',
+      body: {'fcmToken': fcmToken},
+      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    );
+  }
+
   Future<Map<String, dynamic>> merchantBookingDeadlines(String token) =>
       _request(
         'GET',
@@ -258,6 +283,19 @@ class AuthApi implements ApiTransport {
       'PUT',
       '/api/merchant/businesses/$id/status',
       body: {'enabled': enabled},
+      headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
+    );
+  }
+
+  Future<void> setMerchantBusinessMatchmaking({
+    required String token,
+    required int id,
+    required bool allowMatchmaking,
+  }) async {
+    await _request(
+      'PUT',
+      '/api/merchant/businesses/$id/matchmaking',
+      body: {'allowMatchmaking': allowMatchmaking},
       headers: _authHeaders(token, extra: {'Content-Type': 'application/json'}),
     );
   }
@@ -446,7 +484,10 @@ class AuthApi implements ApiTransport {
     final response = await httpClient.request(
       'POST',
       '/api/auth/refresh',
-      body: {'refreshToken': refreshToken},
+      body: {
+        'refreshToken': refreshToken,
+        if (session.role != null) 'portalMode': session.role,
+      },
       headers: {'Content-Type': 'application/json'},
     );
     final token = response['token'];

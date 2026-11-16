@@ -224,136 +224,169 @@ extension _MerchantDashboardAnalyticsSection on _MerchantDashboardPageState {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 104),
       children: [
-        if (!_loading && _businesses.isEmpty) ...[
+        _merchantSectionLoadStatus(
+          key: 'merchant-businesses',
+          title: 'businesses',
+          loading: _businessesLoading,
+          loaded: _businessesLoaded,
+          error: _businessesLoadError,
+          onRetry: _loadBusinesses,
+        ),
+        _merchantSectionLoadStatus(
+          key: 'merchant-bookings',
+          title: 'bookings and payment data',
+          loading: _bookingsLoading,
+          loaded: _bookingsLoaded,
+          error: _bookingsLoadError,
+          onRetry: _loadBookings,
+        ),
+        _merchantSectionLoadStatus(
+          key: 'merchant-matchmaking',
+          title: 'matchmaking requests',
+          loading: _matchmakingLoading,
+          loaded: _matchmakingLoaded,
+          error: _matchmakingLoadError,
+          onRetry: _loadMatchmakingRequests,
+        ),
+        if (_businessesLoaded && _businesses.isEmpty) ...[
           _merchantFirstBusinessOnboarding,
           const SizedBox(height: _analyticsElementGap),
         ],
         _merchantActionCenter,
-        const SizedBox(height: AppSpacing.large),
-        Row(
-          children: [
-            AppText(
-              'Data analytics',
-              style: TextStyle(
-                color: _merchantInk,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-              ),
-              localize: true,
-            ),
-            IconButton(
-              key: const ValueKey('merchant-analytics-info'),
-              tooltip: appLanguageText(
-                'About data analytics',
-                'About data analytics',
-              ),
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  title: const AppText('Data analytics', localize: true),
-                  content: const AppText(
-                    'Track sales, customers, and venue performance.',
-                    localize: true,
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      child: const AppText('Got it', localize: true),
-                    ),
-                  ],
-                ),
-              ),
-              icon: Icon(
-                Icons.info_outline_rounded,
-                color: _merchantMuted,
-                size: 19,
-              ),
-              visualDensity: VisualDensity.compact,
-              padding: AppSpacing.buttonPadding,
-              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-            ),
-            const Spacer(),
-            OutlinedButton.icon(
-              key: const ValueKey('merchant-analytics-date-filter'),
-              onPressed: _chooseAnalyticsDateRange,
-              icon: const Icon(Icons.calendar_month_outlined, size: 17),
-              label: AppText(
-                _analyticsDateRange == null
-                    ? 'Date range'
-                    : _analyticsDateRangeLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppPreferences.instance.darkMode
-                    ? AppColors.accessibleForeground(
-                        _merchantOrange,
-                        AppColors.darkSoftOrangeAlt,
-                      )
-                    : _merchantNavy,
-                backgroundColor: AppPreferences.instance.darkMode
-                    ? AppColors.darkSoftOrangeAlt
-                    : null,
-                side: BorderSide(
-                  color: AppPreferences.instance.darkMode
-                      ? _merchantOrange
-                      : _merchantLine,
-                ),
-                minimumSize: const Size(0, 44),
-                padding: AppSpacing.buttonPadding,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.medium),
-        _analyticsViewSelector,
-        const SizedBox(height: AppSpacing.medium),
-        _analyticsBookingTypeFilter,
-        const SizedBox(height: AppSpacing.medium),
-        SegmentedButton<String>(
-          key: const ValueKey('merchant-analytics-period'),
-          style: _analyticsFilterStyle,
-          showSelectedIcon: false,
-          segments: const [
-            ButtonSegment(
-              value: 'Daily',
-              label: AppText('Daily', localize: true),
-            ),
-            ButtonSegment(
-              value: 'Weekly',
-              label: AppText('Weekly', localize: true),
-            ),
-            ButtonSegment(
-              value: 'Monthly',
-              label: AppText('Monthly', localize: true),
-            ),
-            ButtonSegment(
-              value: 'Annual',
-              label: AppText('Annual', localize: true),
-            ),
-          ],
-          selected: {_analyticsPeriod},
-          onSelectionChanged: (selection) {
-            _setAnalyticsState(() => _analyticsPeriod = selection.first);
-          },
-        ),
-        const SizedBox(height: AppSpacing.large),
-        _analyticsSummaryCard,
-        const SizedBox(height: AppSpacing.medium),
-        _analyticsChartCard,
-        const SizedBox(height: AppSpacing.medium),
-        _analyticsPopularServicesCard,
-        if (_analyticsView == 'Venue performance') ...[
+        if (_matchmakingLoaded) ...[
           const SizedBox(height: AppSpacing.medium),
-          _analyticsVenueCard,
+          _matchmakingQueueCard(),
         ],
-        const SizedBox(height: AppSpacing.medium),
-        _analyticsBookingStatusCard,
+        if (_businessesLoaded && _bookingsLoaded) ...[
+          const SizedBox(height: AppSpacing.large),
+          Row(
+            children: [
+              AppText(
+                'Data analytics',
+                style: TextStyle(
+                  color: _merchantInk,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+                localize: true,
+              ),
+              IconButton(
+                key: const ValueKey('merchant-analytics-info'),
+                tooltip: appLanguageText(
+                  'About data analytics',
+                  'About data analytics',
+                ),
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: const AppText('Data analytics', localize: true),
+                    content: const AppText(
+                      'Track sales, customers, and venue performance.',
+                      localize: true,
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const AppText('Got it', localize: true),
+                      ),
+                    ],
+                  ),
+                ),
+                icon: Icon(
+                  Icons.info_outline_rounded,
+                  color: _merchantMuted,
+                  size: 19,
+                ),
+                visualDensity: VisualDensity.compact,
+                padding: AppSpacing.buttonPadding,
+                constraints: const BoxConstraints.tightFor(
+                  width: 44,
+                  height: 44,
+                ),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                key: const ValueKey('merchant-analytics-date-filter'),
+                onPressed: _chooseAnalyticsDateRange,
+                icon: const Icon(Icons.calendar_month_outlined, size: 17),
+                label: AppText(
+                  _analyticsDateRange == null
+                      ? 'Date range'
+                      : _analyticsDateRangeLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppPreferences.instance.darkMode
+                      ? AppColors.accessibleForeground(
+                          _merchantOrange,
+                          AppColors.darkSoftOrangeAlt,
+                        )
+                      : _merchantNavy,
+                  backgroundColor: AppPreferences.instance.darkMode
+                      ? AppColors.darkSoftOrangeAlt
+                      : null,
+                  side: BorderSide(
+                    color: AppPreferences.instance.darkMode
+                        ? _merchantOrange
+                        : _merchantLine,
+                  ),
+                  minimumSize: const Size(0, 44),
+                  padding: AppSpacing.buttonPadding,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.medium),
+          _analyticsViewSelector,
+          const SizedBox(height: AppSpacing.medium),
+          _analyticsBookingTypeFilter,
+          const SizedBox(height: AppSpacing.medium),
+          SegmentedButton<String>(
+            key: const ValueKey('merchant-analytics-period'),
+            style: _analyticsFilterStyle,
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: 'Daily',
+                label: AppText('Daily', localize: true),
+              ),
+              ButtonSegment(
+                value: 'Weekly',
+                label: AppText('Weekly', localize: true),
+              ),
+              ButtonSegment(
+                value: 'Monthly',
+                label: AppText('Monthly', localize: true),
+              ),
+              ButtonSegment(
+                value: 'Annual',
+                label: AppText('Annual', localize: true),
+              ),
+            ],
+            selected: {_analyticsPeriod},
+            onSelectionChanged: (selection) {
+              _setAnalyticsState(() => _analyticsPeriod = selection.first);
+            },
+          ),
+          const SizedBox(height: AppSpacing.large),
+          _analyticsSummaryCard,
+          const SizedBox(height: AppSpacing.medium),
+          _analyticsChartCard,
+          const SizedBox(height: AppSpacing.medium),
+          _analyticsPopularServicesCard,
+          if (_analyticsView == 'Venue performance') ...[
+            const SizedBox(height: AppSpacing.medium),
+            _analyticsVenueCard,
+          ],
+          const SizedBox(height: AppSpacing.medium),
+          _analyticsBookingStatusCard,
+        ],
       ],
     ),
   );
@@ -414,8 +447,25 @@ extension _MerchantDashboardAnalyticsSection on _MerchantDashboardPageState {
   );
 
   Widget get _merchantActionCenter {
-    final pendingCount = _bookings.where(_isPendingBooking).length;
-    if (pendingCount == 0) return const SizedBox.shrink();
+    final pendingCount = _bookingsLoaded
+        ? _bookings.where(_isPendingBooking).length
+        : 0;
+    final cashDownpaymentsDue = _bookingsLoaded
+        ? _bookings.where((booking) {
+            return booking['bookingType'] != 'matchmaking' &&
+                _isApprovedBooking(booking) &&
+                booking['paymentMethod'] == 'cash_on_arrival' &&
+                '${booking['paymentStatus'] ?? ''}'.toLowerCase() == 'unpaid';
+          }).length
+        : 0;
+    final unpublishedBusinessCount = _businessesLoaded
+        ? _visibleBusinesses.where((business) => !_isLiveOnApp(business)).length
+        : 0;
+    if (pendingCount == 0 &&
+        cashDownpaymentsDue == 0 &&
+        unpublishedBusinessCount == 0) {
+      return const SizedBox.shrink();
+    }
 
     return Container(
       key: const ValueKey('merchant-action-center'),
@@ -443,57 +493,95 @@ extension _MerchantDashboardAnalyticsSection on _MerchantDashboardPageState {
                   localize: true,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.softStatus,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: AppText(
-                  '$pendingCount pending',
-                  key: const ValueKey('merchant-action-count'),
-                  style: const TextStyle(
-                    color: Color(0xFFB85C00),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  localize: true,
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: _analyticsElementGap),
-          AppText(
-            '$pendingCount booking${pendingCount == 1 ? '' : 's'} awaiting approval',
-            style: TextStyle(color: _merchantMuted, fontSize: 13, height: 1.35),
-            localize: true,
-          ),
-          const SizedBox(height: _analyticsElementGap),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              key: const ValueKey('merchant-review-bookings'),
-              onPressed: () {
-                _setAnalyticsState(() {
-                  _merchantTab = 3;
-                  _payoutTab = 0;
-                });
-              },
-              icon: const Icon(Icons.receipt_long_rounded, size: 18),
-              label: const AppText('Review booking requests', localize: true),
-              style: FilledButton.styleFrom(
-                backgroundColor: _merchantOrange,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
+          if (pendingCount > 0) ...[
+            const SizedBox(height: _analyticsElementGap),
+            _merchantAttentionAction(
+              description:
+                  '$pendingCount booking${pendingCount == 1 ? '' : 's'} awaiting approval',
+              buttonKey: 'merchant-review-bookings',
+              label: 'Review booking requests',
+              icon: Icons.receipt_long_rounded,
+              primary: true,
+              onPressed: () => _openMerchantPayouts(0),
             ),
-          ),
+          ],
+          if (cashDownpaymentsDue > 0) ...[
+            const SizedBox(height: _analyticsElementGap),
+            _merchantAttentionAction(
+              description:
+                  '$cashDownpaymentsDue cash downpayment${cashDownpaymentsDue == 1 ? '' : 's'} to record',
+              buttonKey: 'merchant-review-payments',
+              label: 'Review payments',
+              icon: Icons.payments_outlined,
+              onPressed: () {
+                _setAnalyticsState(() => _paymentManagementTab = 0);
+                _openMerchantPayouts(2);
+              },
+            ),
+          ],
+          if (unpublishedBusinessCount > 0) ...[
+            const SizedBox(height: _analyticsElementGap),
+            _merchantAttentionAction(
+              description:
+                  '$unpublishedBusinessCount business${unpublishedBusinessCount == 1 ? '' : 'es'} still need a News Card before customer bookings can be published',
+              buttonKey: 'merchant-finish-business-setup',
+              label: 'Finish business setup',
+              icon: Icons.storefront_outlined,
+              onPressed: () => _selectMerchantDestination(1),
+            ),
+          ],
         ],
       ),
     );
   }
+
+  Widget _merchantAttentionAction({
+    required String description,
+    required String buttonKey,
+    required String label,
+    required IconData icon,
+    required VoidCallback onPressed,
+    bool primary = false,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      AppText(
+        description,
+        style: TextStyle(color: _merchantMuted, fontSize: 13, height: 1.35),
+        localize: true,
+      ),
+      const SizedBox(height: _analyticsElementGap),
+      if (primary)
+        FilledButton.icon(
+          key: ValueKey(buttonKey),
+          onPressed: onPressed,
+          icon: Icon(icon, size: 18),
+          label: AppText(label, localize: true),
+          style: FilledButton.styleFrom(
+            backgroundColor: _merchantOrange,
+            minimumSize: const Size.fromHeight(48),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        )
+      else
+        OutlinedButton.icon(
+          key: ValueKey(buttonKey),
+          onPressed: onPressed,
+          icon: Icon(icon, size: 18),
+          label: AppText(label, localize: true),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(44),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+    ],
+  );
 
   Widget get _analyticsViewSelector {
     const views = [

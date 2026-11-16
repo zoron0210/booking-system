@@ -17,6 +17,7 @@ void main() {
     tester,
   ) async {
     setMerchantDashboardSession(role: 'customer');
+    var logoutRequested = false;
     final api = AuthApi(
       client: MockClient((request) async {
         switch (request.url.path) {
@@ -58,7 +59,14 @@ void main() {
       }),
     );
 
-    await tester.pumpWidget(MaterialApp(home: MerchantDashboardPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantDashboardPage(
+          api: api,
+          onLogout: (_) async => logoutRequested = true,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Data analytics'), findsOneWidget);
     expect(
@@ -67,10 +75,7 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('merchant-first-business-cta')));
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-      1,
-    );
+    expect(find.text('Add business'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('booking-deadline-reminder')),
       findsOneWidget,
@@ -79,44 +84,101 @@ void main() {
       find.byKey(const ValueKey('booking-deadline-reminder-cancel')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-      0,
-    );
+    await tapMerchantDestination(tester, 'dashboard');
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-messages')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'messages');
     expect(find.byType(MessagesDashboardPage), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
     expect(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
+      find.byKey(const ValueKey('merchant-sidebar-toggle')),
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('news-feed-nav-explore')), findsNothing);
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
+    await tapMerchantSettings(tester);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Merchant Profile'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('merchant-settings-close')),
+      findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('merchant-settings-appearance')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byTooltip('Close settings'));
     await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'dashboard');
+
+    await tapMerchantDestination(tester, 'dashboard');
     expect(find.byType(MessagesDashboardPage), findsNothing);
     expect(find.text('Data analytics'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-messages')),
+    await tapMerchantDestination(tester, 'profile');
+    expect(find.text('Merchant Profile'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    await tapMerchantDestination(tester, 'dashboard');
+    expect(find.text('Merchant Profile'), findsNothing);
+
+    await tapMerchantSettings(tester);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Merchant Profile'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('merchant-settings-close')),
+      findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('merchant-settings-appearance')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byTooltip('Close settings'));
     await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'dashboard');
+
+    await tapMerchantDestination(tester, 'messages');
     expect(find.byType(MessagesDashboardPage), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Back'));
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'dashboard');
 
     expect(find.byType(MessagesDashboardPage), findsNothing);
     expect(find.text('Merchant Dashboard'), findsOneWidget);
     expect(find.text('Data analytics'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('merchant-sidebar-toggle')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('merchant-drawer-help-center')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('merchant-drawer-terms-of-service')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('merchant-drawer-terms-of-service')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('The official Terms of Service will be available here soon.'),
+      findsOneWidget,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('merchant-sidebar-toggle')));
+    await tester.pumpAndSettle();
+    final drawerScrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('merchant-navigation-drawer')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('merchant-drawer-logout')),
+      120,
+      scrollable: drawerScrollable,
+    );
+    await tester.tap(find.byKey(const ValueKey('merchant-drawer-logout')));
+    await tester.pumpAndSettle();
+    expect(logoutRequested, isTrue);
   });
 }

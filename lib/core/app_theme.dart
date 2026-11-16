@@ -22,7 +22,7 @@ abstract final class AppTheme {
       fontFamily: GoogleFonts.lato().fontFamily,
     ),
     appBarTheme: AppBarTheme(
-      backgroundColor: AppColors.page,
+      backgroundColor: AppColors.glassSurface,
       surfaceTintColor: Colors.transparent,
       foregroundColor: AppColors.ink,
       elevation: 0,
@@ -31,7 +31,7 @@ abstract final class AppTheme {
       titleTextStyle: AppTypography.pageTitle,
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppColors.glassSurface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       insetPadding: const EdgeInsets.symmetric(
@@ -46,24 +46,25 @@ abstract final class AppTheme {
       contentTextStyle: TextStyle(color: AppColors.muted, fontSize: 14),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadii.dialog),
-        side: BorderSide(color: AppColors.border),
+        side: BorderSide(color: AppColors.glassBorder),
       ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
-      backgroundColor: AppColors.surface,
-      modalBackgroundColor: AppColors.surface,
+      backgroundColor: AppColors.glassSurface,
+      modalBackgroundColor: AppColors.glassSurface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       showDragHandle: true,
       dragHandleColor: AppColors.border,
-      shape: const RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(AppRadii.bottomSheet),
         ),
+        side: BorderSide(color: AppColors.glassBorder),
       ),
     ),
     cardTheme: CardThemeData(
-      color: AppColors.surface,
+      color: AppColors.glassSurface,
       surfaceTintColor: Colors.transparent,
       elevation: AppCardStyles.elevation,
       shadowColor: Colors.transparent,
@@ -163,8 +164,8 @@ abstract final class AppTheme {
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: AppColors.surface,
-      surfaceTintColor: AppColors.surface,
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
       shadowColor: Color(0x14000000),
       elevation: 0,
       height: 72,
@@ -220,6 +221,9 @@ abstract final class AppTheme {
     final base = darkMode ? ThemeData.dark(useMaterial3: true) : light;
     final brightness = darkMode ? Brightness.dark : Brightness.light;
     final surface = darkMode ? AppColors.darkSurface : Colors.white;
+    final glassSurface = darkMode
+        ? const Color(0xCC222A39)
+        : const Color(0xD9FFFFFF);
     final page = darkMode ? AppColors.darkPage : AppColors.lightPage;
     final accentForeground = AppColors.accessibleForeground(
       accentColor,
@@ -298,14 +302,14 @@ abstract final class AppTheme {
           ? const Color(0xFF858B98)
           : const Color(0xFF9AA3B2),
       appBarTheme: base.appBarTheme.copyWith(
-        backgroundColor: page,
+        backgroundColor: glassSurface,
         surfaceTintColor: Colors.transparent,
         foregroundColor: scheme.onSurface,
         iconTheme: IconThemeData(color: scheme.onSurface),
         actionsIconTheme: IconThemeData(color: scheme.onSurface),
       ),
       cardTheme: base.cardTheme.copyWith(
-        color: surface,
+        color: glassSurface,
         surfaceTintColor: Colors.transparent,
         elevation: AppCardStyles.elevation,
         shadowColor: Colors.transparent,
@@ -320,13 +324,13 @@ abstract final class AppTheme {
       listTileTheme: ListTileThemeData(
         iconColor: scheme.onSurfaceVariant,
         textColor: scheme.onSurface,
-        tileColor: surface,
+        tileColor: glassSurface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.control),
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: surface,
+        backgroundColor: glassSurface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         insetPadding: const EdgeInsets.symmetric(
@@ -346,8 +350,8 @@ abstract final class AppTheme {
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: surface,
-        modalBackgroundColor: surface,
+        backgroundColor: glassSurface,
+        modalBackgroundColor: glassSurface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         showDragHandle: true,
@@ -356,10 +360,11 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(AppRadii.bottomSheet),
           ),
+          side: BorderSide(color: Colors.white24),
         ),
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: surface,
+        color: glassSurface,
         surfaceTintColor: Colors.transparent,
         textStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurface),
         shape: RoundedRectangleBorder(
@@ -368,7 +373,7 @@ abstract final class AppTheme {
         ),
       ),
       drawerTheme: DrawerThemeData(
-        backgroundColor: surface,
+        backgroundColor: glassSurface,
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.horizontal(
@@ -524,8 +529,8 @@ abstract final class AppTheme {
         }),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surface,
-        surfaceTintColor: surface,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
         elevation: 0,
         indicatorColor: accentColor.withValues(alpha: darkMode ? .28 : .14),

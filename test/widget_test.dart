@@ -63,9 +63,9 @@ void main() {
     );
     expect(
       find.text('Share your session, drop an invite, or post a highlight'),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('For You'), findsOneWidget);
+    expect(find.text('Latest'), findsOneWidget);
     expect(find.text('Following'), findsOneWidget);
     expect(find.text('Nearby Venues'), findsNothing);
     expect(find.text('Looking for'), findsNothing);

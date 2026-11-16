@@ -26,6 +26,11 @@ function fakeStorage() {
           if (!object) throw Object.assign(new Error('Not found'), { code: 404 });
           return [{ ...object.metadata, size: String(object.bytes.length) }];
         },
+        async download() {
+          const object = objects.get(name);
+          if (!object) throw Object.assign(new Error('Not found'), { code: 404 });
+          return [Buffer.from(object.bytes)];
+        },
         createReadStream() {
           const object = objects.get(name);
           return Readable.from([object.bytes.subarray(0, 12)]);
@@ -147,6 +152,11 @@ test('stores migrated legacy photos at a stable object key', async () => {
   assert.deepEqual(
     objects.get(firstKey.slice('gcs://'.length)).bytes,
     pngBytes,
+  );
+  assert.equal(await mediaStorage.verifyLegacyImage(firstKey, pngBytes), true);
+  assert.equal(
+    await mediaStorage.verifyLegacyImage(firstKey, Buffer.from('different')),
+    false,
   );
   await assert.rejects(
     mediaStorage.storeLegacyImage(7, 35, 1, 'image/png', Buffer.from('bad')),

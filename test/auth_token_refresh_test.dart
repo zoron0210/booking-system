@@ -22,6 +22,7 @@ void main() {
         apiToken: 'expired-access-token',
         refreshToken: 'current-refresh-token',
       );
+      await session.setRole('customer');
       final requests = <http.Request>[];
       final api = AuthApi(
         client: MockClient((request) async {
@@ -29,6 +30,7 @@ void main() {
           if (request.url.path == '/api/auth/refresh') {
             expect(jsonDecode(request.body), {
               'refreshToken': 'current-refresh-token',
+              'portalMode': 'customer',
             });
             return http.Response(
               jsonEncode({
@@ -66,6 +68,7 @@ void main() {
       ]);
       expect(session.apiToken, 'new-access-token');
       expect(session.refreshToken, 'rotated-refresh-token');
+      expect(session.role, 'customer');
     },
   );
 }

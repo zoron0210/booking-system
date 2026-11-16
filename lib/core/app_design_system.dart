@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import 'app_preferences.dart';
@@ -77,14 +79,20 @@ abstract final class AppColors {
     return best;
   }
 
-  static const lightPage = Color(0xFFFAFBFD);
-  static const darkPage = Color(0xFF101116);
+  static const lightPage = Color(0xFFF1F5FB);
+  static const darkPage = Color(0xFF101827);
   static Color get page =>
       AppPreferences.instance.darkMode ? darkPage : lightPage;
   static const darkSurface = Color(0xFF191B22);
   static const darkSurfaceHighest = Color(0xFF30323A);
   static Color get surface =>
       AppPreferences.instance.darkMode ? darkSurface : Colors.white;
+  static Color get glassSurface => AppPreferences.instance.darkMode
+      ? const Color(0xCC222A39)
+      : const Color(0xD9FFFFFF);
+  static Color get glassBorder => Colors.white.withValues(
+    alpha: AppPreferences.instance.darkMode ? .14 : .78,
+  );
   static Color get neumorphicShadow => Colors.black.withValues(
     alpha: AppPreferences.instance.darkMode ? .28 : .09,
   );
@@ -248,6 +256,46 @@ abstract final class AppGradients {
       Colors.transparent,
     ],
     stops: [0, .35, .65, 1],
+  );
+}
+
+class GlassSurface extends StatelessWidget {
+  const GlassSurface({
+    super.key,
+    required this.child,
+    this.color,
+    this.borderRadius = const BorderRadius.all(Radius.circular(24)),
+    this.border,
+    this.blur = 16,
+  });
+
+  final Widget child;
+  final Color? color;
+  final BorderRadius borderRadius;
+  final Border? border;
+  final double blur;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: borderRadius,
+    child: BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color ?? AppColors.glassSurface,
+          borderRadius: borderRadius,
+          border: border ?? Border.all(color: AppColors.glassBorder),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.neumorphicShadow.withValues(alpha: .2),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: child,
+      ),
+    ),
   );
 }
 

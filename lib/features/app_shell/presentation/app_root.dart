@@ -14,11 +14,12 @@ import 'package:myapp/core/app_theme.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/auth/application/auth_service.dart';
 import 'package:myapp/features/notifications/data/booking_push_notifications.dart';
+import 'package:myapp/features/bookings/presentation/customer_bookings_page.dart';
+import 'package:myapp/features/bookings/presentation/matchmaking_lobby_list_page.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_dashboard.dart';
 import 'package:myapp/features/messaging/presentation/message_notification_host.dart';
 import 'package:myapp/features/messaging/presentation/messages_dashboard.dart';
 import 'package:myapp/features/app_shell/presentation/reserve_dashboard.dart';
-import 'package:myapp/core/scroll_to_top_overlay.dart';
 import 'package:myapp/core/premium_motion.dart';
 
 import 'first_launch_onboarding.dart';
@@ -52,11 +53,58 @@ class MyApp extends StatelessWidget {
 
   AppPreferences get _preferences => _dependencies.preferences;
 
-  static final _scrollToTopController = ScrollToTopOverlayController();
-  static final ScrollToTopNavigatorObserver _scrollObserver =
-      ScrollToTopNavigatorObserver(
-        onNavigationChanged: _scrollToTopController.reset,
+  Future<void> _switchMerchantPortal(BuildContext context, String mode) async {
+    try {
+      final session = await AppSessionService.instance.load();
+      final token = session.apiToken;
+      if (token == null || token.isEmpty) {
+        throw const FormatException('Sign in again to switch portals.');
+      }
+      final response = await (homeApi ?? AuthApi()).switchMerchantPortalMode(
+        token: token,
+        mode: mode,
       );
+      final nextToken = response['token'];
+      if (nextToken is! String ||
+          nextToken.isEmpty ||
+          response['mode'] != mode) {
+        throw const FormatException(
+          'The server returned an invalid portal session.',
+        );
+      }
+      await session.setApiToken(nextToken);
+      await session.setRole(mode);
+      if (!context.mounted) return;
+
+      final navigator = _rootNavigatorKey.currentState;
+      if (navigator == null) {
+        throw const FormatException('Could not open the selected portal.');
+      }
+      navigator.pushAndRemoveUntil<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => mode == 'customer'
+              ? CustomerNavigationShell(
+                  api: homeApi,
+                  onLogout: logoutToBookingPicker,
+                  businessType: session.lastBookingType,
+                  onSwitchToMerchantPortal: (context) =>
+                      _switchMerchantPortal(context, 'merchant'),
+                )
+              : MerchantDashboardPage(
+                  onLogout: logoutToBookingPicker,
+                  onSwitchToCustomerPortal: (context) =>
+                      _switchMerchantPortal(context, 'customer'),
+                ),
+        ),
+        (_) => false,
+      );
+    } on Exception catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
 
   Widget get _initialHome {
     if (initialPage != null) return initialPage!;
@@ -71,9 +119,15 @@ class MyApp extends StatelessWidget {
         api: homeApi,
         onLogout: logoutToBookingPicker,
         businessType: currentSession?.lastBookingType,
+        onSwitchToMerchantPortal: (context) =>
+            _switchMerchantPortal(context, 'merchant'),
       );
     } else {
-      destination = MerchantDashboardPage(onLogout: logoutToBookingPicker);
+      destination = MerchantDashboardPage(
+        onLogout: logoutToBookingPicker,
+        onSwitchToCustomerPortal: (context) =>
+            _switchMerchantPortal(context, 'customer'),
+      );
     }
     return FirstLaunchOnboardingGate(
       session: currentSession,
@@ -89,7 +143,6 @@ class MyApp extends StatelessWidget {
       builder: (context, _) {
         return MaterialApp(
           navigatorKey: _rootNavigatorKey,
-          navigatorObservers: [_scrollObserver],
           title: 'SpotGo',
           debugShowCheckedModeBanner: false,
           scrollBehavior: const PremiumScrollBehavior(),
@@ -114,20 +167,41 @@ class MyApp extends StatelessWidget {
                   _preferences.textScale,
                 ),
               ),
-              child: ScrollToTopOverlay(
-                controller: _scrollToTopController,
-                child: MessageNotificationHost(
-                  child: child ?? const SizedBox.shrink(),
-                  onOpenConversation: (conversationId) {
-                    _rootNavigatorKey.currentState?.push(
+              child: MessageNotificationHost(
+                child: child ?? const SizedBox.shrink(),
+                onOpenBookingNotification: (destination) {
+                  final navigator = _rootNavigatorKey.currentState;
+                  if (navigator == null) return;
+                  if (destination.bookingId case final bookingId?) {
+                    navigator.push(
                       MaterialPageRoute<void>(
-                        builder: (_) => MessagesDashboardPage(
-                          initialConversationId: conversationId,
+                        builder: (_) => CustomerBookingsPage(
+                          api: homeApi,
+                          initialBookingId: bookingId,
                         ),
                       ),
                     );
-                  },
-                ),
+                  } else if (destination.matchmakingLobbyId
+                      case final lobbyId?) {
+                    navigator.push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => MatchmakingLobbyListPage(
+                          api: homeApi ?? AuthApi(),
+                          initialLobbyId: lobbyId,
+                        ),
+                      ),
+                    );
+                  }
+                },
+                onOpenConversation: (conversationId) {
+                  _rootNavigatorKey.currentState?.push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => MessagesDashboardPage(
+                        initialConversationId: conversationId,
+                      ),
+                    ),
+                  );
+                },
               ),
             );
           },

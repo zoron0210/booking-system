@@ -186,6 +186,148 @@ test('migration 23 creates refresh-token sessions', async () => {
   ));
 });
 
+test('migration 24 creates matchmaking tables and venue settings', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 23 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('ALTER TABLE `merchant_businesses` ADD COLUMN `allow_matchmaking`') &&
+    params === undefined,
+  ));
+  const lobbyTable = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS matchmaking_lobbies'),
+  );
+  assert.ok(lobbyTable);
+  assert.match(lobbyTable.sql, /FOREIGN KEY \(host_user_id\)/);
+  assert.match(lobbyTable.sql, /FOREIGN KEY \(venue_id\)/);
+  assert.match(lobbyTable.sql, /FOREIGN KEY \(booking_id\)/);
+  const requestTable = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS matchmaking_requests'),
+  );
+  assert.ok(requestTable);
+  assert.match(requestTable.sql, /UNIQUE KEY unique_user_lobby \(lobby_id, user_id\)/);
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 24 &&
+    params[1] === 'sports-matchmaking-lobbies-and-requests',
+  ));
+});
+
+test('migration 25 adds the matchmaking approval and payment lifecycle', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'connection' });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 24 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'pool' });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ADD COLUMN `host_share_amount`'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('uq_matchmaking_request_opponent'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('awaiting_host_downpayment'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('matchmaking_pending_merchant'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 25 &&
+    params[1] === 'matchmaking-approval-and-payment-lifecycle',
+  ));
+});
+
+test('migration 26 adds opponent-share payment tracking', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'connection' });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 25 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'pool' });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ADD COLUMN `opponent_payment_status`'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ADD COLUMN `opponent_checkout_session_id`'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ADD COLUMN `opponent_payment_reference`'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('uq_matchmaking_opponent_checkout_session'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 26 &&
+    params[1] === 'matchmaking-opponent-share-payment',
+  ));
+});
+
 test('migration 16 creates social follows and experience posts', async () => {
   const calls = [];
   const connection = {
@@ -283,6 +425,52 @@ test('migration 20 creates recipient-scoped social activity notifications', asyn
     sql.includes('INSERT INTO schema_migrations (version, name)') &&
     params[0] === 20 &&
     params[1] === 'social-activity-notifications',
+  ));
+});
+
+test('migration 27 creates public clubs, memberships, and club post links', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 26 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  const clubs = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_clubs'),
+  );
+  const members = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS social_club_members'),
+  );
+  assert.ok(clubs);
+  assert.ok(members);
+  assert.match(members.sql, /PRIMARY KEY \(club_id, user_id\)/);
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('ALTER TABLE `social_posts` ADD COLUMN `club_id`'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 27 &&
+    params[1] === 'social-clubs-and-club-posts',
   ));
 });
 
@@ -753,5 +941,255 @@ test('migration 18 adds customer onboarding fields and preserves existing accoun
     sql.includes('INSERT INTO schema_migrations (version, name)') &&
     params[0] === 18 &&
     params[1] === 'customer-onboarding-profile',
+  ));
+});
+
+test('migration 28 adds nullable club logo storage for existing clubs', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 27 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ALTER TABLE `social_clubs` ADD COLUMN `logo_image` VARCHAR(512) NULL'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 28 &&
+    params[1] === 'social-club-logos',
+  ));
+});
+
+test('migration 29 adds owner join approval settings and approved member state', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 28 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ALTER TABLE `social_clubs` ADD COLUMN `requires_join_approval`'),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('ALTER TABLE `social_club_members` ADD COLUMN `membership_status`'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 29 &&
+    params[1] === 'social-club-owner-settings-and-join-approval',
+  ));
+});
+
+test('migration 31 adds merchant business brand logos', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'connection' });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 30 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'pool' });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes(
+      'ALTER TABLE `merchant_businesses` ADD COLUMN `business_logo_url` LONGTEXT NULL',
+    ),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 31 &&
+    params[1] === 'merchant-business-brand-logos',
+  ));
+});
+
+test('migration 32 records regular and matchmaking booking identity', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'connection' });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 31 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params, executor: 'pool' });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes(
+      "ALTER TABLE `bookings` ADD COLUMN `booking_type` ENUM('regular', 'matchmaking')",
+    ),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('SET booking_type = \'matchmaking\'') &&
+    sql.includes('FROM matchmaking_lobbies'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 32 &&
+    params[1] === 'booking-type-identity',
+  ));
+});
+
+test('migration 33 adds opted-in match discovery devices and per-user deduplication', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 32 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  const devices = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS match_discovery_notification_devices'),
+  );
+  assert.ok(devices);
+  assert.match(devices.sql, /PRIMARY KEY \(token_hash\)/);
+  assert.match(devices.sql, /FOREIGN KEY \(user_id\) REFERENCES users \(id\)/);
+  const deduplication = calls.find(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS matchmaking_publication_notifications'),
+  );
+  assert.ok(deduplication);
+  assert.match(deduplication.sql, /PRIMARY KEY \(lobby_id, user_id\)/);
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 33 &&
+    params[1] === 'match-discovery-push-opt-in-and-deduplication',
+  ));
+});
+
+test('migration 34 persists checkout URLs and methods for session reuse', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 33 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  for (const [table, column] of [
+    ['bookings', 'payment_checkout_url'],
+    ['bookings', 'payment_checkout_method'],
+    ['matchmaking_lobbies', 'opponent_checkout_url'],
+    ['matchmaking_lobbies', 'opponent_checkout_method'],
+    ['matchmaking_lobbies', 'host_balance_checkout_url'],
+    ['matchmaking_lobbies', 'host_balance_checkout_method'],
+  ]) {
+    assert.ok(calls.some(({ sql }) =>
+      sql.includes(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\``),
+    ));
+  }
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 34 &&
+    params[1] === 'reuse-paymongo-checkout-sessions',
   ));
 });

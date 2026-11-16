@@ -92,7 +92,10 @@ before(async () => {
           ? [[{ role: 'customer', status: 'active' }], []]
           : [[], []];
       }
-      if (sql.includes('SELECT id, email, role, status FROM users')) {
+      if (
+        sql.includes('SELECT id, email, role, status') &&
+        sql.includes('FROM users')
+      ) {
         if (params[0] === '88') {
           return [[{
             id: 88,
@@ -300,6 +303,46 @@ test('refresh rotates the token and logout revokes the active session', async ()
   assert.ok(refreshSessions.get(refreshedHash).revoked_at);
 });
 
+test('refresh preserves the merchant customer-portal mode', async () => {
+  const refreshToken = crypto.randomBytes(32).toString('base64url');
+  const refreshHash = crypto
+    .createHash('sha256')
+    .update(refreshToken)
+    .digest('hex');
+  refreshSessions.set(refreshHash, {
+    id: 700,
+    refresh_token_id: 700,
+    user_id: 88,
+    revoked_at: null,
+    is_unexpired: 1,
+    email: 'merchant@example.test',
+    first_name: 'Merchant',
+    last_name: 'Owner',
+    role: 'merchant',
+    status: 'active',
+    gender: null,
+    player_type: null,
+    onboarding_completed: 0,
+  });
+
+  const response = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/auth/refresh`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken, portalMode: 'customer' }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const claims = jwt.verify(body.token, process.env.JWT_SECRET);
+  assert.equal(claims.role, 'customer');
+  assert.equal(claims.accountRole, 'merchant');
+  assert.equal(claims.portalMode, 'customer');
+  assert.equal(claims.portalVersion, 1);
+});
+
 test('authenticated routes reject accounts that became inactive after token issuance', async () => {
   authUserStatus = 'suspended';
   invalidateUserStatusCache('42');
@@ -348,7 +391,7 @@ test('merchant routes reject a valid token for an account without active merchan
   });
 });
 
-test('merchant accounts cannot switch portals or use legacy customer tokens', async () => {
+test('merchant accounts can enter a scoped customer portal without role escalation', async () => {
   const merchantToken = jwt.sign({
     sub: '88',
     email: 'merchant@example.test',
@@ -366,7 +409,26 @@ test('merchant accounts cannot switch portals or use legacy customer tokens', as
     },
   );
 
-  assert.equal(response.status, 403);
+  assert.equal(response.status, 200);
+  const portal = await response.json();
+  assert.equal(portal.mode, 'customer');
+  assert.equal(portal.user.role, 'customer');
+  assert.equal(portal.user.accountRole, 'merchant');
+  const portalClaims = jwt.verify(portal.token, process.env.JWT_SECRET);
+  assert.equal(portalClaims.role, 'customer');
+  assert.equal(portalClaims.accountRole, 'merchant');
+  assert.equal(portalClaims.portalMode, 'customer');
+  assert.equal(portalClaims.portalVersion, 1);
+  const customerEndpoint = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/customer/venue-hearts`,
+    { headers: { authorization: ['Bearer', portal.token].join(' ') } },
+  );
+  assert.equal(customerEndpoint.status, 200);
+  const merchantEndpoint = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/merchant/news`,
+    { headers: { authorization: ['Bearer', portal.token].join(' ') } },
+  );
+  assert.equal(merchantEndpoint.status, 403);
 
   const legacyCustomerToken = jwt.sign({
     sub: '88',
@@ -375,17 +437,11 @@ test('merchant accounts cannot switch portals or use legacy customer tokens', as
     accountRole: 'merchant',
     portalMode: 'customer',
   }, process.env.JWT_SECRET);
-  const customerEndpoint = await fetch(
+  const legacyCustomerEndpoint = await fetch(
     `http://127.0.0.1:${server.address().port}/api/customer/venue-hearts`,
     { headers: { authorization: ['Bearer', legacyCustomerToken].join(' ') } },
   );
-  assert.equal(customerEndpoint.status, 403);
-
-  const merchantEndpoint = await fetch(
-    `http://127.0.0.1:${server.address().port}/api/merchant/news`,
-    { headers: { authorization: ['Bearer', legacyCustomerToken].join(' ') } },
-  );
-  assert.equal(merchantEndpoint.status, 403);
+  assert.equal(legacyCustomerEndpoint.status, 403);
 });
 
 test('customer accounts cannot request a merchant portal token', async () => {

@@ -9,6 +9,10 @@ abstract interface class MerchantBookingRepository {
 
   Future<void> declineBooking(int bookingId, {required String reason});
 
+  Future<void> approveMatchmakingBooking(int lobbyId);
+
+  Future<void> declineMatchmakingBooking(int lobbyId, {required String reason});
+
   Future<void> setCashOnArrivalPaymentStatus(
     int bookingId, {
     required String paymentStatus,
@@ -58,6 +62,33 @@ class AuthApiMerchantBookingRepository implements MerchantBookingRepository {
       token: await _requireToken(),
       bookingId: bookingId,
       reason: reason,
+    );
+  }
+
+  @override
+  Future<void> approveMatchmakingBooking(int lobbyId) async {
+    final token = await _requireToken();
+    await api.request(
+      'POST',
+      '/api/matchmaking/lobbies/$lobbyId/merchant-approve',
+      headers: api.authHeadersForToken(token),
+    );
+  }
+
+  @override
+  Future<void> declineMatchmakingBooking(
+    int lobbyId, {
+    required String reason,
+  }) async {
+    final token = await _requireToken();
+    await api.request(
+      'POST',
+      '/api/matchmaking/lobbies/$lobbyId/merchant-decline',
+      body: {'reason': reason},
+      headers: api.authHeadersForToken(
+        token,
+        extra: {'Content-Type': 'application/json'},
+      ),
     );
   }
 

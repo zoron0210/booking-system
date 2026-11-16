@@ -49,9 +49,20 @@ function registerAuthRoutes({
     message: 'Too many password recovery attempts. Please try again later.',
   });
 
-  function createToken(user) {
+  function createToken(user, portalMode = null) {
+    const customerPortalForMerchant =
+      user.role === 'merchant' && portalMode === 'customer';
     return jwt.sign(
-      { sub: String(user.id), email: user.email, role: user.role },
+      customerPortalForMerchant
+        ? {
+            sub: String(user.id),
+            email: user.email,
+            role: 'customer',
+            accountRole: 'merchant',
+            portalMode: 'customer',
+            portalVersion: 1,
+          }
+        : { sub: String(user.id), email: user.email, role: user.role },
       environment.JWT_SECRET,
       { expiresIn: '15m' },
     );
@@ -77,8 +88,15 @@ function registerAuthRoutes({
 
   app.post('/api/auth/refresh', authIpRateLimit, async (req, res, next) => {
     const refreshToken = req.body?.refreshToken;
+    const requestedPortalMode = req.body?.portalMode;
     if (!isRefreshToken(refreshToken)) {
       return res.status(401).json({ error: 'The refresh session is invalid or expired.' });
+    }
+    if (
+      requestedPortalMode !== undefined &&
+      !['customer', 'merchant'].includes(requestedPortalMode)
+    ) {
+      return res.status(400).json({ error: 'Choose a valid portal mode.' });
     }
 
     let connection;
@@ -116,6 +134,15 @@ function registerAuthRoutes({
         await connection.commit();
         return res.status(403).json({ error: `This account is ${session.status}.` });
       }
+      if (
+        requestedPortalMode === 'merchant' &&
+        session.role !== 'merchant'
+      ) {
+        await connection.rollback();
+        return res.status(403).json({
+          error: 'Only merchant accounts can open the merchant portal.',
+        });
+      }
 
       const [revoked] = await connection.execute(
         `UPDATE refresh_tokens
@@ -135,9 +162,12 @@ function registerAuthRoutes({
         [session.user_id, hashRefreshToken(nextRefreshToken)],
       );
       await connection.commit();
+      const portalMode = session.role === 'merchant'
+        ? requestedPortalMode
+        : null;
       return res.json({
         user: publicUser(session),
-        token: createToken(session),
+        token: createToken(session, portalMode),
         refreshToken: nextRefreshToken,
       });
     } catch (error) {
@@ -164,11 +194,33 @@ function registerAuthRoutes({
     }
   });
 
-  app.post('/api/auth/portal-mode', requireAuth, (_req, res) =>
-    res.status(403).json({
-      error: 'Portal switching is disabled. Sign in with an account of that role.',
-    }),
-  );
+  app.post('/api/auth/portal-mode', requireAuth, async (req, res, next) => {
+    const mode = req.body?.mode;
+    if (!['customer', 'merchant'].includes(mode)) {
+      return res.status(400).json({ error: 'Choose a valid portal mode.' });
+    }
+    try {
+      const [users] = await pool.execute(
+        `SELECT id, email, role, status
+         FROM users WHERE id = ? LIMIT 1`,
+        [req.auth.sub],
+      );
+      const user = users[0];
+      if (!user || user.status !== 'active' || user.role !== 'merchant') {
+        return res.status(403).json({
+          error: 'Only active merchant accounts can switch portals.',
+        });
+      }
+      const token = createToken(user, mode);
+      return res.json({
+        token,
+        mode,
+        user: { ...publicUser(user), role: mode, accountRole: user.role },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
 
   app.post(
     '/api/auth/register',
@@ -636,7 +688,13 @@ function registerAuthRoutes({
       if (rows.length === 0) {
         return res.status(404).json({ error: 'User account not found.' });
       }
-      return res.json({ user: publicUser(rows[0]) });
+      return res.json({
+        user: {
+          ...publicUser(rows[0]),
+          role: req.auth.role,
+          accountRole: rows[0].role,
+        },
+      });
     } catch (error) {
       return next(error);
     }
@@ -664,8 +722,19 @@ function registerAuthRoutes({
       const [result] = await pool.execute(
         `UPDATE users
          SET gender = ?, player_type = ?, hobby = ?, onboarding_completed = 1
-         WHERE id = ? AND status = 'active' AND role = 'customer'`,
-        [gender, playerType || null, hobby || null, req.auth.sub],
+         WHERE id = ? AND status = 'active'
+           AND (role = 'customer' OR (role = 'merchant' AND ? = 1))`,
+        [
+          gender,
+          playerType || null,
+          hobby || null,
+          req.auth.sub,
+          req.auth.portalVersion === 1 &&
+              req.auth.accountRole === 'merchant' &&
+              req.auth.portalMode === 'customer'
+            ? 1
+            : 0,
+        ],
       );
       if (result.affectedRows === 0) {
         return res.status(404).json({ error: 'Customer account not found.' });
@@ -676,7 +745,13 @@ function registerAuthRoutes({
          FROM users WHERE id = ? LIMIT 1`,
         [req.auth.sub],
       );
-      return res.json({ user: publicUser(rows[0]) });
+      return res.json({
+        user: {
+          ...publicUser(rows[0]),
+          role: req.auth.role,
+          accountRole: rows[0].role,
+        },
+      });
     } catch (error) {
       return next(error);
     }

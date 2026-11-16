@@ -21,6 +21,7 @@ class AllVenuesPage extends StatefulWidget {
     this.facilityFilterLabel = 'Court type',
     this.popularHeading = 'Courts with the most hearts',
     this.ratedHeading = 'Courts with the highest ratings',
+    this.visitedHeading = 'Courts with the most completed visits',
     this.searchHint = 'Search venues, sports, or areas...',
     this.collectionDescription = 'Browse every venue in this collection.',
     this.priceFilterLabel = 'Price (\u{20B1} / hour)',
@@ -35,6 +36,7 @@ class AllVenuesPage extends StatefulWidget {
   final String facilityFilterLabel;
   final String popularHeading;
   final String ratedHeading;
+  final String visitedHeading;
   final String searchHint;
   final String collectionDescription;
   final String priceFilterLabel;
@@ -57,6 +59,13 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
 
   bool get _isPopularCollection =>
       widget.title == 'Most popular' || widget.title.startsWith('Popular ');
+
+  bool get _isVisitedCollection =>
+      widget.title == 'Most visited' ||
+      widget.title.startsWith('Most visited ');
+
+  bool get _isNearbyCollection =>
+      widget.title == 'Near you' || widget.title.startsWith('Near you ');
 
   @override
   void initState() {
@@ -203,6 +212,9 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
       (_maxPrice == null ? 0 : 1) +
       _amenities.length +
       (_userPosition == null ? 0 : 1);
+
+  String _venueCountLabel(int count) =>
+      '$count ${count == 1 ? 'venue' : 'venues'}';
 
   void _openFilters() {
     showGeneralDialog<void>(
@@ -450,7 +462,7 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
                           onPressed: () => Navigator.of(dialogContext).pop(),
                           style: filterPanelApplyButtonStyle(context),
                           child: AppText(
-                            'Show ${_visiblePosts.length} venues',
+                            'Show ${_venueCountLabel(_visiblePosts.length)}',
                             localize: true,
                           ),
                         ),
@@ -533,16 +545,33 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
     Future<bool> Function()? onAction,
   }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: AppText(message),
-          action: actionLabel == null || onAction == null
-              ? null
-              : SnackBarAction(label: actionLabel, onPressed: () => onAction()),
-        ),
-      );
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const AppText('Location', localize: true),
+        content: AppText(message, localize: true),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const AppText('Close', localize: true),
+          ),
+          if (actionLabel != null && onAction != null)
+            FilledButton(
+              onPressed: () async {
+                final opened = await onAction();
+                if (!dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop();
+                if (!opened && mounted) {
+                  _showLocationMessage(
+                    'Could not open settings. Enable location from your device settings.',
+                  );
+                }
+              },
+              child: AppText(actionLabel, localize: true),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _filterLabel(String label) => Padding(
@@ -575,7 +604,13 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: AppText(
-          _isPopularCollection ? 'Most popular venues' : 'Top rated',
+          _isPopularCollection
+              ? 'Most popular venues'
+              : _isVisitedCollection
+              ? 'Most visited venues'
+              : _isNearbyCollection
+              ? 'Near you'
+              : 'Top rated',
         ),
         content: AppText(widget.collectionDescription),
         actions: [
@@ -616,6 +651,10 @@ class _AllVenuesPageState extends State<AllVenuesPage> {
                               child: AppText(
                                 _isPopularCollection
                                     ? widget.popularHeading
+                                    : _isVisitedCollection
+                                    ? widget.visitedHeading
+                                    : _isNearbyCollection
+                                    ? 'Near you'
                                     : widget.ratedHeading,
                                 key: const ValueKey('all-venues-header-title'),
                                 maxLines: 1,

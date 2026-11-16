@@ -36,6 +36,36 @@ const notificationCopy = {
     message: (booking) =>
       `Booking #${booking.id} at ${booking.venueName} expired because the required payment was not completed in time.`,
   },
+  matchmaking_request: {
+    title: 'New matchmaking request',
+    message: (booking) =>
+      `${booking.applicantName} requested to join your ${booking.sportType} match at ${booking.venueName}.`,
+  },
+  matchmaking_host_request: {
+    title: 'New matchmaking queue request',
+    message: (booking) =>
+      `${booking.hostName} requested a matchmaking court booking at ${booking.venueName} for ${booking.bookingDate} at ${booking.startTime}.`,
+  },
+  matchmaking_approved: {
+    title: 'Matchmaking request approved',
+    message: (booking) =>
+      `Your matchmaking request at ${booking.venueName} was approved. Pay the 50% downpayment within 15 minutes to publish it.`,
+  },
+  matchmaking_declined: {
+    title: 'Matchmaking request declined',
+    message: () =>
+      'Venue could not accommodate your matchmaking request.',
+  },
+  matchmaking_published: {
+    title: 'Match published',
+    message: (booking) =>
+      `Your match at ${booking.venueName} is now published and accepting requests.`,
+  },
+  matchmaking_discovery_published: {
+    title: 'New public match',
+    message: (match) =>
+      `A ${match.sportType} match at ${match.venueName} is open on ${match.matchDate} at ${match.startTime}. Open Find Match to view details.`,
+  },
 };
 
 async function sendBookingEmail({ to, title, message }) {
@@ -94,15 +124,28 @@ function getFirebaseMessaging() {
   return require('firebase-admin/messaging').getMessaging(firebaseApp);
 }
 
-async function sendPush({ token, title, message, bookingId, event, sound }) {
+async function sendPush({
+  token,
+  title,
+  message,
+  bookingId,
+  matchmakingLobbyId,
+  event,
+  sound,
+}) {
   const tone = sound === 'tinker_bell' ? 'tinker_bell' : 'system';
   const channelId = `booking_alerts_${tone}`;
   await getFirebaseMessaging().send({
     token,
     notification: { title, body: message },
     data: {
-      type: 'booking',
+      type: String(event).startsWith('matchmaking_')
+        ? 'matchmaking'
+        : 'booking',
       bookingId: String(bookingId),
+      ...(matchmakingLobbyId == null
+        ? {}
+        : { matchmakingLobbyId: String(matchmakingLobbyId) }),
       event,
       sound: tone,
     },
@@ -212,6 +255,88 @@ function createBookingNotificationService({
   };
 }
 
+function createMatchDiscoveryNotificationService({
+  pool,
+  sendPushNotification = sendPush,
+  logger = console,
+}) {
+  return async function notifyMatchDiscovery(match) {
+    const lobbyId = Number(match?.lobbyId);
+    const hostUserId = Number(match?.hostUserId);
+    const bookingId = Number(match?.bookingId);
+    if (
+      !Number.isSafeInteger(lobbyId) ||
+      lobbyId <= 0 ||
+      !Number.isSafeInteger(hostUserId) ||
+      hostUserId <= 0 ||
+      !Number.isSafeInteger(bookingId) ||
+      bookingId <= 0
+    ) {
+      throw new TypeError('A published match requires valid IDs.');
+    }
+
+    const [devices] = await pool.execute(
+      `SELECT d.user_id AS userId, d.fcm_token AS fcmToken, d.sound
+       FROM match_discovery_notification_devices d
+       JOIN users u ON u.id = d.user_id
+       WHERE u.status = 'active' AND u.role = 'customer'
+         AND d.user_id <> ?
+       ORDER BY d.user_id`,
+      [hostUserId],
+    );
+    const devicesByUser = new Map();
+    for (const device of devices) {
+      const userId = Number(device.userId);
+      if (!Number.isSafeInteger(userId) || userId <= 0) continue;
+      const userDevices = devicesByUser.get(userId) || [];
+      userDevices.push(device);
+      devicesByUser.set(userId, userDevices);
+    }
+
+    const copy = notificationCopy.matchmaking_discovery_published;
+    const title = copy.title;
+    const message = copy.message(match);
+    const tasks = [];
+    for (const [userId, userDevices] of devicesByUser) {
+      const [result] = await pool.execute(
+        `INSERT IGNORE INTO matchmaking_publication_notifications
+           (lobby_id, user_id)
+         VALUES (?, ?)`,
+        [lobbyId, userId],
+      );
+      if (!result.affectedRows) continue;
+      for (const device of userDevices) {
+        tasks.push({
+          userId,
+          promise: Promise.resolve().then(() =>
+            sendPushNotification({
+              token: device.fcmToken,
+              title,
+              message,
+              bookingId,
+              matchmakingLobbyId: lobbyId,
+              event: 'matchmaking_discovery_published',
+              sound: device.sound,
+            }),
+          ),
+        });
+      }
+    }
+    const results = await Promise.allSettled(
+      tasks.map(({ promise }) => promise),
+    );
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        logger.error('Match discovery notification delivery failed.', {
+          lobbyId,
+          userId: tasks[index].userId,
+          error: result.reason,
+        });
+      }
+    });
+  };
+}
+
 function normalizeTwilioPhone(value) {
   const input = String(value).trim();
   const compact = input.replace(/[\s().-]/g, '');
@@ -231,6 +356,7 @@ function notificationTokenHash(token) {
 
 module.exports = {
   createBookingNotificationService,
+  createMatchDiscoveryNotificationService,
   normalizeTwilioPhone,
   notificationTokenHash,
   sendTwilioSms,

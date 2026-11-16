@@ -23,6 +23,9 @@ function createFakePool({ candidates = [], affectedRows = 1 } = {}) {
         if (sql.includes("SET status = 'cancelled'")) {
           return [{ affectedRows }, []];
         }
+        if (sql.includes("SET status = 'expired'")) {
+          return [{ affectedRows }, []];
+        }
         if (sql.includes('SELECT id FROM conversations')) {
           return [[{ id: 91 }], []];
         }
@@ -75,6 +78,10 @@ test('expires an overdue booking once and notifies both customer and merchant', 
   assert.match(expire.sql, /payment_due_at <= CURRENT_TIMESTAMP/);
   assert.match(expire.sql, /payment_expired_at IS NULL/);
   assert.doesNotMatch(expire.sql, /payment_refund_status/);
+  assert.ok(calls.some(({ sql }) =>
+    sql?.includes("UPDATE matchmaking_lobbies") &&
+    sql.includes("SET status = 'expired'"),
+  ));
   const message = calls.find(({ sql }) => sql?.includes('INSERT INTO messages'));
   assert.ok(message);
   assert.equal(
@@ -162,4 +169,97 @@ test('does not notify when payment or cancellation wins the expiry race', async 
     calls.filter(({ sql }) => sql?.includes('INSERT INTO messages')).length,
     0,
   );
+});
+
+test('concurrent workers expire and notify an unpaid booking only once', async () => {
+  const booking = {
+    id: 48,
+    customerId: 42,
+    merchantId: 88,
+    venueId: 7,
+    venueName: 'North Gym',
+    totalAmount: 500,
+    downpaymentAmount: 250,
+    paymentMethod: 'online',
+    paymentDueAt: '2026-10-15 10:00:00',
+    paymentTimeoutMinutes: 15,
+  };
+  let bookingStatus = 'approved';
+  let paymentStatus = 'unpaid';
+  let paymentExpired = false;
+  let candidateQueries = 0;
+  let releaseCandidates;
+  const candidatesReady = new Promise((resolve) => {
+    releaseCandidates = resolve;
+  });
+  let transitions = 0;
+  let messageInserts = 0;
+  let commits = 0;
+  let rollbacks = 0;
+  const pool = {
+    async execute(sql) {
+      assert.equal(sql, paymentExpirationCandidatesSql);
+      candidateQueries++;
+      if (candidateQueries === 2) releaseCandidates();
+      await candidatesReady;
+      return [[booking], []];
+    },
+    async getConnection() {
+      return {
+        async beginTransaction() {},
+        async commit() {
+          commits++;
+        },
+        async rollback() {
+          rollbacks++;
+        },
+        release() {},
+        async execute(sql) {
+          if (sql.includes("SET status = 'cancelled'")) {
+            if (
+              bookingStatus !== 'approved' ||
+              paymentStatus !== 'unpaid' ||
+              paymentExpired
+            ) {
+              return [{ affectedRows: 0 }, []];
+            }
+            bookingStatus = 'cancelled';
+            paymentExpired = true;
+            transitions++;
+            return [{ affectedRows: 1 }, []];
+          }
+          if (sql.includes("SET status = 'expired'")) {
+            return [{ affectedRows: 1 }, []];
+          }
+          if (sql.includes('SELECT id FROM conversations')) {
+            return [[{ id: 91 }], []];
+          }
+          if (sql.includes('INSERT INTO messages')) {
+            messageInserts++;
+            return [{ insertId: messageInserts }, []];
+          }
+          throw new Error(`Unexpected connection query: ${sql}`);
+        },
+      };
+    },
+  };
+  const activities = [];
+  const notifications = [];
+  const createWorker = () => createBookingPaymentDeadlineProcessor({
+    pool,
+    recordUserActivity: async (...args) => activities.push(args),
+    notifyBookingParticipants: (details) => notifications.push(details),
+  });
+
+  await Promise.all([createWorker()(), createWorker()()]);
+
+  assert.equal(bookingStatus, 'cancelled');
+  assert.equal(paymentExpired, true);
+  assert.equal(transitions, 1);
+  assert.equal(messageInserts, 1);
+  assert.equal(commits, 1);
+  assert.equal(rollbacks, 1);
+  assert.equal(activities.length, 2);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].event, 'payment_expired');
 });

@@ -113,7 +113,7 @@ class _BookingTransactionNotificationSettingsState
           value: _enabled,
           onChanged: _loading ? null : _setEnabled,
           secondary: const Icon(Icons.notifications_outlined),
-          title: const AppText('Booking notifications', localize: true),
+          title: const AppText('Booking transaction alerts', localize: true),
           subtitle: const AppText(
             'Push alerts for booking requests, approvals, declines, and payments.',
             localize: true,

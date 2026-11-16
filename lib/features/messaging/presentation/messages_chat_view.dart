@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/features/bookings/presentation/widgets/matchmaking_ticket_card.dart';
 import 'package:myapp/features/messaging/presentation/messages_ui.dart';
 
 class MessagesChatView extends StatelessWidget {
@@ -20,6 +21,10 @@ class MessagesChatView extends StatelessWidget {
     this.composerError,
     this.onComposerChanged,
     required this.onDeleteMessage,
+    this.onMatchmakingAction,
+    this.onMatchmakingMerchantDecision,
+    this.isMerchant = false,
+    this.onOpponentPayment,
     required this.onPickImage,
     required this.onRemovePendingImage,
     this.onPickGif,
@@ -37,6 +42,13 @@ class MessagesChatView extends StatelessWidget {
   final String? composerError;
   final ValueChanged<String>? onComposerChanged;
   final ValueChanged<Map<String, dynamic>> onDeleteMessage;
+  final Future<void> Function(Map<String, dynamic> ticket, bool accept)?
+  onMatchmakingAction;
+  final Future<void> Function(Map<String, dynamic> ticket, bool approve)?
+  onMatchmakingMerchantDecision;
+  final bool isMerchant;
+  final Future<void> Function(Map<String, dynamic> ticket, String method)?
+  onOpponentPayment;
   final VoidCallback onPickImage;
   final VoidCallback onRemovePendingImage;
   final VoidCallback? onPickGif;
@@ -178,6 +190,46 @@ class MessagesChatView extends StatelessWidget {
                                   ),
                                 ),
                             ],
+                          ),
+                        ),
+                      );
+                    }
+                    if (attachmentType == 'matchmaking_ticket') {
+                      return GestureDetector(
+                        onLongPress: () => onDeleteMessage(message),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          child: Align(
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: MatchmakingTicketCard(
+                              ticket: attachment!,
+                              isHost: !mine && onMatchmakingAction != null,
+                              onAction: onMatchmakingAction ?? (_, _) async {},
+                              onOpponentPayment: onOpponentPayment,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    if (attachmentType ==
+                        'matchmaking_booking_request_ticket') {
+                      return GestureDetector(
+                        onLongPress: () => onDeleteMessage(message),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          child: Align(
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: MatchmakingBookingRequestTicketCard(
+                              ticket: attachment!,
+                              isMerchant: isMerchant && !mine,
+                              onDecision:
+                                  onMatchmakingMerchantDecision ??
+                                  (_, _) async {},
+                            ),
                           ),
                         ),
                       );

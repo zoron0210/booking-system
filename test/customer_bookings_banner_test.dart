@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -35,6 +36,7 @@ class _TestCustomerBookingsSessionProvider
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  const urlLauncherChannel = MethodChannel('plugins.flutter.io/url_launcher');
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -320,6 +322,12 @@ void main() {
         if (request.url.path == '/api/messages/conversations') {
           return http.Response(jsonEncode({'conversations': []}), 200);
         }
+        if (request.url.path == '/api/payments/paymongo/config') {
+          return http.Response(
+            jsonEncode({'onlinePaymentsEnabled': false}),
+            200,
+          );
+        }
         if (request.url.path == '/api/bookings/12/prototype-payment' &&
             request.method == 'POST') {
           prototypePaymentRequested = true;
@@ -404,6 +412,103 @@ void main() {
     expect(find.text('Approved (1)'), findsOneWidget);
   });
 
+  testWidgets('regular booking checkout waits for provider confirmation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final booking = <String, dynamic>{
+      ..._approvedBooking,
+      'id': 12,
+      'paymentMethod': 'online',
+      'paymentStatus': 'unpaid',
+      'paidAmount': 0,
+      'paymentDueAt': DateTime.now()
+          .add(const Duration(minutes: 10))
+          .toIso8601String(),
+    };
+    Map<String, dynamic>? checkoutPayload;
+    final launchedUrls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(urlLauncherChannel, (call) async {
+          if (call.method == 'launch') {
+            final arguments = call.arguments;
+            if (arguments is Map && arguments['url'] is String) {
+              launchedUrls.add(arguments['url'] as String);
+            } else if (arguments is String) {
+              launchedUrls.add(arguments);
+            }
+            return true;
+          }
+          return false;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(urlLauncherChannel, null),
+    );
+
+    final api = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/bookings' && request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'bookings': [booking],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/messages/conversations') {
+          return http.Response(jsonEncode({'conversations': []}), 200);
+        }
+        if (request.url.path == '/api/payments/paymongo/config') {
+          return http.Response(
+            jsonEncode({'onlinePaymentsEnabled': true}),
+            200,
+          );
+        }
+        if (request.url.path == '/api/payments/paymongo/checkout' &&
+            request.method == 'POST') {
+          checkoutPayload = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'checkoutUrl': 'https://checkout.paymongo.com/session/12',
+            }),
+            200,
+          );
+        }
+        return http.Response(jsonEncode({'error': 'Unexpected request'}), 404);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerBookingsPage(api: api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approved (1)'));
+    await tester.pumpAndSettle();
+    final details = find.byKey(const ValueKey('customer-booking-details-12'));
+    await tester.ensureVisible(details);
+    await tester.tap(details);
+    await tester.pumpAndSettle();
+    final payButton = find.byKey(const ValueKey('customer-booking-pay-12'));
+    await tester.ensureVisible(payButton);
+    await tester.tap(payButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('GCash').last);
+    await tester.pumpAndSettle();
+
+    expect(checkoutPayload, {'bookingId': 12, 'paymentMethod': 'gcash'});
+    expect(launchedUrls, ['https://checkout.paymongo.com/session/12']);
+    expect(booking['paymentStatus'], 'unpaid');
+    expect(
+      find.text(
+        'Checkout opened. Payment status updates after PayMongo confirms it.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'approved COA booking shows payment alert and downpayment action',
     (tester) async {
@@ -437,6 +542,12 @@ void main() {
           }
           if (request.url.path == '/api/messages/conversations') {
             return http.Response(jsonEncode({'conversations': []}), 200);
+          }
+          if (request.url.path == '/api/payments/paymongo/config') {
+            return http.Response(
+              jsonEncode({'onlinePaymentsEnabled': false}),
+              200,
+            );
           }
           if (request.url.path == '/api/bookings/58/prototype-payment' &&
               request.method == 'POST') {
@@ -646,7 +757,7 @@ void main() {
 
     await tester.pumpWidget(MaterialApp(home: CustomerBookingsPage(api: api)));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Completed (1)'));
+    await tester.tap(find.text('History (1)'));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).last, const Offset(0, -400));
     await tester.pumpAndSettle();
@@ -672,7 +783,7 @@ void main() {
     await tester.tap(find.text('Delete permanently'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Completed (0)'), findsOneWidget);
+    expect(find.text('History (0)'), findsOneWidget);
     expect(find.text('Completed Court'), findsNothing);
     expect(find.text('Booking permanently deleted.'), findsOneWidget);
   });
@@ -717,7 +828,7 @@ void main() {
 
     await tester.pumpWidget(MaterialApp(home: CustomerBookingsPage(api: api)));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Completed (1)'));
+    await tester.tap(find.text('History (1)'));
     await tester.pumpAndSettle();
     final bookingDetails = find.byKey(
       const ValueKey('customer-booking-details-25'),
@@ -740,7 +851,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(deleteRequested, isTrue);
-    expect(find.text('Completed (0)'), findsOneWidget);
+    expect(find.text('History (0)'), findsOneWidget);
     expect(find.text('Booking permanently deleted.'), findsOneWidget);
   });
 
@@ -969,6 +1080,45 @@ void main() {
       expect(find.text('Beta Fitness Studio'), findsNothing);
     },
   );
+
+  testWidgets('booking notification opens the matching booking tab', (
+    tester,
+  ) async {
+    final api = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/bookings') {
+          return http.Response(
+            jsonEncode({
+              'bookings': [
+                {
+                  ..._approvedBooking,
+                  'id': 112,
+                  'venueName': 'Notification Court',
+                  'transactionId': 'TP-TXN-00000112',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/api/messages/conversations') {
+          return http.Response(jsonEncode({'conversations': []}), 200);
+        }
+        return http.Response(jsonEncode({'error': 'Unexpected request'}), 404);
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: CustomerBookingsPage(api: api, initialBookingId: 112)),
+    );
+    await tester.pumpAndSettle();
+
+    final search = tester.widget<TextField>(
+      find.byKey(const ValueKey('customer-bookings-search')),
+    );
+    expect(search.controller?.text, 'BK-112');
+    expect(find.text('Notification Court'), findsOneWidget);
+  });
 
   testWidgets('tapping the booking status banner collapses it', (tester) async {
     await tester.pumpWidget(
@@ -1308,7 +1458,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Completed (1)'));
+    await tester.tap(find.text('History (1)'));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).last, const Offset(0, -400));
     await tester.pumpAndSettle();
@@ -1347,11 +1497,61 @@ void main() {
       'comment': 'Great court',
     });
     expect(find.text('Your rating was submitted.'), findsOneWidget);
-    await tester.tap(find.text('Completed (1)'));
+    await tester.tap(find.text('History (1)'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('customer-booking-details-12')));
     await tester.pumpAndSettle();
     expect(find.text('Reviewed'), findsOneWidget);
+  });
+
+  testWidgets('History preserves each finished booking status', (tester) async {
+    final bookings = [
+      {
+        ..._approvedBooking,
+        'id': 31,
+        'venueName': 'Finished Court',
+        'status': 'finished',
+      },
+      {
+        ..._approvedBooking,
+        'id': 32,
+        'venueName': 'Expired Court',
+        'status': 'expired',
+      },
+      {
+        ..._approvedBooking,
+        'id': 33,
+        'venueName': 'Cancelled Court',
+        'status': 'cancelled',
+      },
+    ];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/api/bookings') {
+          return http.Response(jsonEncode({'bookings': bookings}), 200);
+        }
+        if (request.url.path == '/api/messages/conversations') {
+          return http.Response(jsonEncode({'conversations': []}), 200);
+        }
+        return http.Response(jsonEncode({'error': 'Unexpected request'}), 500);
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: CustomerBookingsPage(api: api)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('History (3)'), findsOneWidget);
+    await tester.tap(find.text('History (3)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Completed'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('Expired'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('Cancelled'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 

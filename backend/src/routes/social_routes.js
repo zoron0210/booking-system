@@ -186,6 +186,7 @@ function registerSocialRoutes({
       if (!mediaStorage) {
         return res.status(503).json({
           error: 'Social photo storage is not configured on this server.',
+          legacyUploadsAllowed: allowLegacyBase64,
         });
       }
       const { contentType, size } = req.body;
@@ -261,7 +262,8 @@ function registerSocialRoutes({
                 ) AS isSaved
          FROM social_posts p
          JOIN users u ON u.id = p.user_id AND u.status = 'active'
-         WHERE (
+         WHERE p.club_id IS NULL
+         AND (
            ? = 'public'
            OR (
              ? = 'following'
@@ -322,6 +324,7 @@ function registerSocialRoutes({
       const pageRows = rows.slice(0, pageSize);
       const posts = await Promise.all(pageRows.map(async (row) => ({
         ...row,
+        isOwnPost: viewerId !== null && Number(row.userId) === Number(viewerId),
         displayName: `${row.firstName || ''} ${row.lastName || ''}`.trim() ||
           'SpotGo user',
         images: await resolveImages(mediaStorage, parseImages(row.imagesJson)),
@@ -778,6 +781,46 @@ function registerSocialRoutes({
     );
   }
 
+  app.delete('/api/social/posts/:postId', requireAuth, async (req, res, next) => {
+    const postId = positiveId(req.params.postId);
+    if (postId === null) {
+      return res.status(400).json({ error: 'Invalid post.' });
+    }
+    try {
+      const [posts] = await pool.execute(
+        `SELECT images_json AS imagesJson
+         FROM social_posts
+         WHERE id = ? AND user_id = ?
+         LIMIT 1`,
+        [postId, req.auth.sub],
+      );
+      if (!posts[0]) return res.status(404).json({ error: 'Post not found.' });
+
+      const [result] = await pool.execute(
+        'DELETE FROM social_posts WHERE id = ? AND user_id = ?',
+        [postId, req.auth.sub],
+      );
+      if (!result.affectedRows) {
+        return res.status(404).json({ error: 'Post not found.' });
+      }
+
+      if (mediaStorage) {
+        try {
+          await mediaStorage.deleteImages(parseImages(posts[0].imagesJson));
+        } catch (error) {
+          console.error('Could not delete social post media.', {
+            postId,
+            userId: req.auth.sub,
+            error,
+          });
+        }
+      }
+      return res.json({ deleted: true });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   app.post(
     '/api/social/posts/:postId/reports',
     requireAuth,
@@ -871,7 +914,7 @@ function registerSocialRoutes({
                 (SELECT COUNT(*) FROM user_follows f
                  WHERE f.follower_id = u.id) AS followingCount,
                 (SELECT COUNT(*) FROM social_posts p
-                 WHERE p.user_id = u.id) AS postsCount,
+                 WHERE p.user_id = u.id AND p.club_id IS NULL) AS postsCount,
                 EXISTS (
                   SELECT 1 FROM user_follows f
                   WHERE f.follower_id = ? AND f.followed_id = u.id
@@ -905,7 +948,7 @@ function registerSocialRoutes({
                   WHERE s.post_id = social_posts.id AND s.user_id = ?
                 ) AS isSaved
          FROM social_posts
-         WHERE user_id = ?
+         WHERE user_id = ? AND club_id IS NULL
          ORDER BY created_at DESC, id DESC
          LIMIT 50`,
         [viewerId, viewerId, userId],
@@ -954,6 +997,8 @@ function registerSocialRoutes({
         },
         posts: await Promise.all(posts.map(async (post) => ({
           ...post,
+          isOwnPost:
+            viewerId !== null && Number(post.userId) === Number(viewerId),
           images: await resolveImages(mediaStorage, parseImages(post.imagesJson)),
           createdAt: serializeDate(post.createdAt),
         }))),
@@ -1023,16 +1068,31 @@ function registerSocialRoutes({
   app.post('/api/social/posts', requireAuth, async (req, res, next) => {
     const caption = normalizeCaption(req.body.caption);
     const imageResult = validateImages(req.body.images);
+    const clubId = req.body.clubId === undefined
+      ? null
+      : positiveId(req.body.clubId);
     if (
+      (req.body.clubId !== undefined && clubId === null) ||
       (req.body.caption !== undefined &&
         (typeof req.body.caption !== 'string' ||
           req.body.caption.length > MAX_CAPTION_LENGTH)) ||
       caption.length > MAX_CAPTION_LENGTH ||
       !imageResult.valid ||
-      (!caption && imageResult.images.length === 0)
+      (!caption && imageResult.images.length === 0 && clubId === null)
     ) {
       return res.status(400).json({
         error: 'Add a caption or up to five JPEG, PNG, or WebP photos (10 MiB each).',
+      });
+    }
+    if (
+      clubId !== null &&
+      !imageResult.images.some((image) =>
+        image.startsWith('gcs://social-media-staging/') ||
+        image.startsWith('data:image/'),
+      )
+    ) {
+      return res.status(400).json({
+        error: 'Club posts require at least one JPEG, PNG, or WebP photo.',
       });
     }
     const stagedImages = imageResult.images.filter((image) =>
@@ -1085,6 +1145,21 @@ function registerSocialRoutes({
         await connection.rollback();
         return res.status(403).json({ error: 'An active account is required to post.' });
       }
+      if (clubId !== null) {
+        const [memberships] = await connection.execute(
+          `SELECT club_id FROM social_club_members
+           WHERE club_id = ? AND user_id = ?
+             AND membership_status = 'approved'
+           FOR UPDATE`,
+          [clubId, req.auth.sub],
+        );
+        if (!memberships.length) {
+          await connection.rollback();
+          return res.status(403).json({
+            error: 'Join this club before posting in its community.',
+          });
+        }
+      }
       const [recentPosts] = await connection.execute(
         `SELECT COUNT(*) AS postCount, MIN(created_at) AS oldestPostAt
          FROM social_posts
@@ -1106,16 +1181,18 @@ function registerSocialRoutes({
         });
       }
       const [result] = await connection.execute(
-        `INSERT INTO social_posts (user_id, caption, images_json)
-         VALUES (?, ?, ?)`,
+        `INSERT INTO social_posts (user_id, club_id, caption, images_json)
+         VALUES (?, ?, ?, ?)`,
         [
           req.auth.sub,
+          clubId,
           caption || null,
           JSON.stringify(images),
         ],
       );
-      await connection.execute(
-        `INSERT IGNORE INTO social_notifications
+      if (clubId === null) {
+        await connection.execute(
+          `INSERT IGNORE INTO social_notifications
            (recipient_user_id, actor_user_id, type, post_id, source_id)
          SELECT f.follower_id, ?, 'post', ?, ?
          FROM user_follows f
@@ -1134,8 +1211,9 @@ function registerSocialRoutes({
           req.auth.sub,
           req.auth.sub,
           req.auth.sub,
-        ],
-      );
+          ],
+        );
+      }
       const responseImages = await resolveImages(mediaStorage, images);
       await connection.commit();
       transactionStarted = false;
@@ -1143,6 +1221,7 @@ function registerSocialRoutes({
       return res.status(201).json({
         id: Number(result.insertId),
         userId: Number(req.auth.sub),
+        clubId,
         caption,
         images: responseImages,
         message: 'Experience shared.',

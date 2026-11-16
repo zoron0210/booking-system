@@ -209,7 +209,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 2300));
       await tester.pumpAndSettle();
       expect(find.byType(CustomerHomePage), findsOneWidget);
-      expect(find.byKey(const ValueKey('customer-home-add')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('customer-home-composer')),
+        findsNothing,
+      );
       expect(find.text('Add experience'), findsNothing);
     },
   );

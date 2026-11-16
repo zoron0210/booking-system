@@ -184,3 +184,77 @@ test('does not notify or cancel when another request already changed the booking
   assert.equal(calls.filter(({ kind }) => kind === 'rollback').length, 2);
   assert.equal(calls.filter(({ kind }) => kind === 'commit').length, 0);
 });
+
+test('concurrent workers expire and notify an overdue booking only once', async () => {
+  const booking = {
+    id: 35,
+    customerId: 42,
+    merchantId: 88,
+    venueId: 7,
+    venueName: 'North Gym',
+    sportType: 'Basketball',
+    approvalTimeoutMinutes: 15,
+  };
+  let bookingStatus = 'pending';
+  let candidateQueries = 0;
+  let releaseCandidates;
+  const candidatesReady = new Promise((resolve) => {
+    releaseCandidates = resolve;
+  });
+  let transitions = 0;
+  let commits = 0;
+  let rollbacks = 0;
+  const pool = {
+    async execute(sql) {
+      if (sql.includes('approval_reminded_at IS NULL')) return [[], []];
+      if (sql.includes('approval_due_at')) {
+        candidateQueries++;
+        if (candidateQueries === 2) releaseCandidates();
+        await candidatesReady;
+        return [[booking], []];
+      }
+      throw new Error(`Unexpected pool query: ${sql}`);
+    },
+    async getConnection() {
+      return {
+        async beginTransaction() {},
+        async commit() {
+          commits++;
+        },
+        async rollback() {
+          rollbacks++;
+        },
+        release() {},
+        async execute(sql) {
+          if (sql.includes("SET status = 'cancelled'")) {
+            if (bookingStatus !== 'pending') return [{ affectedRows: 0 }, []];
+            bookingStatus = 'cancelled';
+            transitions++;
+            return [{ affectedRows: 1 }, []];
+          }
+          if (sql.includes("JSON_SET") && sql.includes("'$.status', 'expired'")) {
+            return [{ affectedRows: 1 }, []];
+          }
+          throw new Error(`Unexpected connection query: ${sql}`);
+        },
+      };
+    },
+  };
+  const activities = [];
+  const notifications = [];
+  const createWorker = () => createBookingApprovalDeadlineProcessor({
+    pool,
+    recordUserActivity: async (...args) => activities.push(args),
+    notifyBookingParticipants: (details) => notifications.push(details),
+  });
+
+  await Promise.all([createWorker()(), createWorker()()]);
+
+  assert.equal(bookingStatus, 'cancelled');
+  assert.equal(transitions, 1);
+  assert.equal(commits, 1);
+  assert.equal(rollbacks, 1);
+  assert.equal(activities.length, 2);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].event, 'approval_expired');
+});

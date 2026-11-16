@@ -56,9 +56,7 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: AppText(
-                        period == 'Today'
-                            ? "Today's performance"
-                            : '$period performance',
+                        'Performance overview',
                         style: TextStyle(
                           color: _profileInk,
                           fontSize: 16,
@@ -105,7 +103,7 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 AppText(
-                  'CONFIRMED REVENUE',
+                  'CONFIRMED BOOKING VALUE · ${period.toUpperCase()}',
                   style: TextStyle(
                     color: _profileMuted,
                     fontSize: 10,
@@ -136,6 +134,12 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
                       : '${filteredBookings.length} booking${filteredBookings.length == 1 ? '' : 's'} in selected period',
                   style: TextStyle(color: _profileMuted, fontSize: 12),
                 ),
+                const SizedBox(height: 3),
+                AppText(
+                  'Booking totals are not the same as payments received.',
+                  style: TextStyle(color: _profileMuted, fontSize: 11),
+                  localize: true,
+                ),
               ],
             ),
           ),
@@ -144,45 +148,60 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final itemWidth = (constraints.maxWidth - 12) / 2;
-                return Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.event_available_rounded,
-                        "Today's bookings",
-                        '${bookings.length}',
-                        const Color(0xFF1C69C9),
+                    AppText(
+                      'Today at a glance',
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
                       ),
+                      localize: true,
                     ),
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.pending_actions_rounded,
-                        'Awaiting approval',
-                        '${performance.todayPendingCount}',
-                        const Color(0xFFE28A16),
-                      ),
-                    ),
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.groups_rounded,
-                        'Players today',
-                        '${performance.todayParticipantCount}',
-                        const Color(0xFF168B69),
-                      ),
-                    ),
-                    SizedBox(
-                      width: itemWidth,
-                      child: _metric(
-                        Icons.location_city_rounded,
-                        'Active venues',
-                        '$venueCount',
-                        const Color(0xFF7655C5),
-                      ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        SizedBox(
+                          width: itemWidth,
+                          child: _metric(
+                            Icons.event_available_rounded,
+                            "Today's bookings",
+                            '${bookings.length}',
+                            const Color(0xFF1C69C9),
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _metric(
+                            Icons.pending_actions_rounded,
+                            'Awaiting approval',
+                            '${performance.todayPendingCount}',
+                            const Color(0xFFE28A16),
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _metric(
+                            Icons.groups_rounded,
+                            'Players today',
+                            '${performance.todayParticipantCount}',
+                            const Color(0xFF168B69),
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _metric(
+                            Icons.location_city_rounded,
+                            'Venues in account',
+                            '$venueCount',
+                            const Color(0xFF7655C5),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 );
@@ -197,10 +216,10 @@ class MerchantProfilePerformanceCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               child: _metric(
                 Icons.account_balance_wallet_outlined,
-                'Estimated paid amount',
+                'Payments recorded',
                 '₱${performance.estimatedPaidAmount.toStringAsFixed(2)}',
                 const Color(0xFF237A43),
-                description: 'From booking payment records; not a withdrawable balance. Tap for payment details.',
+                description: 'Recorded against bookings in the selected period; not a withdrawable balance. Tap for payment details.',
               ),
             ),
           ),

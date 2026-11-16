@@ -42,7 +42,7 @@ void main() {
 
     await api.login(email: 'client@example.com', password: 'password123');
 
-    expect(receivedRequest.url.host, '192.168.1.20');
+    expect(receivedRequest.url.host, '192.168.1.15');
     expect(receivedRequest.url.port, 3000);
     expect(receivedRequest.url.path, '/api/auth/login');
   });

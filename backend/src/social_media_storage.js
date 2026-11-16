@@ -131,6 +131,13 @@ function createSocialMediaStorage({
       return `${STORAGE_URI_PREFIX}${objectName}`;
     },
 
+    async verifyLegacyImage(uri, expectedBytes) {
+      const objectName = permanentObjectName(uri);
+      if (!objectName || !Buffer.isBuffer(expectedBytes)) return false;
+      const [storedBytes] = await bucket.file(objectName).download();
+      return storedBytes.equals(expectedBytes);
+    },
+
     async deleteImages(images) {
       await Promise.all(images.map(async (image) => {
         const objectName = permanentObjectName(image);

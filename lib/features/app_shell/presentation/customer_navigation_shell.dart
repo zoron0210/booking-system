@@ -15,11 +15,13 @@ class CustomerNavigationShell extends StatefulWidget {
     this.api,
     this.onLogout,
     this.businessType,
+    this.onSwitchToMerchantPortal,
   });
 
   final AuthApi? api;
   final Future<void> Function(BuildContext context)? onLogout;
   final String? businessType;
+  final Future<void> Function(BuildContext context)? onSwitchToMerchantPortal;
 
   @override
   State<CustomerNavigationShell> createState() =>
@@ -102,6 +104,7 @@ class _CustomerNavigationShellState extends State<CustomerNavigationShell> {
         businessType: widget.businessType,
         onLogout: widget.onLogout,
         hideBottomNavigation: true,
+        onSwitchToMerchantPortal: widget.onSwitchToMerchantPortal,
       ),
       _ => const SizedBox.shrink(),
     };

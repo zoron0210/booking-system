@@ -57,4 +57,43 @@ void main() {
       'images': [uploadedKey],
     });
   });
+
+  test(
+    'uses the bounded legacy photo path when storage is unconfigured',
+    () async {
+      final pngBytes = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0L8AAAAASUVORK5CYII=',
+      );
+      final image = 'data:image/png;base64,${base64Encode(pngBytes)}';
+      Map<String, dynamic>? postRequestBody;
+      final client = MockClient((request) async {
+        if (request.url.path == '/api/social/uploads') {
+          return http.Response(
+            jsonEncode({
+              'error': 'Social photo storage is not configured on this server.',
+              'legacyUploadsAllowed': true,
+            }),
+            503,
+          );
+        }
+        if (request.url.path == '/api/social/posts') {
+          postRequestBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode({'id': 42}), 201);
+        }
+        fail('Unexpected request: ${request.method} ${request.url}');
+      });
+
+      final api = AuthApi(client: client);
+      await api.social.createSocialPost(
+        token: 'token',
+        caption: 'Match day',
+        images: [image],
+      );
+
+      expect(postRequestBody, {
+        'caption': 'Match day',
+        'images': [image],
+      });
+    },
+  );
 }

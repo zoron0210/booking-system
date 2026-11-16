@@ -60,6 +60,20 @@ CREATE TABLE IF NOT EXISTS booking_notification_devices (
     ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS match_discovery_notification_devices (
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  fcm_token TEXT NOT NULL,
+  sound ENUM('system', 'tinker_bell') NOT NULL DEFAULT 'tinker_bell',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (token_hash),
+  KEY idx_match_discovery_notification_devices_user (user_id),
+  CONSTRAINT fk_match_discovery_notification_devices_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS user_follows (
   follower_id BIGINT UNSIGNED NOT NULL,
   followed_id BIGINT UNSIGNED NOT NULL,
@@ -74,17 +88,54 @@ CREATE TABLE IF NOT EXISTS user_follows (
     ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS social_clubs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  owner_user_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(60) NOT NULL,
+  description VARCHAR(500) NULL,
+  logo_image VARCHAR(512) NULL,
+  requires_join_approval TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_social_clubs_name (name, id),
+  KEY idx_social_clubs_owner (owner_user_id, created_at),
+  CONSTRAINT fk_social_clubs_owner
+    FOREIGN KEY (owner_user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS social_club_members (
+  club_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role ENUM('owner', 'member') NOT NULL DEFAULT 'member',
+  membership_status ENUM('approved', 'pending') NOT NULL DEFAULT 'approved',
+  joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (club_id, user_id),
+  KEY idx_social_club_members_user (user_id, joined_at),
+  CONSTRAINT fk_social_club_members_club
+    FOREIGN KEY (club_id) REFERENCES social_clubs (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_social_club_members_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS social_posts (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,
+  club_id BIGINT UNSIGNED NULL,
   caption VARCHAR(2000) NULL,
   images_json JSON NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_social_posts_user_created (user_id, created_at, id),
   KEY idx_social_posts_created (created_at, id),
+  KEY idx_social_posts_club_created (club_id, created_at, id),
   CONSTRAINT fk_social_posts_user
     FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_social_posts_club
+    FOREIGN KEY (club_id) REFERENCES social_clubs (id)
     ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -230,8 +281,10 @@ CREATE TABLE IF NOT EXISTS merchant_businesses (
   opening_hours VARCHAR(100) NOT NULL,
   availability VARCHAR(50) NOT NULL DEFAULT 'Any',
   enabled TINYINT(1) NOT NULL DEFAULT 1,
+  allow_matchmaking TINYINT(1) NOT NULL DEFAULT 1,
   amenities_json JSON NULL,
   details VARCHAR(1000) NULL,
+  business_logo_url LONGTEXT NULL,
   image_url LONGTEXT NULL,
   image_urls JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -300,6 +353,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   customer_id BIGINT UNSIGNED NOT NULL,
   venue_id BIGINT UNSIGNED NOT NULL,
+  booking_type ENUM('regular', 'matchmaking') NOT NULL DEFAULT 'regular',
   booking_date DATE NOT NULL,
   start_time TIME NOT NULL,
   duration_hours DECIMAL(5, 2) NOT NULL,
@@ -319,8 +373,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   idempotency_request_hash CHAR(64) NULL,
   idempotency_response_json JSON NULL,
   idempotency_response_status SMALLINT UNSIGNED NULL,
-  payment_status ENUM('unpaid', 'paid', 'not_required') NOT NULL DEFAULT 'not_required',
+  payment_status ENUM('unpaid', 'partial', 'paid', 'not_required') NOT NULL DEFAULT 'not_required',
   payment_checkout_session_id VARCHAR(100) NULL,
+  payment_checkout_url VARCHAR(2048) NULL,
+  payment_checkout_method VARCHAR(16) NULL,
   payment_reference VARCHAR(100) NULL,
   paid_at DATETIME NULL,
   approval_due_at DATETIME NULL,
@@ -329,7 +385,14 @@ CREATE TABLE IF NOT EXISTS bookings (
   payment_due_at DATETIME NULL,
   payment_expired_at DATETIME NULL,
   approval_reminded_at DATETIME NULL,
-  status ENUM('pending', 'approved', 'finished', 'cancelled') NOT NULL DEFAULT 'pending',
+  status ENUM(
+    'pending',
+    'approved',
+    'finished',
+    'cancelled',
+    'matchmaking_pending_merchant',
+    'matchmaking_open'
+  ) NOT NULL DEFAULT 'pending',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -341,6 +404,116 @@ CREATE TABLE IF NOT EXISTS bookings (
     ON UPDATE CASCADE ON DELETE CASCADE,
   CONSTRAINT fk_bookings_venue FOREIGN KEY (venue_id) REFERENCES merchant_businesses (id)
     ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS matchmaking_lobbies (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  host_user_id BIGINT UNSIGNED NOT NULL,
+  venue_id BIGINT UNSIGNED NOT NULL,
+  booking_id BIGINT UNSIGNED NULL,
+  sport_type VARCHAR(100) NOT NULL,
+  slot_number INT UNSIGNED NOT NULL DEFAULT 1,
+  match_date DATE NOT NULL,
+  start_time TIME NOT NULL,
+  duration_hours DECIMAL(4, 2) NOT NULL DEFAULT 1.00,
+  total_price DECIMAL(10, 2) NOT NULL,
+  host_share_amount DECIMAL(10, 2) NOT NULL,
+  host_balance_amount DECIMAL(10, 2) NOT NULL,
+  opponent_share_amount DECIMAL(10, 2) NOT NULL,
+  payment_policy ENUM('split_remaining', 'host_covers_remaining')
+    NOT NULL DEFAULT 'split_remaining',
+  host_balance_payment_status
+    ENUM('unpaid', 'cash_on_arrival', 'paid', 'not_required')
+    NOT NULL DEFAULT 'unpaid',
+  host_balance_checkout_session_id VARCHAR(100) NULL,
+  host_balance_checkout_url VARCHAR(2048) NULL,
+  host_balance_checkout_method VARCHAR(16) NULL,
+  host_balance_payment_reference VARCHAR(100) NULL,
+  slots_needed INT UNSIGNED NOT NULL DEFAULT 1,
+  slots_filled INT UNSIGNED NOT NULL DEFAULT 0,
+  skill_level ENUM('beginner', 'intermediate', 'advanced', 'open')
+    NOT NULL DEFAULT 'open',
+  cost_per_player DECIMAL(10, 2) NULL,
+  notes VARCHAR(255) NULL,
+  opponent_criteria VARCHAR(255) NULL,
+  status ENUM(
+    'pending_merchant_approval',
+    'awaiting_host_downpayment',
+    'open',
+    'matched',
+    'cancelled',
+    'expired',
+    'completed'
+  ) NOT NULL DEFAULT 'pending_merchant_approval',
+  accepted_opponent_id BIGINT UNSIGNED NULL,
+  opponent_payment_status
+    ENUM('unpaid', 'cash_on_arrival', 'paid', 'not_required')
+    NOT NULL DEFAULT 'unpaid',
+  opponent_checkout_session_id VARCHAR(100) NULL,
+  opponent_checkout_url VARCHAR(2048) NULL,
+  opponent_checkout_method VARCHAR(16) NULL,
+  opponent_payment_reference VARCHAR(100) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_matchmaking_lobbies_feed (status, match_date, id),
+  KEY idx_matchmaking_lobbies_host (host_user_id, status, created_at),
+  KEY idx_matchmaking_lobbies_venue (venue_id, status, match_date),
+  UNIQUE KEY uq_matchmaking_opponent_checkout_session
+    (opponent_checkout_session_id),
+  UNIQUE KEY uq_matchmaking_host_balance_checkout_session
+    (host_balance_checkout_session_id),
+  CONSTRAINT fk_matchmaking_lobbies_host
+    FOREIGN KEY (host_user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_matchmaking_lobbies_venue
+    FOREIGN KEY (venue_id) REFERENCES merchant_businesses (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_matchmaking_lobbies_booking
+    FOREIGN KEY (booking_id) REFERENCES bookings (id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_matchmaking_lobbies_accepted_opponent
+    FOREIGN KEY (accepted_opponent_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS matchmaking_publication_notifications (
+  lobby_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (lobby_id, user_id),
+  KEY idx_matchmaking_publication_notifications_user (user_id, created_at),
+  CONSTRAINT fk_matchmaking_publication_notifications_lobby
+    FOREIGN KEY (lobby_id) REFERENCES matchmaking_lobbies (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_matchmaking_publication_notifications_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS matchmaking_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  lobby_id BIGINT UNSIGNED NOT NULL,
+  opponent_user_id BIGINT UNSIGNED NOT NULL,
+  conversation_id BIGINT UNSIGNED NOT NULL,
+  status ENUM('pending', 'accepted', 'declined', 'cancelled')
+    NOT NULL DEFAULT 'pending',
+  message VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_matchmaking_request_opponent (lobby_id, opponent_user_id),
+  KEY idx_matchmaking_requests_conversation (conversation_id),
+  KEY idx_matchmaking_requests_lobby_status (lobby_id, status, created_at),
+  KEY idx_matchmaking_requests_opponent
+    (opponent_user_id, status, created_at),
+  CONSTRAINT fk_matchmaking_requests_lobby
+    FOREIGN KEY (lobby_id) REFERENCES matchmaking_lobbies (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_matchmaking_requests_opponent
+    FOREIGN KEY (opponent_user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_matchmaking_requests_conversation
+    FOREIGN KEY (conversation_id) REFERENCES conversations (id)
+    ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS fitness_booking_attendance (

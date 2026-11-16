@@ -87,6 +87,49 @@ void main() {
     },
   );
 
+  test('public match alert APIs use a separate device registration', () async {
+    final requests = <http.Request>[];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        return http.Response(
+          '{}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await api.registerMatchDiscoveryDevice(
+      token: 'customer-token',
+      fcmToken: 'public-match-device-token',
+      sound: 'system',
+    );
+    await api.unregisterMatchDiscoveryDevice(
+      token: 'customer-token',
+      fcmToken: 'public-match-device-token',
+    );
+
+    expect(requests.map((request) => '${request.method} ${request.url.path}'), [
+      'PUT /api/notifications/match-discovery-device',
+      'DELETE /api/notifications/match-discovery-device',
+    ]);
+    expect(
+      requests.every(
+        (request) =>
+            request.headers['authorization'] == 'Bearer customer-token',
+      ),
+      isTrue,
+    );
+    expect(jsonDecode(requests.first.body), {
+      'fcmToken': 'public-match-device-token',
+      'sound': 'system',
+    });
+    expect(jsonDecode(requests.last.body), {
+      'fcmToken': 'public-match-device-token',
+    });
+  });
+
   test('message conversation loader filters by business type', () async {
     final requestedBusinessTypes = <String?>[];
     final api = AuthApi(

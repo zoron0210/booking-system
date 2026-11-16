@@ -12,6 +12,8 @@ import 'package:myapp/core/app_theme.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_profile_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'merchant_dashboard_test_support.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -32,9 +34,9 @@ void main() {
       AppPalette.blue.color,
     );
     expect(theme.scaffoldBackgroundColor, AppColors.lightPage);
-    expect(theme.cardTheme.color, Colors.white);
-    expect(theme.dialogTheme.backgroundColor, Colors.white);
-    expect(theme.bottomSheetTheme.backgroundColor, Colors.white);
+    expect(theme.cardTheme.color, AppColors.glassSurface);
+    expect(theme.dialogTheme.backgroundColor, AppColors.glassSurface);
+    expect(theme.bottomSheetTheme.backgroundColor, AppColors.glassSurface);
     expect(
       theme.inputDecorationTheme.fillColor,
       theme.colorScheme.surfaceContainerLow,
@@ -47,6 +49,16 @@ void main() {
     expect(preferences.palette, AppPalette.blue);
     expect(preferences.accentColor, const Color(0xFF214A94));
     expect(preferences.darkMode, isFalse);
+  });
+
+  testWidgets('theme palette choices show readable labels', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AppSettingsPage(preferences: AppPreferences.empty())),
+    );
+
+    expect(find.text('Navy'), findsOneWidget);
+    expect(find.text('Blue'), findsOneWidget);
+    expect(find.text('Custom'), findsOneWidget);
   });
 
   testWidgets('appearance and language choices apply and persist', (
@@ -96,9 +108,9 @@ void main() {
     final darkTheme = tester
         .widget<MaterialApp>(find.byType(MaterialApp))
         .theme!;
-    expect(darkTheme.cardTheme.color, AppColors.darkSurface);
-    expect(darkTheme.dialogTheme.backgroundColor, AppColors.darkSurface);
-    expect(darkTheme.bottomSheetTheme.backgroundColor, AppColors.darkSurface);
+    expect(darkTheme.cardTheme.color, AppColors.glassSurface);
+    expect(darkTheme.dialogTheme.backgroundColor, AppColors.glassSurface);
+    expect(darkTheme.bottomSheetTheme.backgroundColor, AppColors.glassSurface);
     expect(darkTheme.inputDecorationTheme.fillColor, AppColors.darkSurface);
     expect(darkTheme.colorScheme.onSurface, AppColors.darkInk);
     expect(darkTheme.colorScheme.onSurfaceVariant, AppColors.darkMuted);
@@ -457,8 +469,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
-    await tester.pumpAndSettle();
+    await tapMerchantSettings(tester);
     expect(
       find.byKey(const ValueKey('merchant-settings-appearance')),
       findsOneWidget,
@@ -471,6 +482,12 @@ void main() {
     expect(find.byType(AppSettingsPage), findsOneWidget);
     expect(
       find.byKey(const ValueKey('app-settings-dark-mode')),
+      findsOneWidget,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('merchant-settings-appearance')),
       findsOneWidget,
     );
   });

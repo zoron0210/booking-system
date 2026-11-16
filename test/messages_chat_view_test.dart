@@ -99,6 +99,75 @@ void main() {
     );
     expect(incoming.left, lessThan(sent.left));
     expect(sent.right, closeTo(900 - 16, 1));
+  });
+
+  testWidgets('only merchants can decide incoming match booking tickets', (
+    tester,
+  ) async {
+    final composer = TextEditingController();
+    addTearDown(composer.dispose);
+    Map<String, dynamic>? decidedTicket;
+    bool? approved;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessagesChatView(
+            messages: [
+              {
+                'id': 801,
+                'senderId': 8,
+                'attachment': {
+                  'type': 'matchmaking_booking_request_ticket',
+                  'bookingId': 52,
+                  'lobbyId': 31,
+                  'venueName': 'North Courts',
+                  'sportType': 'Badminton',
+                  'slotNumber': 2,
+                  'matchDate': '2030-04-12',
+                  'startTime': '18:30',
+                  'totalPrice': 375,
+                  'hostShareAmount': 187.5,
+                  'status': 'pending_merchant_approval',
+                },
+              },
+              {
+                'id': 802,
+                'senderId': 7,
+                'attachment': {
+                  'type': 'matchmaking_booking_request_ticket',
+                  'bookingId': 53,
+                  'status': 'pending_merchant_approval',
+                },
+              },
+            ],
+            currentUserId: 7,
+            isMerchant: true,
+            blocked: false,
+            composer: composer,
+            pendingImageData: null,
+            sending: false,
+            onDeleteMessage: (_) {},
+            onMatchmakingMerchantDecision: (ticket, decision) async {
+              decidedTicket = ticket;
+              approved = decision;
+            },
+            onPickImage: () {},
+            onRemovePendingImage: () {},
+            onSend: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('MATCH BOOKING REQUEST'), findsNWidgets(2));
+    expect(find.widgetWithText(FilledButton, 'Approve'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Approve'));
+    await tester.pumpAndSettle();
+
+    expect(decidedTicket?['lobbyId'], 31);
+    expect(approved, isTrue);
     expect(tester.takeException(), isNull);
   });
 

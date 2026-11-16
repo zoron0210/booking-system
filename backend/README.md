@@ -60,16 +60,24 @@ reviews, using MySQL.
    private; the API issues five-minute upload URLs and 24-hour read URLs.
    Configure bucket CORS to allow `PUT` from the deployed app origins. Apply a
    one-day object lifecycle rule to the `social-media-staging/` prefix so
-   abandoned uploads are removed automatically.
+   abandoned uploads are removed automatically. If storage is not configured,
+   the app uses the bounded legacy photo request only while
+   `SOCIAL_ALLOW_LEGACY_BASE64` is enabled; configure storage before disabling
+   that compatibility path.
 4. Set `GOOGLE_CLIENT_ID` to the web OAuth client ID used by the app's Firebase
    Google sign-in configuration. Configure `PORT` only if you do not want the
    default port 3000. The example also includes optional PayMongo checkout
    settings; provide valid credentials and return URLs if using that integration.
-   Online bookings are requests first; no payment is taken before merchant
+   Keep `PAYMONGO_LIVE_ENABLED=false`; live secret keys are blocked unless this
+   explicit flag is enabled. Do not enable it until payment, refunds, settlement,
+   reconciliation, and provider account readiness are approved. Online bookings
+   are requests first; no payment is taken before merchant
    approval. After approval, online customers have 15 minutes to complete
    payment; Cash on Arrival customers have 15 minutes to complete the required
    downpayment, with the remaining balance due at the venue. The development
-   app simulates both obligations using its prototype payment form.
+   debug builds may simulate both obligations using the prototype payment form.
+   Release builds never fall back to prototype payment; a signed PayMongo
+   webhook remains authoritative for online payment status.
 
    During development, the customer app uses a clearly labeled prototype
    payment form with GCash, Maya, Atome, and credit/debit card options. Mobile
@@ -149,10 +157,22 @@ validates captions and up to five
 media items per post: JPEG, PNG, or WebP images (10 MiB maximum per image) or
 Tenor GIF URLs. New photos are uploaded directly to private object storage with
 short-lived signed URLs; MySQL stores object keys, not photo bytes. Existing
-base64 photos can be migrated with `npm run migrate:social-media` from
-`backend`. Run that command after configuring database and storage credentials,
-then set `SOCIAL_ALLOW_LEGACY_BASE64=false` once supported app versions are
-deployed. Until then, older app versions can still submit base64 photos.
+base64 photos can be inspected with `npm run migrate:social-media` from
+`backend`; this is a non-mutating dry run and does not require storage
+credentials. To apply, configure database and storage credentials and run
+`npm run migrate:social-media -- --apply --backup-confirmed`. The confirmation
+flag is an operator attestation, not an automatic backup check. Before applying
+in staging, create a database backup and verify that it can be restored. Keep
+legacy writes enabled until the supported-client window is confirmed, and
+retain the backup until staging reads and media visibility have been checked.
+The apply path verifies each stored image byte-for-byte before changing its
+database pointer, uses stable object keys so interrupted runs can be repeated,
+and conditionally updates only posts whose images have not changed. Restoring
+the pre-migration database backup restores the original image references;
+unreferenced objects from an interrupted run may remain and can be cleaned up
+after verification. Do not run this migration against production without an
+approved backup and rollback plan. No migration has been run as part of this
+code change.
 Configure the server-side `TENOR_API_KEY` environment variable to enable Tenor
 search; the key is never sent to Flutter clients. Chat messages can also
 contain Tenor GIF attachments and emoji text.
@@ -185,6 +205,65 @@ share one database read. Merchant business/profile and news changes, as well as
 venue heart and review changes, invalidate the cached catalog. This cache is
 per API process: multiple backend instances have separate caches, and changes
 made outside the API can remain visible for up to 30 seconds.
+
+## Staging and production release gates
+
+The repository does not establish that a deployment is production-ready. Use
+staging to verify the following before authorizing a production release:
+
+- Create a database snapshot and demonstrate a restore before applying schema
+  or social-media data migrations. Apply schema migrations with the dedicated
+  migrator account, restore runtime credentials, then verify `/health` and the
+  recorded migration versions.
+- Verify staging HTTPS, exact `CLIENT_ORIGIN` values, proxy/client-IP handling,
+  gateway rate limits, and that clients cannot bypass the gateway. Store and
+  rotate API and provider credentials in the deployment secret manager; do not
+  put secret values in source, logs, screenshots, or support requests.
+- Exercise Firebase/FCM, SMTP, Twilio, Tenor, and PayMongo in their respective
+  test environments. Confirm Firebase project and API-key restrictions,
+  provider sender eligibility, and signed PayMongo webhook delivery. A checkout
+  redirect or client response is not payment confirmation.
+- Keep real-money payments disabled until regular customer checkout,
+  provider-authoritative state, idempotency, refund recovery, settlement, and
+  reconciliation have been verified against the provider and an agreed
+  settlement policy. The prototype payment form is not a payment provider.
+- Verify backup completion and restoration, health checks, alert delivery,
+  incident ownership, and a production smoke test. Record evidence and the
+  release commit; do not infer these checks from a successful local build.
+- Keep one API process until shared rate limits, cache invalidation, WebSocket
+  fan-out, and deadline processing have passed multi-instance tests. The
+  current process-local services do not provide horizontal coordination.
+
+## Runtime topology and multi-instance limits
+
+The backend currently has no shared cache, application-level rate-limit store,
+or WebSocket pub/sub service configured. Treat one API process as the supported
+deployment unless the multi-instance gates below are met.
+
+| Responsibility | Current coordination | Multi-instance behavior and requirement |
+| --- | --- | --- |
+| Authentication and social rate limits | In-memory buckets in each API process | Quotas multiply across instances. Configure equivalent shared-gateway limits using the same IP and normalized-account keys before adding instances; the in-process limiter remains an additional per-instance limit. |
+| Catalog and account-status caches | Per-process maps; catalog TTL is 30 seconds and account-status TTL is 5 seconds | A mutation invalidates only the process that handled it. Other instances may serve catalog data up to 30 seconds stale and account status up to 5 seconds stale. Use shared invalidation/cache coordination if those bounds are not acceptable. |
+| Booking deadline processors | Each process runs the timer, but each transition is a conditional MySQL `UPDATE` inside a transaction | All instances must write to the same InnoDB MySQL primary. The status, due-time, and unset-marker predicates make the database update the shared compare-and-set: only the worker with affected rows commits the related activity/message and dispatches the transition notification. The process-local `running` flag alone is not cross-instance coordination. Do not use separate writable databases or multi-primary replication for these transitions. |
+| Email, SMS, and push after a deadline transition | Dispatched after the winning transaction commits | Competing workers and processor retries do not dispatch duplicate transition notifications. Delivery is not a durable outbox: a process crash after commit or a provider failure can lose an external delivery. Guaranteed retries require a transactional outbox and provider-side idempotency; exactly-once delivery is not currently claimed. |
+| Authenticated WebSocket events and account revocation | Each process owns its own user-to-socket map | An event or `closeUser` call reaches only sockets connected to that process. HTTP polling is a fallback for dashboard/message refreshes, but does not provide immediate cross-instance delivery or socket revocation. Before running multiple instances, provide a shared `LiveUpdateBus` with per-user publish, fan-out subscription, and close-user propagation, and configure every instance to use it. No broker implementation or dependency is selected yet; until then, keep one API process. |
+
+Before horizontal rollout, the live-update adapter must expose
+`publishToUser(userId, event)`, `subscribe(onUserEvent)`, and `closeUser(userId)`.
+Each API process must publish and subscribe so events and account closures reach
+local sockets on every instance. Configure an explicit adapter and its broker
+connection through deployment secrets; require the service to be reachable at
+startup/readiness and fail closed on missing configuration or publish errors.
+Do not silently fall back to local-only delivery when running multiple
+instances. Single-instance development continues to use the current local hub.
+
+Also configure shared gateway limits with the same keys and thresholds as the
+application limiter, and prevent clients from bypassing that gateway. Keep the
+existing single MySQL writer and verify the deadline compare-and-set behavior
+against that database. No adapter configuration or broker dependency is
+implemented yet, and no schema migration is required for the existing MySQL
+deadline coordination. Do not treat the process-local cache, rate limits, or
+WebSocket map as shared coordination.
 
 If MySQL reports `ER_ACCESS_DENIED_ERROR`, check `DB_USER` and `DB_PASSWORD`
 against your MySQL account. Do not use your Gmail password or Gmail App

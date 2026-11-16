@@ -34,6 +34,7 @@ async function ensureMerchantBusinessesSchema() {
       additional_player_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
       amenities_json JSON NULL,
       details VARCHAR(1000) NULL,
+      business_logo_url LONGTEXT NULL,
       image_url LONGTEXT NULL,
       image_urls JSON NULL,
       visit_url VARCHAR(1000) NULL,
@@ -290,6 +291,7 @@ async function ensureBookingsSchema() {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       customer_id BIGINT UNSIGNED NOT NULL,
       venue_id BIGINT UNSIGNED NOT NULL,
+      booking_type ENUM('regular', 'matchmaking') NOT NULL DEFAULT 'regular',
       booking_date DATE NOT NULL,
       start_time TIME NOT NULL,
       duration_hours DECIMAL(5, 2) NOT NULL,
@@ -340,6 +342,7 @@ async function ensureBookingsSchema() {
     ) ENGINE=InnoDB
   `);
   for (const [name, definition] of [
+    ['booking_type', "ENUM('regular', 'matchmaking') NOT NULL DEFAULT 'regular'"],
     ['booking_token_hash', 'CHAR(64) NULL'],
     ['ticket_token_hash', 'CHAR(64) NULL'],
     ['idempotency_key', 'VARCHAR(100) NULL'],
@@ -414,6 +417,53 @@ async function ensureTableColumn(tableName, columnName, definition) {
   await pool.execute(
     `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`,
   );
+}
+
+async function ensureTableIndex(tableName, indexName, definition) {
+  const [rows] = await pool.execute(
+    `SELECT 1
+       FROM information_schema.statistics
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND index_name = ?
+      LIMIT 1`,
+    [tableName, indexName],
+  );
+  if (rows.length === 0) {
+    await pool.execute(
+      `ALTER TABLE \`${tableName}\` ADD ${definition}`,
+    );
+  }
+}
+
+async function ensureForeignKey(tableName, constraintName, definition) {
+  const [rows] = await pool.execute(
+    `SELECT 1
+       FROM information_schema.table_constraints
+      WHERE constraint_schema = DATABASE()
+        AND table_name = ?
+        AND constraint_name = ?
+      LIMIT 1`,
+    [tableName, constraintName],
+  );
+  if (rows.length === 0) {
+    await pool.execute(
+      `ALTER TABLE \`${tableName}\` ADD ${definition}`,
+    );
+  }
+}
+
+async function hasTableColumn(tableName, columnName) {
+  const [rows] = await pool.execute(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND column_name = ?
+      LIMIT 1`,
+    [tableName, columnName],
+  );
+  return rows.length > 0;
 }
 
 async function ensureFitnessBookingAttendanceSchema() {
@@ -1187,6 +1237,451 @@ async function ensureVenueHeartsSchema() {
         `INSERT INTO schema_migrations (version, name)
          VALUES (?, ?)`,
         [23, 'refresh-token-sessions'],
+      );
+    }
+    if (!appliedVersions.has(24)) {
+      await ensureTableColumn(
+        'merchant_businesses',
+        'allow_matchmaking',
+        'TINYINT(1) NOT NULL DEFAULT 1',
+      );
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS matchmaking_lobbies (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          host_user_id BIGINT UNSIGNED NOT NULL,
+          venue_id BIGINT UNSIGNED NOT NULL,
+          booking_id BIGINT UNSIGNED NULL,
+          sport_type VARCHAR(100) NOT NULL,
+          match_date DATE NOT NULL,
+          start_time TIME NOT NULL,
+          duration_hours DECIMAL(4, 2) NOT NULL DEFAULT 1.00,
+          slots_needed INT UNSIGNED NOT NULL DEFAULT 1,
+          slots_filled INT UNSIGNED NOT NULL DEFAULT 0,
+          skill_level ENUM('beginner', 'intermediate', 'advanced', 'open')
+            NOT NULL DEFAULT 'open',
+          cost_per_player DECIMAL(10, 2) NULL,
+          notes VARCHAR(255) NULL,
+          status ENUM('open', 'full', 'cancelled', 'completed')
+            NOT NULL DEFAULT 'open',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_matchmaking_lobbies_feed
+            (status, match_date, id),
+          KEY idx_matchmaking_lobbies_host
+            (host_user_id, status, created_at),
+          KEY idx_matchmaking_lobbies_venue
+            (venue_id, status, match_date),
+          CONSTRAINT fk_matchmaking_lobbies_host
+            FOREIGN KEY (host_user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_matchmaking_lobbies_venue
+            FOREIGN KEY (venue_id) REFERENCES merchant_businesses (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_matchmaking_lobbies_booking
+            FOREIGN KEY (booking_id) REFERENCES bookings (id)
+            ON UPDATE CASCADE ON DELETE SET NULL
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS matchmaking_requests (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          lobby_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          status ENUM('pending', 'accepted', 'declined', 'cancelled')
+            NOT NULL DEFAULT 'pending',
+          message VARCHAR(255) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY unique_user_lobby (lobby_id, user_id),
+          KEY idx_matchmaking_requests_lobby_status
+            (lobby_id, status, created_at),
+          KEY idx_matchmaking_requests_user (user_id, status, created_at),
+          CONSTRAINT fk_matchmaking_requests_lobby
+            FOREIGN KEY (lobby_id) REFERENCES matchmaking_lobbies (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_matchmaking_requests_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [24, 'sports-matchmaking-lobbies-and-requests'],
+      );
+    }
+    if (!appliedVersions.has(25)) {
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'slot_number',
+        'INT UNSIGNED NOT NULL DEFAULT 1',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'total_price',
+        'DECIMAL(10, 2) NOT NULL DEFAULT 0',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'host_share_amount',
+        'DECIMAL(10, 2) NOT NULL DEFAULT 0',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'opponent_share_amount',
+        'DECIMAL(10, 2) NOT NULL DEFAULT 0',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'opponent_criteria',
+        'VARCHAR(255) NULL',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'accepted_opponent_id',
+        'BIGINT UNSIGNED NULL',
+      );
+      await ensureTableColumn(
+        'matchmaking_requests',
+        'opponent_user_id',
+        'BIGINT UNSIGNED NULL',
+      );
+      await ensureTableColumn(
+        'matchmaking_requests',
+        'conversation_id',
+        'BIGINT UNSIGNED NULL',
+      );
+      if (await hasTableColumn('matchmaking_requests', 'user_id')) {
+        await connection.execute(`
+          UPDATE matchmaking_requests
+          SET opponent_user_id = user_id
+          WHERE opponent_user_id IS NULL
+        `);
+        await connection.execute(`
+          ALTER TABLE matchmaking_requests
+          MODIFY COLUMN user_id BIGINT UNSIGNED NULL
+        `);
+      }
+      await connection.execute(`
+        UPDATE matchmaking_lobbies
+        SET status = 'cancelled'
+        WHERE booking_id IS NULL
+      `);
+      await connection.execute(`
+        ALTER TABLE matchmaking_lobbies
+        MODIFY COLUMN status ENUM(
+          'pending_merchant_approval',
+          'awaiting_host_downpayment',
+          'open',
+          'matched',
+          'cancelled',
+          'expired',
+          'completed'
+        ) NOT NULL DEFAULT 'pending_merchant_approval'
+      `);
+      await connection.execute(`
+        ALTER TABLE matchmaking_requests
+        MODIFY COLUMN status
+          ENUM('pending', 'accepted', 'declined', 'cancelled')
+          NOT NULL DEFAULT 'pending'
+      `);
+      await ensureTableIndex(
+        'matchmaking_requests',
+        'uq_matchmaking_request_opponent',
+        'UNIQUE KEY uq_matchmaking_request_opponent (lobby_id, opponent_user_id)',
+      );
+      await ensureTableIndex(
+        'matchmaking_requests',
+        'idx_matchmaking_requests_conversation',
+        'KEY idx_matchmaking_requests_conversation (conversation_id)',
+      );
+      await ensureTableIndex(
+        'matchmaking_requests',
+        'idx_matchmaking_requests_opponent',
+        'KEY idx_matchmaking_requests_opponent (opponent_user_id, status, created_at)',
+      );
+      await ensureForeignKey(
+        'matchmaking_requests',
+        'fk_matchmaking_requests_opponent',
+        `CONSTRAINT fk_matchmaking_requests_opponent
+         FOREIGN KEY (opponent_user_id) REFERENCES users (id)
+         ON UPDATE CASCADE ON DELETE CASCADE`,
+      );
+      await ensureForeignKey(
+        'matchmaking_requests',
+        'fk_matchmaking_requests_conversation',
+        `CONSTRAINT fk_matchmaking_requests_conversation
+         FOREIGN KEY (conversation_id) REFERENCES conversations (id)
+         ON UPDATE CASCADE ON DELETE SET NULL`,
+      );
+      await ensureTableIndex(
+        'matchmaking_lobbies',
+        'idx_matchmaking_lobbies_accepted_opponent',
+        'KEY idx_matchmaking_lobbies_accepted_opponent (accepted_opponent_id)',
+      );
+      await ensureForeignKey(
+        'matchmaking_lobbies',
+        'fk_matchmaking_lobbies_accepted_opponent',
+        `CONSTRAINT fk_matchmaking_lobbies_accepted_opponent
+         FOREIGN KEY (accepted_opponent_id) REFERENCES users (id)
+         ON UPDATE CASCADE ON DELETE SET NULL`,
+      );
+      await connection.execute(`
+        ALTER TABLE bookings
+        MODIFY COLUMN status ENUM(
+          'pending',
+          'approved',
+          'finished',
+          'cancelled',
+          'matchmaking_pending_merchant',
+          'matchmaking_open'
+        ) NOT NULL DEFAULT 'pending'
+      `);
+      await connection.execute(`
+        INSERT INTO schema_migrations (version, name)
+        VALUES (?, ?)
+      `, [25, 'matchmaking-approval-and-payment-lifecycle']);
+    }
+    if (!appliedVersions.has(26)) {
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'opponent_payment_status',
+        "ENUM('unpaid', 'cash_on_arrival', 'paid') NOT NULL DEFAULT 'unpaid'",
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'opponent_checkout_session_id',
+        'VARCHAR(100) NULL',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'opponent_payment_reference',
+        'VARCHAR(100) NULL',
+      );
+      await ensureTableIndex(
+        'matchmaking_lobbies',
+        'uq_matchmaking_opponent_checkout_session',
+        'UNIQUE KEY uq_matchmaking_opponent_checkout_session (opponent_checkout_session_id)',
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [26, 'matchmaking-opponent-share-payment'],
+      );
+    }
+    if (!appliedVersions.has(27)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_clubs (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          owner_user_id BIGINT UNSIGNED NOT NULL,
+          name VARCHAR(60) NOT NULL,
+          description VARCHAR(500) NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_social_clubs_name (name, id),
+          KEY idx_social_clubs_owner (owner_user_id, created_at),
+          CONSTRAINT fk_social_clubs_owner
+            FOREIGN KEY (owner_user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS social_club_members (
+          club_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          role ENUM('owner', 'member') NOT NULL DEFAULT 'member',
+          joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (club_id, user_id),
+          KEY idx_social_club_members_user (user_id, joined_at),
+          CONSTRAINT fk_social_club_members_club
+            FOREIGN KEY (club_id) REFERENCES social_clubs (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_social_club_members_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await ensureTableColumn('social_posts', 'club_id', 'BIGINT UNSIGNED NULL');
+      await ensureTableIndex(
+        'social_posts',
+        'idx_social_posts_club_created',
+        'KEY idx_social_posts_club_created (club_id, created_at, id)',
+      );
+      await ensureForeignKey(
+        'social_posts',
+        'fk_social_posts_club',
+        `CONSTRAINT fk_social_posts_club
+         FOREIGN KEY (club_id) REFERENCES social_clubs (id)
+         ON UPDATE CASCADE ON DELETE CASCADE`,
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [27, 'social-clubs-and-club-posts'],
+      );
+    }
+    if (!appliedVersions.has(28)) {
+      await ensureTableColumn(
+        'social_clubs',
+        'logo_image',
+        'VARCHAR(512) NULL',
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [28, 'social-club-logos'],
+      );
+    }
+    if (!appliedVersions.has(29)) {
+      await ensureTableColumn(
+        'social_clubs',
+        'requires_join_approval',
+        'TINYINT(1) NOT NULL DEFAULT 0',
+      );
+      await ensureTableColumn(
+        'social_club_members',
+        'membership_status',
+        "ENUM('approved', 'pending') NOT NULL DEFAULT 'approved'",
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [29, 'social-club-owner-settings-and-join-approval'],
+      );
+    }
+    if (!appliedVersions.has(30)) {
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'host_balance_amount',
+        'DECIMAL(10, 2) NOT NULL DEFAULT 0',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'payment_policy',
+        "ENUM('split_remaining', 'host_covers_remaining') NOT NULL DEFAULT 'split_remaining'",
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'host_balance_payment_status',
+        "ENUM('unpaid', 'cash_on_arrival', 'paid', 'not_required') NOT NULL DEFAULT 'unpaid'",
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'host_balance_checkout_session_id',
+        'VARCHAR(100) NULL',
+      );
+      await ensureTableColumn(
+        'matchmaking_lobbies',
+        'host_balance_payment_reference',
+        'VARCHAR(100) NULL',
+      );
+      await connection.execute(`
+        ALTER TABLE matchmaking_lobbies
+        MODIFY COLUMN opponent_payment_status
+          ENUM('unpaid', 'cash_on_arrival', 'paid', 'not_required')
+          NOT NULL DEFAULT 'unpaid'
+      `);
+      await ensureTableIndex(
+        'matchmaking_lobbies',
+        'uq_matchmaking_host_balance_checkout_session',
+        'UNIQUE KEY uq_matchmaking_host_balance_checkout_session (host_balance_checkout_session_id)',
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [30, 'matchmaking-payment-options-and-balance-split'],
+      );
+    }
+    if (!appliedVersions.has(31)) {
+      await ensureTableColumn(
+        'merchant_businesses',
+        'business_logo_url',
+        'LONGTEXT NULL',
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [31, 'merchant-business-brand-logos'],
+      );
+    }
+    if (!appliedVersions.has(32)) {
+      await ensureTableColumn(
+        'bookings',
+        'booking_type',
+        "ENUM('regular', 'matchmaking') NOT NULL DEFAULT 'regular'",
+      );
+      await connection.execute(`
+        UPDATE bookings b
+        SET booking_type = 'matchmaking'
+        WHERE EXISTS (
+          SELECT 1 FROM matchmaking_lobbies l
+          WHERE l.booking_id = b.id
+        )
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [32, 'booking-type-identity'],
+      );
+    }
+    if (!appliedVersions.has(33)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS match_discovery_notification_devices (
+          token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          fcm_token TEXT NOT NULL,
+          sound ENUM('system', 'tinker_bell') NOT NULL DEFAULT 'tinker_bell',
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (token_hash),
+          KEY idx_match_discovery_notification_devices_user (user_id),
+          CONSTRAINT fk_match_discovery_notification_devices_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS matchmaking_publication_notifications (
+          lobby_id BIGINT UNSIGNED NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (lobby_id, user_id),
+          KEY idx_matchmaking_publication_notifications_user
+            (user_id, created_at),
+          CONSTRAINT fk_matchmaking_publication_notifications_lobby
+            FOREIGN KEY (lobby_id) REFERENCES matchmaking_lobbies (id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_matchmaking_publication_notifications_user
+            FOREIGN KEY (user_id) REFERENCES users (id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [33, 'match-discovery-push-opt-in-and-deduplication'],
+      );
+    }
+    if (!appliedVersions.has(34)) {
+      for (const [table, column] of [
+        ['bookings', 'payment_checkout_url'],
+        ['bookings', 'payment_checkout_method'],
+        ['matchmaking_lobbies', 'opponent_checkout_url'],
+        ['matchmaking_lobbies', 'opponent_checkout_method'],
+        ['matchmaking_lobbies', 'host_balance_checkout_url'],
+        ['matchmaking_lobbies', 'host_balance_checkout_method'],
+      ]) {
+        await ensureTableColumn(
+          table,
+          column,
+          column.endsWith('_url') ? 'VARCHAR(2048) NULL' : 'VARCHAR(16) NULL',
+        );
+      }
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [34, 'reuse-paymongo-checkout-sessions'],
       );
     }
   } finally {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -73,6 +74,7 @@ class ProfileDashboardPage extends StatefulWidget {
     this.api,
     this.sessionProvider,
     this.hideBottomNavigation = false,
+    this.onSwitchToMerchantPortal,
   });
 
   final Future<void> Function(BuildContext context)? onLogout;
@@ -81,6 +83,7 @@ class ProfileDashboardPage extends StatefulWidget {
   final AuthApi? api;
   final ProfileSessionProvider? sessionProvider;
   final bool hideBottomNavigation;
+  final Future<void> Function(BuildContext context)? onSwitchToMerchantPortal;
 
   @override
   State<ProfileDashboardPage> createState() => _ProfileDashboardPageState();
@@ -100,8 +103,14 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
   String _selectedHistoryTab = 'Upcoming match';
   bool _matchNotificationsEnabled = false;
   bool _updatingMatchNotificationSetting = false;
+  bool _publicMatchAlertsEnabled = false;
+  bool _updatingPublicMatchAlerts = false;
   bool _isGuest = true;
   int _socialProfileRefreshVersion = 0;
+  bool _profileLoaded = false;
+  bool _profileInitialLoading = true;
+  String? _profileInitialError;
+  int _profileLoadGeneration = 0;
 
   @override
   void initState() {
@@ -154,32 +163,62 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
   }
 
   Future<void> _refreshProfile() async {
-    await FirebaseAuth.instance.currentUser?.reload();
-    if (mounted) {
-      setState(() => _socialProfileRefreshVersion++);
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        await FirebaseAuth.instance.currentUser?.reload();
+      } on Exception catch (error) {
+        if (!mounted) return;
+        _message(
+          context,
+          _profileErrorMessage(error, 'refresh your profile and bookings'),
+          actionLabel: 'Try again',
+          onAction: _refreshProfile,
+        );
+        return;
+      }
     }
+    if (!mounted) return;
+    setState(() => _socialProfileRefreshVersion++);
     await _loadProfile();
   }
 
   Future<void> _loadProfile() async {
+    final requestGeneration = ++_profileLoadGeneration;
+    if (!_profileLoaded && !_profileInitialLoading) {
+      setState(() {
+        _profileInitialLoading = true;
+        _profileInitialError = null;
+      });
+    }
     try {
       final session = await _sessionProvider.load();
-      if (!mounted) return;
+      if (!_isCurrentProfileLoad(requestGeneration)) return;
       final token = session.apiToken;
       if (token != null && token.isNotEmpty) {
-        if (mounted && _isGuest) setState(() => _isGuest = false);
         final profile = await _api.me(token);
+        if (!_isCurrentProfileLoad(requestGeneration)) return;
         final bookings = await _api.bookings.customerBookings(
           token,
           businessType: widget.businessType,
         );
-        if (!mounted) return;
+        if (!_isCurrentProfileLoad(requestGeneration)) return;
+        final publicMatchAlertsEnabled = await BookingPushNotifications.instance
+            .publicMatchAlertsEnabledFor(session.accountEmail);
+        if (!_isCurrentProfileLoad(requestGeneration)) return;
+        final user = profile['user'];
+        if (user is! Map) {
+          throw const FormatException('The profile response was invalid.');
+        }
         setState(() {
-          _user = profile['user'] as Map<String, dynamic>?;
+          _user = Map<String, dynamic>.from(user);
           _apiToken = token;
           _bookings = bookings;
           _matchNotificationsEnabled = session.matchNotificationsEnabled;
+          _publicMatchAlertsEnabled = publicMatchAlertsEnabled;
           _isGuest = false;
+          _profileLoaded = true;
+          _profileInitialLoading = false;
+          _profileInitialError = null;
           if (_canShowSocialProfile) {
             _selectedHistoryTab = _experiencesTitle;
           }
@@ -190,10 +229,10 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
           try {
             final notifications = BookingNotifications.instance;
             final allowed = await notifications.notificationsAllowed();
-            if (!mounted) return;
+            if (!_isCurrentProfileLoad(requestGeneration)) return;
             if (!allowed) {
               await session.setMatchNotificationsEnabled(false);
-              if (!mounted) return;
+              if (!_isCurrentProfileLoad(requestGeneration)) return;
               setState(() => _matchNotificationsEnabled = false);
             } else {
               await notifications.synchronizeApprovedBookings(
@@ -202,36 +241,51 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
               );
             }
           } on Exception catch (error) {
-            if (mounted) {
-              _message(
-                context,
-                _profileErrorMessage(error, 'check your match alerts'),
-              );
-            }
+            if (!mounted || requestGeneration != _profileLoadGeneration) return;
+            _message(
+              context,
+              _profileErrorMessage(error, 'check your match alerts'),
+            );
           }
         }
-      } else if (mounted) {
+      } else {
         final guestId = await session.guestId();
-        if (!mounted) return;
+        if (!_isCurrentProfileLoad(requestGeneration)) return;
         setState(() {
           _isGuest = true;
           _user = null;
           _apiToken = null;
           _bookings = [];
           _guestId = guestId;
+          _profileLoaded = true;
+          _profileInitialLoading = false;
+          _profileInitialError = null;
         });
       }
     } on Exception catch (error) {
-      if (mounted) {
-        _message(
-          context,
-          _profileErrorMessage(error, 'load your profile and bookings'),
-          actionLabel: 'Try again',
-          onAction: _loadProfile,
-        );
+      if (!mounted || requestGeneration != _profileLoadGeneration) return;
+      final message = _profileErrorMessage(
+        error,
+        'load your profile and bookings',
+      );
+      if (!_profileLoaded) {
+        setState(() {
+          _profileInitialLoading = false;
+          _profileInitialError = message;
+        });
+        return;
       }
+      _message(
+        context,
+        message,
+        actionLabel: 'Try again',
+        onAction: _loadProfile,
+      );
     }
   }
+
+  bool _isCurrentProfileLoad(int generation) =>
+      mounted && generation == _profileLoadGeneration;
 
   String get _name {
     if (_isGuest) return 'Guest #${_guestId ?? '...'}';
@@ -734,6 +788,21 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
                             ),
                             onTap: () => Navigator.pop(dialogContext, 'edit'),
                           ),
+                        if (!_isGuest &&
+                            _user?['accountRole'] == 'merchant' &&
+                            widget.onSwitchToMerchantPortal != null)
+                          ListTile(
+                            key: const ValueKey(
+                              'customer-profile-switch-to-merchant',
+                            ),
+                            leading: const Icon(Icons.storefront_outlined),
+                            title: const AppText(
+                              'Switch to merchant portal',
+                              localize: true,
+                            ),
+                            onTap: () =>
+                                Navigator.pop(dialogContext, 'merchant-portal'),
+                          ),
                         if (!_isGuest)
                           ListTile(
                             key: const ValueKey(
@@ -761,70 +830,6 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
                             ),
                             onTap: () => Navigator.pop(dialogContext, 'logout'),
                           ),
-                      ],
-                    ),
-                  ),
-                  Divider(height: 1, color: _profileLine),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: AppText(
-                        appLanguageText('SUPPORT', 'TULONG'),
-                        style: TextStyle(
-                          color: _profileMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: .8,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextButton.icon(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext, 'help'),
-                            icon: const Icon(
-                              Icons.help_outline_rounded,
-                              size: 18,
-                            ),
-                            label: AppText(
-                              appLanguageText(
-                                'Help Center',
-                                'Sentro ng Tulong',
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            style: TextButton.styleFrom(
-                              padding: AppSpacing.buttonPadding,
-                              textStyle: const TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: TextButton.icon(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext, 'rules'),
-                            icon: const Icon(Icons.gavel_outlined, size: 18),
-                            label: AppText(
-                              appLanguageText(
-                                'Court Rules',
-                                'Mga Panuntunan sa Court',
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            style: TextButton.styleFrom(
-                              padding: AppSpacing.buttonPadding,
-                              textStyle: const TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -865,10 +870,8 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
         );
       case 'logout':
         await _logout(context);
-      case 'help':
-        _message(context, 'Help center coming soon.');
-      case 'rules':
-        _message(context, 'Court rules coming soon.');
+      case 'merchant-portal':
+        await widget.onSwitchToMerchantPortal?.call(context);
       case null:
         return;
     }
@@ -876,9 +879,9 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    final name = _name;
-    final email = _email;
-    final initials = _initials(name);
+    final name = _profileLoaded ? _name : '';
+    final email = _profileLoaded ? _email : '';
+    final initials = _profileLoaded ? _initials(name) : '';
 
     return Scaffold(
       backgroundColor: _profilePage,
@@ -905,7 +908,7 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
             ),
           IconButton(
             tooltip: appLanguageText('Settings', 'Settings'),
-            onPressed: () => _openSettings(context),
+            onPressed: _profileLoaded ? () => _openSettings(context) : null,
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -923,17 +926,21 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
               children: [
-                _profileHeader(
-                  name: name,
-                  email: email,
-                  initials: initials,
-                  avatarUrl: _user?['avatarUrl'] as String?,
-                  hobby: '${_user?['hobby'] ?? ''}',
-                  socialProfile: _socialProfile,
-                ),
-                const SizedBox(height: 14),
-                _profileHistorySection(context),
-                const SizedBox(height: 14),
+                if (!_profileLoaded)
+                  _profileInitialStateView(context)
+                else ...[
+                  _profileHeader(
+                    name: name,
+                    email: email,
+                    initials: initials,
+                    avatarUrl: _user?['avatarUrl'] as String?,
+                    hobby: '${_user?['hobby'] ?? ''}',
+                    socialProfile: _socialProfile,
+                  ),
+                  const SizedBox(height: 14),
+                  _profileHistorySection(context),
+                  const SizedBox(height: 14),
+                ],
               ],
             ),
           ),
@@ -1015,10 +1022,74 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
     );
   }
 
+  Widget _profileInitialStateView(BuildContext context) {
+    final error = _profileInitialError;
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .6,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: _profileInitialLoading
+                ? const Column(
+                    key: ValueKey('profile-initial-loading'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 14),
+                      AppText('Loading your profile...'),
+                    ],
+                  )
+                : Column(
+                    key: const ValueKey('profile-initial-error'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.person_search_outlined,
+                        color: _profileMuted,
+                        size: 36,
+                      ),
+                      const SizedBox(height: 10),
+                      AppText(
+                        'Your profile could not be loaded',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _profileInk,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        localize: true,
+                      ),
+                      const SizedBox(height: 6),
+                      AppText(
+                        error ?? 'Please check your connection and try again.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: _profileMuted, fontSize: 13),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        key: const ValueKey('profile-load-retry'),
+                        onPressed: _loadProfile,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const AppText('Try again', localize: true),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSocialCommunity({bool compose = false}) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => SocialCommunityPage(api: _api, composeOnOpen: compose),
+        builder: (_) => SocialCommunityPage(
+          api: _api,
+          composeOnOpen: compose,
+          initialTabIndex: 1,
+        ),
       ),
     );
   }
@@ -1214,68 +1285,75 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
                 color: AppColors.surfaceVariant,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Row(
-                children: [
-                  for (final tab in tabs)
-                    Expanded(
-                      child: InkWell(
-                        key: ValueKey('profile-history-tab-${tab.key}'),
+              child: SingleChildScrollView(
+                key: const ValueKey('profile-section-navigation'),
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final tab in tabs)
+                      Semantics(
+                        key: ValueKey('profile-section-semantics-${tab.key}'),
+                        button: true,
+                        selected: _selectedHistoryTab == tab.title,
+                        label: tab.title,
                         onTap: () =>
                             setState(() => _selectedHistoryTab = tab.title),
-                        borderRadius: BorderRadius.circular(12),
                         child: Tooltip(
                           message: tab.title,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            height: 58,
-                            decoration: BoxDecoration(
-                              color: _selectedHistoryTab == tab.title
-                                  ? AppColors.surface
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 3,
-                              vertical: 5,
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _profileHistoryTabIcon(
-                                  key: tab.key,
-                                  icon: tab.icon,
-                                  color: _selectedHistoryTab == tab.title
-                                      ? _profileOrange
-                                      : _profileMuted,
-                                ),
-                                const SizedBox(height: 3),
-                                AppText(
-                                  tab.key == 'upcoming-booking'
-                                      ? 'Upcoming'
-                                      : tab.key == 'venues-visited'
-                                      ? 'Visited'
-                                      : tab.key == 'social-experiences'
-                                      ? 'Experiences'
-                                      : tab.key == 'saved-items'
-                                      ? 'Saved'
-                                      : 'History',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
+                          child: InkWell(
+                            key: ValueKey('profile-history-tab-${tab.key}'),
+                            excludeFromSemantics: true,
+                            onTap: () =>
+                                setState(() => _selectedHistoryTab = tab.title),
+                            borderRadius: BorderRadius.circular(12),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              constraints: const BoxConstraints(
+                                minWidth: 112,
+                                maxWidth: 180,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _selectedHistoryTab == tab.title
+                                    ? AppColors.surface
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 8,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _profileHistoryTabIcon(
+                                    key: tab.key,
+                                    icon: tab.icon,
                                     color: _selectedHistoryTab == tab.title
                                         ? _profileOrange
                                         : _profileMuted,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 4),
+                                  AppText(
+                                    tab.title,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: _selectedHistoryTab == tab.title
+                                          ? _profileOrange
+                                          : _profileMuted,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    localize: true,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
             Stack(
@@ -1519,6 +1597,69 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
     }
   }
 
+  Future<void> _setPublicMatchAlertsEnabled(
+    bool enabled, {
+    required BuildContext settingsContext,
+    required StateSetter setSettingsState,
+  }) async {
+    if (_updatingPublicMatchAlerts) return;
+    setState(() => _updatingPublicMatchAlerts = true);
+    if (settingsContext.mounted) {
+      setSettingsState(() => _updatingPublicMatchAlerts = true);
+    }
+    try {
+      final session = await _sessionProvider.load();
+      final notifications = BookingPushNotifications.instance;
+      if (enabled) {
+        final granted = await notifications.enablePublicMatchAlerts(
+          apiToken: session.apiToken,
+          accountEmail: session.accountEmail,
+          api: _api,
+        );
+        if (!granted) {
+          if (mounted) {
+            _message(
+              context,
+              'Allow push notifications to receive new public match alerts.',
+            );
+          }
+          return;
+        }
+      } else {
+        await notifications.disablePublicMatchAlerts(
+          apiToken: session.apiToken,
+          accountEmail: session.accountEmail,
+          api: _api,
+        );
+      }
+      if (!mounted) return;
+      setState(() => _publicMatchAlertsEnabled = enabled);
+      if (settingsContext.mounted) {
+        setSettingsState(() => _publicMatchAlertsEnabled = enabled);
+      }
+      _message(
+        context,
+        enabled
+            ? 'New public match alerts are enabled.'
+            : 'New public match alerts are turned off.',
+      );
+    } on Exception catch (error) {
+      if (mounted) {
+        _message(
+          context,
+          _profileErrorMessage(error, 'update your public match alerts'),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _updatingPublicMatchAlerts = false);
+        if (settingsContext.mounted) {
+          setSettingsState(() => _updatingPublicMatchAlerts = false);
+        }
+      }
+    }
+  }
+
   Future<void> _openInAppNotificationSettings(
     BuildContext settingsContext,
   ) async {
@@ -1530,6 +1671,13 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
             children: [
               if (BookingNotifications.instance.isSupported)
                 _matchNotificationControl(
+                  settingsContext: context,
+                  setSettingsState: setSettingsState,
+                ),
+              if (!_isGuest &&
+                  _user?['role'] == 'customer' &&
+                  BookingPushNotifications.instance.isSupported)
+                _publicMatchAlertsControl(
                   settingsContext: context,
                   setSettingsState: setSettingsState,
                 ),
@@ -1571,12 +1719,55 @@ class _ProfileDashboardPageState extends State<ProfileDashboardPage> {
         color: _profileOrange,
       ),
       title: AppText(
-        'Match notifications',
+        'Match start and end reminders',
         style: TextStyle(
           color: _profileInk,
           fontSize: 13,
           fontWeight: FontWeight.w800,
         ),
+        localize: true,
+      ),
+      subtitle: const AppText(
+        'Get alerts when an approved match is about to start or finish.',
+        localize: true,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+    ),
+  );
+
+  Widget _publicMatchAlertsControl({
+    required BuildContext settingsContext,
+    required StateSetter setSettingsState,
+  }) => Container(
+    margin: const EdgeInsets.only(top: 10),
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: _profileLine),
+    ),
+    child: SwitchListTile.adaptive(
+      key: const ValueKey('profile-public-match-alerts-switch'),
+      value: _publicMatchAlertsEnabled,
+      onChanged: _updatingPublicMatchAlerts
+          ? null
+          : (enabled) => _setPublicMatchAlertsEnabled(
+              enabled,
+              settingsContext: settingsContext,
+              setSettingsState: setSettingsState,
+            ),
+      activeThumbColor: AppColors.accent,
+      secondary: Icon(Icons.sports_outlined, color: _profileOrange),
+      title: AppText(
+        'New public match alerts',
+        style: TextStyle(
+          color: _profileInk,
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+        ),
+        localize: true,
+      ),
+      subtitle: const AppText(
+        'Get a push alert when a new public match is published.',
         localize: true,
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12),

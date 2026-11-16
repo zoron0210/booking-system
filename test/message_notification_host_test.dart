@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
@@ -9,6 +10,9 @@ import 'package:http/testing.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/app_shell/presentation/app_bottom_navigation.dart';
 import 'package:myapp/features/messaging/presentation/message_notification_host.dart';
+import 'package:myapp/features/messaging/presentation/message_unread_count.dart';
+import 'package:myapp/features/notifications/data/booking_notifications.dart';
+import 'package:myapp/features/notifications/domain/booking_notification_destination.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -18,6 +22,49 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({
       'session_api_token': 'test-token',
     });
+  });
+
+  testWidgets('booking and match notification taps reach their destinations', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'session_api_token': 'test-token',
+      'session_account_email': 'me@example.com',
+    });
+    final destinations = <BookingNotificationDestination>[];
+    final api = AuthApi(
+      client: MockClient((request) async {
+        return http.Response(jsonEncode({'conversations': []}), 200);
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MessageNotificationHost(
+          api: api,
+          pollingInterval: const Duration(hours: 1),
+          onOpenBookingNotification: destinations.add,
+          child: const Scaffold(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    BookingNotifications.instance.publishNotificationTapPayload(
+      jsonEncode({'type': 'booking', 'bookingId': '54'}),
+    );
+    BookingNotifications.instance.publishNotificationTapPayload(
+      jsonEncode({
+        'type': 'matchmaking',
+        'bookingId': '54',
+        'matchmakingLobbyId': '91',
+      }),
+    );
+    await tester.pump();
+
+    expect(destinations, hasLength(2));
+    expect(destinations.first.bookingId, 54);
+    expect(destinations.last.matchmakingLobbyId, 91);
   });
 
   testWidgets(
@@ -83,6 +130,97 @@ void main() {
         (widget) => widget is Badge && widget.isLabelVisible,
       );
       expect(visibleBadges, findsNothing);
+      expect(find.text('2'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a stale unread poll cannot restore a badge after a conversation is read',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'session_api_token': 'test-token',
+        'session_account_email': 'me@example.com',
+      });
+      final stalePollResponse = Completer<http.Response>();
+      final stalePollStarted = Completer<void>();
+      var unreadCount = 2;
+      var conversationRequests = 0;
+      BuildContext? scopeContext;
+      final api = AuthApi(
+        client: MockClient((request) async {
+          if (request.url.path == '/api/messages/conversations') {
+            conversationRequests++;
+            if (conversationRequests == 2) {
+              stalePollStarted.complete();
+              return stalePollResponse.future;
+            }
+            return http.Response(
+              jsonEncode({
+                'conversations': [
+                  _conversation(
+                    message: 'Unread message',
+                    time: '2026-09-28T10:00:00Z',
+                    unreadCount: unreadCount,
+                  ),
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response(
+            jsonEncode({'error': 'Unexpected request'}),
+            500,
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MessageNotificationHost(
+            api: api,
+            pollingInterval: const Duration(milliseconds: 100),
+            child: Builder(
+              builder: (context) {
+                scopeContext = context;
+                return Scaffold(
+                  bottomNavigationBar: AppBottomNavigation(
+                    selectedIndex: 1,
+                    onDestinationSelected: (_) {},
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(find.text('2'), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 100));
+      await stalePollStarted.future;
+      MessageUnreadCountScope.update(scopeContext!, 0);
+      stalePollResponse.complete(
+        http.Response(
+          jsonEncode({
+            'conversations': [
+              _conversation(
+                message: 'Unread message',
+                time: '2026-09-28T10:00:00Z',
+                unreadCount: 2,
+              ),
+            ],
+          }),
+          200,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('2'), findsNothing);
+
+      unreadCount = 0;
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
       expect(find.text('2'), findsNothing);
     },
   );

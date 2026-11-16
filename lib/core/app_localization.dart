@@ -857,6 +857,18 @@ const _additionalLanguageText = <String, Map<String, String>>{
     'ja': 'オンライン決済を選択',
     'zh': '选择在线支付',
   },
+  'Pay now': {
+    'fil': 'Magbayad ngayon',
+    'ko': '지금 결제',
+    'ja': '今すぐ支払う',
+    'zh': '立即付款',
+  },
+  'Checkout opened. Payment status updates after PayMongo confirms it.': {
+    'fil': 'Binuksan ang checkout. Maa-update ang status kapag kinumpirma ito ng PayMongo.',
+    'ko': '결제창을 열었습니다. PayMongo가 확인하면 결제 상태가 업데이트됩니다.',
+    'ja': '決済画面を開きました。PayMongoの確認後に支払い状況が更新されます。',
+    'zh': '已打开结账页面。PayMongo 确认后将更新付款状态。',
+  },
   'Use Cash on Arrival': {
     'fil': 'Gumamit ng Cash on Arrival',
     'ko': '현장 결제 사용',

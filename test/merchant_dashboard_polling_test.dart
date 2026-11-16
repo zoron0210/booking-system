@@ -61,10 +61,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(bookingRequestCount, 1);
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'bookings');
     await tester.pump(const Duration(seconds: 5));
     expect(bookingRequestCount, 1);
 
@@ -122,10 +119,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(bookingRequestCount, 1);
 
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-payouts')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'bookings');
 
     await tester.pump(const Duration(seconds: 5));
     expect(bookingRequestCount, 2);
@@ -137,10 +131,7 @@ void main() {
       http.Response(jsonEncode({'bookings': []}), 200),
     );
     await tester.pump();
-    await tester.tap(
-      find.byKey(const ValueKey('merchant-dashboard-nav-dashboard')),
-    );
-    await tester.pumpAndSettle();
+    await tapMerchantDestination(tester, 'dashboard');
 
     expect(bookingRequestCount, 2);
   });

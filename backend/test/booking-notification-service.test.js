@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   createBookingNotificationService,
+  createMatchDiscoveryNotificationService,
   normalizeTwilioPhone,
   sendTwilioSms,
 } = require('../src/booking_notification_service');
@@ -80,6 +81,64 @@ test('a failed delivery is logged while other channels still complete', async ()
   assert.deepEqual(delivered, ['sms']);
   assert.equal(logged.length, 1);
   assert.equal(logged[0][1].channel, 'email');
+});
+
+test('public match alerts notify opted-in customer devices once, excluding the host', async () => {
+  const delivered = [];
+  const queries = [];
+  const notified = new Set();
+  const devices = [
+    { userId: 10, fcmToken: 'customer-device-1', sound: 'system' },
+    { userId: 10, fcmToken: 'customer-device-2', sound: 'tinker_bell' },
+    { userId: 11, fcmToken: 'host-device', sound: 'system' },
+  ];
+  const pool = {
+    async execute(query, params = []) {
+      queries.push({ query, params });
+      if (query.includes('FROM match_discovery_notification_devices')) {
+        return [devices.filter((device) => device.userId !== params[0])];
+      }
+      const key = `${params[0]}:${params[1]}`;
+      if (notified.has(key)) return [{ affectedRows: 0 }];
+      notified.add(key);
+      return [{ affectedRows: 1 }];
+    },
+  };
+  const notify = createMatchDiscoveryNotificationService({
+    pool,
+    sendPushNotification: async (payload) => delivered.push(payload),
+  });
+  const match = {
+    lobbyId: 91,
+    hostUserId: 11,
+    bookingId: 44,
+    venueName: 'Central Court',
+    sportType: 'Badminton',
+    matchDate: '2026-11-18',
+    startTime: '18:30',
+  };
+
+  await notify(match);
+  await notify(match);
+
+  assert.equal(queries.filter(({ query }) =>
+    query.includes('INSERT IGNORE INTO matchmaking_publication_notifications'),
+  ).length, 2);
+  assert.deepEqual(
+    delivered.map(({ token, sound }) => [token, sound]),
+    [
+      ['customer-device-1', 'system'],
+      ['customer-device-2', 'tinker_bell'],
+    ],
+  );
+  assert.ok(delivered[0].message.includes('Badminton'));
+  assert.ok(delivered[0].message.includes('Central Court'));
+  assert.ok(delivered[0].message.includes('2026-11-18 at 18:30'));
+  assert.doesNotMatch(delivered[0].message, /\b\d+(?:\.\d+)?\s?(?:km|m)\b/i);
+  assert.ok(
+    queries[0].query.includes("u.status = 'active' AND u.role = 'customer'"),
+  );
+  assert.deepEqual(queries[0].params, [11]);
 });
 
 test('Twilio sender uses credentials from runtime configuration', async () => {

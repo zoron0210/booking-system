@@ -51,6 +51,11 @@ void main() {
     expect(await repository.loadBookings(), isEmpty);
     await repository.approveBooking(12);
     await repository.declineBooking(13, reason: 'Unavailable.');
+    await repository.approveMatchmakingBooking(16);
+    await repository.declineMatchmakingBooking(
+      17,
+      reason: 'The courts are unavailable.',
+    );
     await repository.setCashOnArrivalPaymentStatus(14, paymentStatus: 'paid');
     await repository.deleteCompletedBooking(15);
 
@@ -58,6 +63,8 @@ void main() {
       'GET /api/merchant/bookings',
       'PATCH /api/merchant/bookings/12/approve',
       'PATCH /api/merchant/bookings/13/decline',
+      'POST /api/matchmaking/lobbies/16/merchant-approve',
+      'POST /api/matchmaking/lobbies/17/merchant-decline',
       'PATCH /api/merchant/bookings/14/payment',
       'DELETE /api/merchant/bookings/15',
     ]);
@@ -68,5 +75,8 @@ void main() {
       ),
       isTrue,
     );
+    expect(jsonDecode(requests[4].body), {
+      'reason': 'The courts are unavailable.',
+    });
   });
 }

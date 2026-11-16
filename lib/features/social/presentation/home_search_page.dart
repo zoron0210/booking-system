@@ -5,6 +5,8 @@ import 'package:myapp/core/app_text.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/social/presentation/social_home_palette.dart';
 import 'package:myapp/features/social/presentation/social_community_page.dart';
+import 'package:myapp/features/social/domain/social_club.dart';
+import 'package:myapp/features/social/presentation/social_clubs_page.dart';
 
 const _searchHistoryKey = 'customer_home_social_search_history';
 const _searchHistoryLimit = 8;
@@ -32,8 +34,10 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
   List<String> _history = [];
   List<Map<String, dynamic>> _suggestedUsers = [];
   List<Map<String, dynamic>> _suggestedPosts = [];
+  List<SocialClub> _suggestedClubs = [];
   List<Map<String, dynamic>> _users = [];
   List<Map<String, dynamic>> _posts = [];
+  List<SocialClub> _clubs = [];
   bool _loadingSuggestions = true;
   bool _searching = false;
   bool _hasSearched = false;
@@ -111,14 +115,16 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
       _suggestionError = null;
     });
     try {
-      final responses = await Future.wait([
+      final responses = await Future.wait<dynamic>([
         widget.api.social.searchSocialUsers(widget.token),
         widget.api.social.socialFeed(widget.token, allPublicPosts: true),
+        widget.api.social.socialClubs(token: widget.token),
       ]);
       if (!mounted) return;
       setState(() {
         _suggestedUsers = responses[0];
         _suggestedPosts = responses[1];
+        _suggestedClubs = responses[2];
       });
     } on Exception catch (error) {
       if (mounted) setState(() => _suggestionError = error);
@@ -142,18 +148,20 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
     });
     await _saveHistory(query);
     try {
-      final responses = await Future.wait([
+      final responses = await Future.wait<dynamic>([
         widget.api.social.searchSocialUsers(widget.token, query: query),
         widget.api.social.socialFeed(
           widget.token,
           allPublicPosts: true,
           query: query,
         ),
+        widget.api.social.socialClubs(token: widget.token, query: query),
       ]);
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _users = responses[0];
         _posts = responses[1];
+        _clubs = responses[2];
       });
     } on Exception catch (error) {
       if (mounted && generation == _searchGeneration) {
@@ -215,6 +223,49 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
         localize: true,
       ),
       onTap: userId == null ? null : () => widget.onOpenProfile(userId),
+    );
+  }
+
+  Future<String?> _requireToken() async {
+    final requireToken = widget.onRequireToken;
+    return requireToken == null ? widget.token : requireToken();
+  }
+
+  void _openClub(SocialClub club) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SocialClubDetailPage(
+          api: widget.api,
+          clubId: club.id,
+          token: widget.token,
+          onRequireToken: _requireToken,
+          onOpenProfile: widget.onOpenProfile,
+        ),
+      ),
+    );
+  }
+
+  Widget _clubTile(SocialClub club, {bool suggestion = false}) {
+    final logoUrl = club.logoUrl;
+    return ListTile(
+      key: ValueKey('home-search-club-${club.id}'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+      leading: CircleAvatar(
+        backgroundImage: logoUrl != null && logoUrl.isNotEmpty
+            ? NetworkImage(logoUrl)
+            : null,
+        child: logoUrl == null || logoUrl.isEmpty
+            ? const Icon(Icons.groups_2_outlined)
+            : null,
+      ),
+      title: AppText(club.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: AppText(
+        suggestion
+            ? 'Suggested club · ${club.memberCount} members'
+            : '${club.memberCount} members · ${club.ownerName}',
+        localize: true,
+      ),
+      onTap: () => _openClub(club),
     );
   }
 
@@ -298,11 +349,18 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
               onTap: () => _searchFor('${post['caption'] ?? ''}'),
             ),
         ],
-        if (_suggestedUsers.isEmpty && _suggestedPosts.isEmpty)
+        if (_suggestedClubs.isNotEmpty) ...[
+          _sectionTitle('Suggested clubs'),
+          for (final club in _suggestedClubs.take(5))
+            _clubTile(club, suggestion: true),
+        ],
+        if (_suggestedUsers.isEmpty &&
+            _suggestedPosts.isEmpty &&
+            _suggestedClubs.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: AppText(
-              'Search for people by name or find posts by their caption.',
+              'Search for people, posts, or clubs.',
               textAlign: TextAlign.center,
               localize: true,
             ),
@@ -329,10 +387,10 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
         ),
       );
     }
-    if (_users.isEmpty && _posts.isEmpty) {
+    if (_users.isEmpty && _posts.isEmpty && _clubs.isEmpty) {
       return const Center(
         child: AppText(
-          'No people or posts match your search.',
+          'No people, posts, or clubs match your search.',
           textAlign: TextAlign.center,
           localize: true,
         ),
@@ -366,6 +424,10 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
               ),
             ),
         ],
+        if (_clubs.isNotEmpty) ...[
+          _sectionTitle('Clubs (${_clubs.length})'),
+          for (final club in _clubs) _clubTile(club),
+        ],
       ],
     );
   }
@@ -384,7 +446,7 @@ class _HomeSearchPageState extends State<HomeSearchPage> {
           setState(() {});
         },
         decoration: const InputDecoration(
-          hintText: 'Search people or posts',
+          hintText: 'Search people, posts, or clubs',
           border: InputBorder.none,
           prefixIcon: Icon(Icons.search_rounded),
         ),

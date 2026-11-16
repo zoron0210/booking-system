@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:myapp/core/app_design_system.dart';
@@ -15,6 +16,9 @@ import 'package:myapp/features/bookings/data/http_booking_schedule_repository.da
 import 'package:myapp/features/bookings/domain/booking_pricing.dart';
 import 'package:myapp/features/bookings/presentation/booking_cancellation_notice.dart';
 import 'package:myapp/features/bookings/presentation/booking_schedule_conflict.dart';
+import 'package:myapp/features/bookings/presentation/matchmaking_host_page.dart';
+import 'package:myapp/features/bookings/presentation/matchmaking_lobby_list_page.dart';
+import 'package:myapp/features/bookings/presentation/widgets/sports_booking_price_summary.dart';
 import 'package:myapp/features/messaging/presentation/messages_dashboard.dart';
 import 'package:myapp/features/session/application/session_service.dart';
 import 'package:myapp/features/venues/presentation/reviews.dart';
@@ -29,6 +33,7 @@ typedef SportsVenue = ({
   String sport,
   String address,
   String ownerName,
+  String businessLogoUrl,
   String type,
   String courts,
   String hours,
@@ -89,6 +94,8 @@ class SportsVenueDetailPage extends StatefulWidget {
     super.key,
     required this.venue,
     required this.onReserve,
+    this.onHostMatch,
+    this.onFindMatches,
     this.api,
     this.savedItemType = 'sports',
     this.amenitiesHeading = 'COURT AMENITIES',
@@ -99,6 +106,8 @@ class SportsVenueDetailPage extends StatefulWidget {
 
   final SportsVenue venue;
   final VoidCallback onReserve;
+  final VoidCallback? onHostMatch;
+  final VoidCallback? onFindMatches;
   final AuthApi? api;
   final String savedItemType;
   final String amenitiesHeading;
@@ -294,9 +303,107 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
     }
   }
 
+  String _priceSummaryLabel() {
+    final rateLabels = widget.venue.rateLabels;
+    final nonHourlyRates = rateLabels.where(
+      (label) => RegExp(
+        r'/\s*(session|month|year|event)\b',
+        caseSensitive: false,
+      ).hasMatch(label),
+    );
+    if (nonHourlyRates.isNotEmpty) {
+      return rateLabels.length == 1
+          ? _rateValueLabel(rateLabels.single)
+          : widget.venue.priceDay.trim();
+    }
+
+    final sportRates = widget.venue.sportsSlots
+        .map((sport) => (sport['pricePerHour'] as num?)?.toDouble())
+        .whereType<double>()
+        .where((rate) => rate.isFinite && rate > 0)
+        .toSet();
+    if (sportRates.length > 1) return 'Rates vary by sport';
+    if (sportRates.length == 1) {
+      return '₱ ${sportRates.single.toStringAsFixed(2)} / hr';
+    }
+    if (rateLabels.length > 1) return 'Rates vary';
+    if (rateLabels.length == 1) return _rateValueLabel(rateLabels.single);
+    return widget.venue.priceDay.trim();
+  }
+
+  String _rateValueLabel(String label) {
+    final separator = label.lastIndexOf('|');
+    return (separator < 0 ? label : label.substring(separator + 1)).trim();
+  }
+
+  ({int includedPlayers, double additionalPlayerFee})? _playerFeeSummary() {
+    final configurations = widget.venue.sportsSlots
+        .map(
+          (sport) => (
+            includedPlayers: (sport['includedPlayers'] as num?)?.toInt() ?? 0,
+            additionalPlayerFee:
+                (sport['additionalPlayerFee'] as num?)?.toDouble() ?? 0,
+          ),
+        )
+        .toSet();
+    if (configurations.length > 1) return null;
+    if (configurations.length == 1) return configurations.single;
+    return (
+      includedPlayers: widget.venue.includedPlayers,
+      additionalPlayerFee: widget.venue.additionalPlayerFee,
+    );
+  }
+
+  String _venueShareText() {
+    final lines = <String>[
+      widget.venue.name.trim(),
+      if (widget.venue.address.trim().isNotEmpty) widget.venue.address.trim(),
+      if (widget.venue.hours.trim().isNotEmpty) widget.venue.hours.trim(),
+      if (_priceSummaryLabel().isNotEmpty) 'Rate: ${_priceSummaryLabel()}',
+      'View venue details on SpotGo.',
+    ];
+    return lines.join('\n');
+  }
+
+  Uri? _shareableVenueUri() {
+    final rawUrl = widget.venue.visitUrl.trim();
+    if (rawUrl.isNotEmpty) {
+      final uri = Uri.tryParse(rawUrl);
+      if (uri != null &&
+          (uri.scheme == 'https' || uri.scheme == 'http') &&
+          uri.host.isNotEmpty) {
+        return uri;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _shareVenue() async {
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          title: widget.venue.name.trim().isNotEmpty
+              ? widget.venue.name.trim()
+              : 'SpotGo venue',
+          subject: widget.venue.name.trim().isNotEmpty
+              ? widget.venue.name.trim()
+              : 'SpotGo venue',
+          text: _venueShareText(),
+          uri: _shareableVenueUri(),
+        ),
+      );
+    } on Exception catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: AppText('Could not open the share menu: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final merchantName = widget.venue.ownerName.trim();
+    final playerFeeSummary = _playerFeeSummary();
     final isSaved =
         _savedKeys.contains(_saveKey) || _savedKeys.contains(_legacySaveKey);
     final images = _usableImages(widget.venue);
@@ -356,6 +463,7 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                                       images[index % images.length],
                                     ),
                                     fit: BoxFit.cover,
+                                    gaplessPlayback: true,
                                     errorBuilder: (_, _, _) => Container(
                                       color: AppColors.surfaceVariant,
                                     ),
@@ -391,7 +499,7 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                                   const SizedBox(width: 6),
                                   _heroAction(
                                     icon: Icons.ios_share_rounded,
-                                    onPressed: () {},
+                                    onPressed: _shareVenue,
                                   ),
                                 ],
                               ),
@@ -445,6 +553,33 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                if (widget.venue.businessLogoUrl.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 10),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Image(
+                                        key: const ValueKey(
+                                          'sports-venue-business-logo',
+                                        ),
+                                        image: _imageProvider(
+                                          widget.venue.businessLogoUrl,
+                                        ),
+                                        width: 42,
+                                        height: 42,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, _, _) => Container(
+                                          width: 42,
+                                          height: 42,
+                                          color: AppColors.surfaceVariant,
+                                          child: Icon(
+                                            Icons.storefront_rounded,
+                                            color: AppColors.muted,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 Expanded(
                                   child: AppText(
                                     key: const ValueKey('sports-venue-title'),
@@ -506,30 +641,6 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                                     ),
                                   ),
                                 ),
-                                if (widget.venue.availability.trim().isNotEmpty)
-                                  Container(
-                                    margin: const EdgeInsets.only(left: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 9,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.successSurface,
-                                      borderRadius: BorderRadius.circular(99),
-                                      border: Border.all(
-                                        color: AppColors.success,
-                                      ),
-                                    ),
-                                    child: AppText(
-                                      'OPEN NOW',
-                                      style: TextStyle(
-                                        color: AppColors.success,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                      localize: true,
-                                    ),
-                                  ),
                               ],
                             ),
                             const SizedBox(height: 6),
@@ -594,10 +705,6 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                                   ? '${widget.venue.sport.isEmpty ? 'Event venue' : widget.venue.sport}${widget.venue.type.trim().isEmpty ? '' : ' · ${widget.venue.type}'}'
                                   : '${widget.venue.sport}${widget.venue.type.trim().isEmpty ? '' : ' · ${widget.venue.type}'}${widget.venue.courts.trim().isEmpty ? '' : ' · ${widget.venue.courts}'}',
                             ),
-                            _detailRow(
-                              Icons.location_on_outlined,
-                              widget.venue.address,
-                            ),
                             if (widget.venue.distanceLabel.isNotEmpty)
                               KeyedSubtree(
                                 key: const ValueKey('sports-venue-distance'),
@@ -616,12 +723,13 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                                 Icons.check_circle_outlined,
                                 widget.venue.availability,
                               ),
-                            if (widget.venue.additionalPlayerFee > 0 &&
-                                widget.venue.includedPlayers > 0)
+                            if (playerFeeSummary != null &&
+                                playerFeeSummary.additionalPlayerFee > 0 &&
+                                playerFeeSummary.includedPlayers > 0)
                               _detailRow(
                                 Icons.groups_outlined,
-                                'Includes ${widget.venue.includedPlayers} players · '
-                                '\u{20B1} ${widget.venue.additionalPlayerFee.toStringAsFixed(2)} '
+                                'Includes ${playerFeeSummary.includedPlayers} players · '
+                                '\u{20B1} ${playerFeeSummary.additionalPlayerFee.toStringAsFixed(2)} '
                                 'per extra player',
                               ),
                             if (widget.venue.tags.isNotEmpty) ...[
@@ -674,15 +782,6 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                               ),
                             ],
                             const SizedBox(height: 6),
-                            if (widget.venue.priceDay.trim().isNotEmpty)
-                              AppText(
-                                widget.venue.priceDay,
-                                style: TextStyle(
-                                  color: AppColors.ink,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
                             const SizedBox(height: 6),
                             Divider(color: AppColors.border, thickness: 1),
                             const SizedBox(height: 6),
@@ -700,7 +799,7 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                               ),
                               const SizedBox(height: 6),
                               AppText(
-                                'Verified venue manager • Fast responding',
+                                'Contact the venue manager for availability and booking details.',
                                 style: TextStyle(
                                   color: _sportsMuted,
                                   fontSize: 12,
@@ -837,6 +936,97 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                                   widget.venue.details,
                                 ),
                               ),
+                            if (!widget.isEvent &&
+                                (widget.onHostMatch != null ||
+                                    widget.onFindMatches != null)) ...[
+                              const SizedBox(height: 12),
+                              Card(
+                                color: AppColors.surfaceVariant.withValues(
+                                  alpha: .45,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const AppText(
+                                        'Find Matches',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      const AppText(
+                                        'Regular booking reserves court time for your group. Matchmaking lets you host or join a public match; a request does not reserve a court and the host must accept before it is confirmed.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          if (widget.onFindMatches != null)
+                                            Expanded(
+                                              child: OutlinedButton.icon(
+                                                key: const ValueKey(
+                                                  'sports-venue-find-matches',
+                                                ),
+                                                onPressed: () async {
+                                                  if (widget.onRequireLogin !=
+                                                          null &&
+                                                      !await widget
+                                                          .onRequireLogin!(
+                                                        context,
+                                                      )) {
+                                                    return;
+                                                  }
+                                                  widget.onFindMatches!();
+                                                },
+                                                icon: const Icon(
+                                                  Icons.search_rounded,
+                                                ),
+                                                label: const AppText(
+                                                  'Find Matches',
+                                                  localize: true,
+                                                ),
+                                              ),
+                                            ),
+                                          if (widget.onHostMatch != null) ...[
+                                            if (widget.onFindMatches != null)
+                                              const SizedBox(width: 8),
+                                            Expanded(
+                                              child: FilledButton.tonalIcon(
+                                                key: const ValueKey(
+                                                  'sports-venue-host-match',
+                                                ),
+                                                onPressed: () async {
+                                                  if (widget.onRequireLogin !=
+                                                          null &&
+                                                      !await widget
+                                                          .onRequireLogin!(
+                                                        context,
+                                                      )) {
+                                                    return;
+                                                  }
+                                                  widget.onHostMatch!();
+                                                },
+                                                icon: const Icon(
+                                                  Icons.sports_handball_rounded,
+                                                ),
+                                                label: const AppText(
+                                                  'Host a Match',
+                                                  localize: true,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 6),
                             if (widget.venue.visitUrl.trim().isNotEmpty)
                               Align(
@@ -898,7 +1088,8 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                       alignment: Alignment.centerLeft,
                       fit: BoxFit.scaleDown,
                       child: AppText(
-                        widget.venue.priceDay,
+                        _priceSummaryLabel(),
+                        key: const ValueKey('sports-venue-price-summary'),
                         maxLines: 1,
                         style: TextStyle(
                           color: _sportsInk,
@@ -907,11 +1098,12 @@ class _SportsVenueDetailPageState extends State<SportsVenueDetailPage> {
                         ),
                       ),
                     ),
-                    if (widget.venue.additionalPlayerFee > 0 &&
-                        widget.venue.includedPlayers > 0)
+                    if (playerFeeSummary != null &&
+                        playerFeeSummary.additionalPlayerFee > 0 &&
+                        playerFeeSummary.includedPlayers > 0)
                       AppText(
-                        '${widget.venue.includedPlayers} included · '
-                        '\u{20B1} ${widget.venue.additionalPlayerFee.toStringAsFixed(2)} '
+                        '${playerFeeSummary.includedPlayers} included · '
+                        '\u{20B1} ${playerFeeSummary.additionalPlayerFee.toStringAsFixed(2)} '
                         'per extra player',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1222,6 +1414,9 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
             }
           })()
         : <String>[];
+    final businessType = BusinessTypeParser.parse(
+      b['businessType'] ?? b['business_type'],
+    );
     final price =
         double.tryParse('${b['pricePerHour'] ?? b['price_per_hour'] ?? 0}') ??
         0;
@@ -1233,6 +1428,83 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
           '${b['additionalPlayerFee'] ?? b['additional_player_fee'] ?? 0}',
         ) ??
         0;
+    final fitnessCategories =
+        (b['fitnessCategories'] ?? b['fitness_categories_json']) is List
+        ? (b['fitnessCategories'] ?? b['fitness_categories_json'])
+              .whereType<Map>()
+              .map(Map<String, dynamic>.from)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final fitnessCoaches =
+        (b['fitnessCoaches'] ?? b['fitness_coaches_json']) is List
+        ? (b['fitnessCoaches'] ?? b['fitness_coaches_json'])
+              .whereType<Map>()
+              .map(Map<String, dynamic>.from)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final fitnessRateLabels = <String>[];
+    var fitnessHeadlinePrice = 0.0;
+    var fitnessHeadlineLabel = '';
+    if (businessType == BusinessType.fitness && fitnessCategories.isNotEmpty) {
+      for (final item in fitnessCategories) {
+        for (final (plan, label, unit) in const [
+          ('session', 'Session', 'session'),
+          ('monthly', 'Monthly', 'month'),
+          ('yearly', 'Yearly', 'year'),
+        ]) {
+          final priceKey = '${plan}Price';
+          final legacyPriceKey = '${plan}_price';
+          var amount =
+              double.tryParse(
+                '${item[priceKey] ?? item[legacyPriceKey] ?? 0}',
+              ) ??
+              0;
+          if (plan == 'yearly') {
+            final discountType =
+                item['yearlyDiscountType'] ?? item['yearly_discount_type'];
+            final discountValue =
+                double.tryParse(
+                  '${item['yearlyDiscountValue'] ?? item['yearly_discount_value'] ?? 0}',
+                ) ??
+                0;
+            final monthlyBase =
+                double.tryParse(
+                  '${item['monthlyPrice'] ?? item['monthly_price'] ?? 0}',
+                ) ??
+                0;
+            if (discountType == 'freeMonths') {
+              amount = (amount - monthlyBase * discountValue).clamp(
+                0,
+                double.infinity,
+              );
+            } else if (discountType == 'percentage') {
+              amount *= (1 - discountValue / 100).clamp(0, 1);
+            }
+          }
+          if (amount <= 0) continue;
+          fitnessRateLabels.add(
+            '$label|₱ ${amount.toStringAsFixed(2)} / $unit',
+          );
+          if (fitnessHeadlinePrice == 0) {
+            fitnessHeadlinePrice = amount;
+            fitnessHeadlineLabel = unit;
+          }
+        }
+      }
+      for (final coach in fitnessCoaches) {
+        final name = '${coach['name'] ?? coach['coachName'] ?? ''}'.trim();
+        final pricePerMonth =
+            double.tryParse(
+              '${coach['monthlyPrice'] ?? coach['monthly_price'] ?? 0}',
+            ) ??
+            0;
+        if (name.isNotEmpty && pricePerMonth > 0) {
+          fitnessRateLabels.add(
+            'Coach $name|₱ ${pricePerMonth.toStringAsFixed(2)} / month',
+          );
+        }
+      }
+    }
     final rawPeriods = b['ratePeriods'] ?? b['rate_periods'];
     final periods = rawPeriods is List
         ? rawPeriods.whereType<Map>().map((period) {
@@ -1283,9 +1555,25 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
     }).toList();
     final maxPrice = [
       price,
+      if (fitnessHeadlinePrice > 0) fitnessHeadlinePrice,
       ...rateValues,
       ...sportsRateValues,
     ].reduce((maximum, value) => value > maximum ? value : maximum);
+    final effectiveRateLabels = fitnessRateLabels.isNotEmpty
+        ? fitnessRateLabels
+        : sportRateLabels.isNotEmpty
+        ? sportRateLabels
+        : periods;
+    final effectivePriceLines = fitnessRateLabels.isNotEmpty
+        ? fitnessRateLabels
+        : sportRateLabels.isNotEmpty
+        ? sportRateLabels
+        : periods.isEmpty
+        ? ['Booking rate|₱ ${price.toStringAsFixed(0)} / hr']
+        : periods;
+    final effectivePriceDay = fitnessHeadlinePrice > 0
+        ? '₱ ${fitnessHeadlinePrice.toStringAsFixed(2)} / $fitnessHeadlineLabel'
+        : '₱ ${maxPrice.toStringAsFixed(0)} / hr';
     final images = _merchantImages(b);
     return (
       id: (b['id'] as num?)?.toInt() ?? 0,
@@ -1293,6 +1581,8 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
       sport: sportsSlots.map((item) => item['sportType']).join(', '),
       address: '${b['address'] ?? ''}',
       ownerName: _ownerName(b),
+      businessLogoUrl:
+          '${b['businessLogoUrl'] ?? b['business_logo_url'] ?? ''}',
       type: '${b['facilityType'] ?? b['facility_type'] ?? 'Facility'}',
       courts: '${b['details'] ?? 'Sports facility'}',
       hours: '${b['hours'] ?? b['opening_hours'] ?? 'Open hours'}',
@@ -1300,13 +1590,9 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
       details: '${b['details'] ?? ''}',
       image: _merchantImage(b),
       images: images,
-      priceDay: '\u{20B1} ${maxPrice.toStringAsFixed(0)} / hr',
-      priceNight: '\u{20B1} ${maxPrice.toStringAsFixed(0)} / hr',
-      priceLines: sportRateLabels.isNotEmpty
-          ? sportRateLabels
-          : periods.isEmpty
-          ? ['Booking rate|\u{20B1} ${price.toStringAsFixed(0)} / hr']
-          : periods,
+      priceDay: effectivePriceDay,
+      priceNight: effectivePriceDay,
+      priceLines: effectivePriceLines,
       maxPrice: maxPrice,
       averageRating:
           double.tryParse(
@@ -1325,7 +1611,7 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
       totalSlots: totalSlots,
       sportsSlots: sportsSlots,
       tags: tags,
-      rateLabels: sportRateLabels.isNotEmpty ? sportRateLabels : periods,
+      rateLabels: effectiveRateLabels,
       latitude: 0,
       longitude: 0,
       distanceLabel: '',
@@ -1353,6 +1639,57 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
   String _merchantImage(Map<String, dynamic> business) {
     final images = _merchantImages(business);
     return images.isEmpty ? '' : images.first;
+  }
+
+  Future<void> _openMatchmakingHostPage(SportsVenue venue) async {
+    if (venue.id <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This venue is not available for matches.'),
+        ),
+      );
+      return;
+    }
+    final session = await AppSessionService.instance.load();
+    if (!mounted) return;
+    final token = session.apiToken;
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Log in to host a match.')),
+        );
+      }
+      return;
+    }
+    final lobbyId = await Navigator.of(context).push<int>(
+      MaterialPageRoute<int>(
+        builder: (context) => MatchmakingHostPage(
+          api: _api,
+          token: token,
+          initialVenueId: venue.id,
+        ),
+      ),
+    );
+    if (!mounted || lobbyId == null) return;
+    _openMatchmakingFeed(venue.id);
+  }
+
+  void _openMatchmakingFeed(int venueId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const AppText('Find Matches', localize: true),
+            backgroundColor: AppColors.page,
+            foregroundColor: AppColors.ink,
+          ),
+          body: MatchmakingLobbyListPage(
+            api: _api,
+            venueId: venueId > 0 ? venueId : null,
+          ),
+        ),
+      ),
+    );
   }
 
   List<String> _merchantImages(Map<String, dynamic> business) {
@@ -1404,6 +1741,8 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
       venue: detailVenue,
       api: _api,
       onReserve: () => _openBookingModal(detailVenue),
+      onHostMatch: () => _openMatchmakingHostPage(detailVenue),
+      onFindMatches: () => _openMatchmakingFeed(detailVenue.id),
       onRequireLogin: widget.onRequireLogin,
       primaryActionLabel: widget.primaryActionLabel,
     );
@@ -1415,6 +1754,7 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
     sport: '',
     address: '',
     ownerName: '',
+    businessLogoUrl: '',
     type: '',
     courts: '',
     hours: '',
@@ -1610,7 +1950,7 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
                             ],
                           ),
                         ),
-                        _modalIconButton(Icons.help_outline_rounded, () {}),
+                        const SizedBox(width: 44),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -1656,14 +1996,31 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
                                   ],
                                 ),
                               ),
-                              AppText(
-                                '\u{20B1} ${rate.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  color: _sportsAccentForeground,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                localize: true,
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  AppText(
+                                    '\u{20B1} ${rate.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: _sportsAccentForeground,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    localize: true,
+                                  ),
+                                  AppText(
+                                    '/ hour',
+                                    key: const ValueKey(
+                                      'sports-booking-selected-rate-unit',
+                                    ),
+                                    style: TextStyle(
+                                      color: _sportsMuted,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    localize: true,
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -1697,6 +2054,7 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
                     ),
                     const SizedBox(height: 6),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedSportType,
                       decoration: _bookingInputDecoration(
                         prefixIcon: Icon(_sportTypeIcon(selectedSportType)),
@@ -1966,7 +2324,9 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
                       ),
                     const SizedBox(height: 6),
                     AppText(
-                      'Please choose a time within the venue’s opening hours (${venue.hours}).',
+                      venue.hours.trim().isEmpty
+                          ? 'Venue hours are not listed. Confirm the time with the venue; slot availability reflects this date, time, and duration.'
+                          : 'Please choose a time within the venue’s opening hours (${venue.hours.trim()}); slot availability above reflects this date, time, and duration.',
                       style: TextStyle(color: _sportsMuted, fontSize: 12),
                       localize: true,
                     ),
@@ -2121,50 +2481,75 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
                       localize: true,
                     ),
                     const SizedBox(height: 6),
-                    DropdownButtonFormField<int>(
-                      initialValue: hours,
-                      decoration: _bookingInputDecoration(
-                        prefixIcon: Icon(Icons.schedule_rounded),
-                        labelText: appLanguageText('Duration', 'Duration'),
-                      ),
-                      items: [
-                        for (var value = 1; value <= 8; value++)
-                          DropdownMenuItem(
-                            value: value,
-                            child: AppText(
-                              value == 1 ? '1 hour' : '$value hours',
-                              localize: true,
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final fieldWidth = constraints.maxWidth >= 480
+                            ? (constraints.maxWidth - 8) / 2
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            SizedBox(
+                              width: fieldWidth,
+                              child: DropdownButtonFormField<int>(
+                                isExpanded: true,
+                                initialValue: hours,
+                                decoration: _bookingInputDecoration(
+                                  prefixIcon: Icon(Icons.schedule_rounded),
+                                  labelText: appLanguageText(
+                                    'Duration',
+                                    'Duration',
+                                  ),
+                                ),
+                                items: [
+                                  for (var value = 1; value <= 8; value++)
+                                    DropdownMenuItem(
+                                      value: value,
+                                      child: AppText(
+                                        value == 1 ? '1 hour' : '$value hours',
+                                        localize: true,
+                                      ),
+                                    ),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setModalState(() => hours = value);
+                                  }
+                                },
+                              ),
                             ),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) setModalState(() => hours = value);
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    DropdownButtonFormField<int>(
-                      initialValue: players,
-                      decoration: _bookingInputDecoration(
-                        prefixIcon: Icon(Icons.groups_rounded),
-                        labelText: appLanguageText(
-                          'Number of players',
-                          'Number of players',
-                        ),
-                      ),
-                      items: [
-                        for (var value = 1; value <= 30; value++)
-                          DropdownMenuItem(
-                            value: value,
-                            child: AppText(
-                              '$value player${value == 1 ? '' : 's'}',
-                              localize: true,
+                            SizedBox(
+                              width: fieldWidth,
+                              child: DropdownButtonFormField<int>(
+                                isExpanded: true,
+                                initialValue: players,
+                                decoration: _bookingInputDecoration(
+                                  prefixIcon: Icon(Icons.groups_rounded),
+                                  labelText: appLanguageText(
+                                    'Number of players',
+                                    'Number of players',
+                                  ),
+                                ),
+                                items: [
+                                  for (var value = 1; value <= 30; value++)
+                                    DropdownMenuItem(
+                                      value: value,
+                                      child: AppText(
+                                        '$value player${value == 1 ? '' : 's'}',
+                                        localize: true,
+                                      ),
+                                    ),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setModalState(() => players = value);
+                                  }
+                                },
+                              ),
                             ),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setModalState(() => players = value);
-                        }
+                          ],
+                        );
                       },
                     ),
                     if (selectedAdditionalPlayerFee > 0 &&
@@ -2229,52 +2614,22 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
                           : 'No payment is taken with this request. After approval, pay the full \u{20B1} ${total.toStringAsFixed(2)} online before the payment deadline.',
                       style: TextStyle(color: _sportsMuted),
                     ),
-                    Divider(height: 20, color: AppColors.borderSubtle),
-                    _bookingAmountRow(
-                      selectedSlotList.length == 1
-                          ? 'Merchant rate'
-                          : 'Merchant rate (${selectedSlotList.length} slots)',
-                      rate * selectedSlotList.length,
-                      '/ hour',
+                    SportsBookingPriceSummary(
+                      slotCount: selectedSlotList.length,
+                      rate: rate,
+                      durationHours: hours,
+                      playerCount: players,
+                      extraPlayerCount: players - selectedIncludedPlayers,
+                      additionalPlayerFee: selectedAdditionalPlayerFee,
+                      extraPlayerCharge: extraPlayerCharge,
+                      bookingDate: bookingDate,
+                      bookingTime: bookingTime,
+                      total: total,
+                      amountDueAfterApproval: payment == 'cash_on_arrival'
+                          ? cashOnArrival
+                          : total,
+                      cashOnArrival: payment == 'cash_on_arrival',
                     ),
-                    _bookingAmountRow('Duration', hours.toDouble(), ' hour(s)'),
-                    _bookingAmountRow(
-                      'Players',
-                      players.toDouble(),
-                      players == 1 ? ' player' : ' players',
-                    ),
-                    if (extraPlayerCharge > 0)
-                      _bookingAmountRow(
-                        'Extra players (${players - selectedIncludedPlayers} × '
-                            '\u{20B1} ${selectedAdditionalPlayerFee.toStringAsFixed(2)})',
-                        extraPlayerCharge,
-                        '',
-                      ),
-                    _bookingScheduleRow(
-                      context,
-                      bookingDate,
-                      bookingTime,
-                      hours,
-                    ),
-                    _bookingAmountRow('Booking total', total, ''),
-                    _bookingAmountRow(
-                      payment == 'cash_on_arrival'
-                          ? 'Cash downpayment after approval'
-                          : 'Online amount after approval',
-                      payment == 'cash_on_arrival' ? cashOnArrival : total,
-                      '',
-                      strong: true,
-                    ),
-                    if (payment == 'cash_on_arrival')
-                      AppText(
-                        'Cash on Arrival is fixed at 50% of the booking total.',
-                        style: TextStyle(
-                          color: AppColors.success,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        localize: true,
-                      ),
                     const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -3362,37 +3717,6 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
     return '$hour:$minute ${time.period == DayPeriod.am ? 'AM' : 'PM'}';
   }
 
-  Widget _bookingAmountRow(
-    String label,
-    double amount,
-    String suffix, {
-    bool strong = false,
-  }) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(
-      children: [
-        Expanded(
-          child: AppText(
-            label,
-            style: TextStyle(
-              color: _sportsMuted,
-              fontWeight: strong ? FontWeight.w800 : FontWeight.w500,
-            ),
-          ),
-        ),
-        AppText(
-          label == 'Duration' || label == 'Players'
-              ? '${amount.toStringAsFixed(0)}$suffix'
-              : '\u{20B1} ${amount.toStringAsFixed(2)}$suffix',
-          style: TextStyle(
-            color: _sportsInk,
-            fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
-          ),
-        ),
-      ],
-    ),
-  );
-
   Widget _bookingDetail(IconData icon, String text) => Padding(
     padding: const EdgeInsets.only(top: 4),
     child: Row(
@@ -3406,32 +3730,6 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: _sportsMuted, fontSize: 12),
           ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _bookingScheduleRow(
-    BuildContext context,
-    DateTime date,
-    TimeOfDay time,
-    int hours,
-  ) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(
-      children: [
-        Expanded(
-          child: AppText(
-            'Schedule',
-            style: TextStyle(color: _sportsMuted, fontWeight: FontWeight.w600),
-            localize: true,
-          ),
-        ),
-        AppText(
-          '${MaterialLocalizations.of(context).formatShortDate(date)} · '
-          '${time.format(context)} · $hours hr',
-          style: TextStyle(color: _sportsInk, fontWeight: FontWeight.w800),
-          localize: true,
         ),
       ],
     ),

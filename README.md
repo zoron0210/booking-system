@@ -20,7 +20,7 @@ flutter run --dart-define=API_BASE_URL=http://<host-reachable-from-device>:3000
 ```
 
 The API listens on port 3000 by default. The development API URL defaults to
-`http://192.168.1.20:3000` for this LAN. This is a local developer address,
+`http://192.168.1.15:3000` for this LAN. This is a local developer address,
 not a public/live server. If the computer's LAN address changes, override it
 with `API_BASE_URL` as above. For the Android emulator, the host machine is
 usually reachable at `10.0.2.2`, so use `http://10.0.2.2:3000`. A physical
@@ -79,7 +79,7 @@ Successful sign-in and sign-out transitions show localized confirmation; the
 sign-out confirmation makes clear that the app has returned to guest browsing.
 Guests can browse public community posts and profiles; following people or
 sharing experiences requires signing in. Customer Home is the first footer
-destination and shows a newest-first **For You** feed of public experiences
+destination and shows a newest-first **Latest** feed of public experiences
 alongside a **Following** feed containing posts by followed accounts. The
 header add button opens the experience composer directly. Feed posts support
 likes, comments, saved posts, and sharing through the device share menu.

@@ -10,6 +10,8 @@ import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_profile_dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'merchant_dashboard_test_support.dart';
+
 String _date(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-'
     '${value.month.toString().padLeft(2, '0')}-'
@@ -32,8 +34,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
-    await tester.pumpAndSettle();
+    await tapMerchantSettings(tester);
     expect(
       find.byKey(const ValueKey('merchant-settings-community')),
       findsNothing,
@@ -68,19 +69,57 @@ void main() {
       find.byKey(const ValueKey('merchant-settings-venue-check-in')),
       findsOneWidget,
     );
-    final helpCenter = find
-        .byKey(const ValueKey('merchant-settings-help-center'))
-        .first;
-    final termsOfService = find
-        .byKey(const ValueKey('merchant-settings-terms-of-service'))
-        .first;
-    await tester.ensureVisible(helpCenter);
+    await tester.tap(find.byTooltip('Close settings'));
     await tester.pumpAndSettle();
-    expect(termsOfService, findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('merchant-sidebar-toggle')));
+    await tester.pumpAndSettle();
     expect(
-      tester.getTopLeft(helpCenter).dy,
-      tester.getTopLeft(termsOfService).dy,
+      find.byKey(const ValueKey('merchant-drawer-help-center')),
+      findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('merchant-drawer-terms-of-service')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('merchant-drawer-help-center')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Help articles and contact options will be available here soon.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('merchant profile can switch to the customer portal', (
+    tester,
+  ) async {
+    var switched = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MerchantProfileDashboardPage(
+          owner: const {},
+          profileImage: null,
+          venueCount: 0,
+          onLogout: (_) async {},
+          onEditProfile: () async => null,
+          onSwitchToCustomerPortal: (_) async {
+            switched = true;
+          },
+        ),
+      ),
+    );
+
+    await tapMerchantSettings(tester);
+    final switchSetting = find.byKey(
+      const ValueKey('merchant-settings-switch-to-customer'),
+    );
+    expect(switchSetting, findsOneWidget);
+    await tester.ensureVisible(switchSetting);
+    await tester.tap(switchSetting);
+    await tester.pumpAndSettle();
+
+    expect(switched, isTrue);
   });
 
   testWidgets('saving booking deadlines after closing the dialog succeeds', (
@@ -190,8 +229,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
-    await tester.pumpAndSettle();
+    await tapMerchantSettings(tester);
     expect(
       find.byKey(const ValueKey('merchant-settings-venue-check-in')),
       findsOneWidget,
@@ -230,8 +268,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('merchant-profile-settings')));
-    await tester.pumpAndSettle();
+    await tapMerchantSettings(tester);
 
     final notificationSettings = find.byKey(
       const ValueKey('merchant-settings-notifications'),
@@ -277,7 +314,7 @@ void main() {
               'address': 'Manila',
             },
             profileImage: null,
-            venueCount: 1,
+            venueCount: 3,
             bookings: [
               {
                 'date': _date(now),
@@ -303,8 +340,23 @@ void main() {
               {
                 'name': 'Morgan Sports',
                 'availability': 'open',
-                'averageRating': 4.8,
+                'averageRating': 4.0,
+                'reviewCount': 1,
+                'hasPublishedNewsCard': true,
                 'imageUrl': 'https://example.com/venue.jpg',
+              },
+              {
+                'name': 'Morgan Events',
+                'averageRating': 5.0,
+                'reviewCount': 3,
+                'hasPublishedNewsCard': false,
+              },
+              {
+                'name': 'Morgan Fitness',
+                'availability': 'closed',
+                'averageRating': 4.9,
+                'reviewCount': 0,
+                'hasPublishedNewsCard': false,
               },
             ],
             onEditProfile: () async => null,
@@ -329,22 +381,105 @@ void main() {
       expect(find.text('₱160.00'), findsOneWidget);
 
       await tester.scrollUntilVisible(
-        find.text('Business overview'),
+        find.text('Your business at a glance'),
         250,
         scrollable: find.byType(Scrollable).first,
       );
       expect(find.text('Morgan Sports'), findsWidgets);
       expect(find.text('4.8'), findsOneWidget);
-      expect(find.textContaining('marked open or available'), findsOneWidget);
+      expect(
+        find.textContaining('4 customer reviews across your venues'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('1 of 3 venues have a published News Card'),
+        findsOneWidget,
+      );
 
       await tester.scrollUntilVisible(
-        find.text('Schedule'),
+        find.text('Bookings & payments'),
         250,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text('Schedule'));
+      await tester.tap(find.text('Bookings & payments'));
       await tester.pumpAndSettle();
       expect(destination, 3);
+    },
+  );
+
+  testWidgets(
+    'profile omits unsupported ratings and fits a phone at larger text',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: MerchantProfileDashboardPage(
+            owner: const {
+              'firstName': 'Riley',
+              'lastName': 'Merchant',
+              'email': 'riley@example.com',
+            },
+            profileImage: null,
+            venueCount: 3,
+            businesses: const [
+              {
+                'name': 'Unrated venue',
+                'availability': 'open',
+                'reviewCount': 2,
+              },
+              {
+                'name': 'Venue without reviews',
+                'averageRating': 4.8,
+                'reviewCount': 0,
+              },
+              {'name': 'Venue without listing status'},
+            ],
+            onLogout: (_) async {},
+            onEditProfile: () async => null,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.scrollUntilVisible(
+        find.text('Your business at a glance'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.textContaining('2 customer reviews across your venues'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('0 of 3 venues have a published News Card'),
+        findsOneWidget,
+      );
+      expect(find.text('0.0'), findsNothing);
+      expect(find.text('4.8'), findsNothing);
+      expect(find.text('Verified Host'), findsNothing);
+      expect(find.text('Open'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await tester.scrollUntilVisible(
+        find.text('Performance overview'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('CONFIRMED BOOKING VALUE · TODAY'), findsOneWidget);
+      expect(find.text('Today at a glance'), findsOneWidget);
+      expect(find.text('Payments recorded'), findsOneWidget);
+      expect(find.textContaining('not a withdrawable balance'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 }

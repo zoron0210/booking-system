@@ -12,6 +12,7 @@ import 'package:myapp/core/scroll_aware_header.dart';
 import 'package:myapp/features/social/presentation/social_message_tools.dart';
 import 'package:myapp/features/social/presentation/social_post_interactions.dart';
 import 'package:myapp/features/social/presentation/social_profile_section.dart';
+import 'package:myapp/features/social/presentation/social_clubs_page.dart';
 
 const _maxSocialPhotos = 5;
 const _maxSocialPhotoBytes = 10 * 1024 * 1024;
@@ -22,11 +23,15 @@ class SocialCommunityPage extends StatefulWidget {
     required this.api,
     this.composeOnOpen = false,
     this.onOpenProfile,
+    this.hideAppBar = false,
+    this.initialTabIndex = 0,
   });
 
   final AuthApi api;
   final bool composeOnOpen;
   final Future<void> Function(int userId)? onOpenProfile;
+  final bool hideAppBar;
+  final int initialTabIndex;
 
   @override
   State<SocialCommunityPage> createState() => _SocialCommunityPageState();
@@ -231,38 +236,81 @@ class _SocialCommunityPageState extends State<SocialCommunityPage> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const AppText('Community', localize: true),
-          bottom: TabBar(
-            tabs: [
-              Tab(
-                icon: Icon(Icons.dynamic_feed_outlined),
-                text: _token == null ? 'Feed' : 'Following',
+      length: 3,
+      initialIndex: widget.initialTabIndex.clamp(0, 2),
+      child: Builder(
+        builder: (context) => AnimatedBuilder(
+          animation: DefaultTabController.of(context),
+          builder: (context, _) {
+            final selectedTab = DefaultTabController.of(context).index;
+            return Scaffold(
+              appBar: widget.hideAppBar
+                  ? null
+                  : AppBar(
+                      title: const AppText('Community', localize: true),
+                      bottom: _buildCommunityTabs(),
+                    ),
+              body: Column(
+                children: [
+                  if (widget.hideAppBar)
+                    Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      child: _buildCommunityTabs(),
+                    ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [_buildClubs(), _buildFeed(), _buildPeople()],
+                    ),
+                  ),
+                ],
               ),
-              Tab(icon: Icon(Icons.people_outline_rounded), text: 'People'),
-            ],
-          ),
+              floatingActionButton: socialPostingEnabled && selectedTab == 1
+                  ? FloatingActionButton.extended(
+                      key: const ValueKey('social-community-create-post'),
+                      onPressed: _posting ? null : _composePost,
+                      icon: _posting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_a_photo_outlined),
+                      label: const AppText('Share experience', localize: true),
+                    )
+                  : null,
+            );
+          },
         ),
-        body: TabBarView(children: [_buildFeed(), _buildPeople()]),
-        floatingActionButton: socialPostingEnabled
-            ? FloatingActionButton.extended(
-                key: const ValueKey('social-community-create-post'),
-                onPressed: _posting ? null : _composePost,
-                icon: _posting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.add_a_photo_outlined),
-                label: const AppText('Share experience', localize: true),
-              )
-            : null,
       ),
     );
   }
+
+  TabBar _buildCommunityTabs() => TabBar(
+    tabs: [
+      const Tab(
+        key: ValueKey('social-community-clubs-tab'),
+        icon: Icon(Icons.groups_2_outlined),
+        text: 'Clubs',
+      ),
+      Tab(
+        key: const ValueKey('social-community-feed-tab'),
+        icon: const Icon(Icons.dynamic_feed_outlined),
+        text: _token == null ? 'Feed' : 'Following',
+      ),
+      const Tab(
+        key: ValueKey('social-community-people-tab'),
+        icon: Icon(Icons.people_outline_rounded),
+        text: 'People',
+      ),
+    ],
+  );
+
+  Widget _buildClubs() => SocialClubsPage(
+    api: widget.api,
+    token: _token,
+    onRequireToken: _requireToken,
+    onOpenProfile: widget.onOpenProfile,
+  );
 
   Widget _buildFeed() {
     if (_loadingFeed && _feed.isEmpty) {
@@ -291,7 +339,7 @@ class _SocialCommunityPageState extends State<SocialCommunityPage> {
           const SizedBox(height: 18),
           Center(
             child: OutlinedButton.icon(
-              onPressed: () => DefaultTabController.of(context).animateTo(1),
+              onPressed: () => DefaultTabController.of(context).animateTo(2),
               icon: const Icon(Icons.search_rounded),
               label: const AppText('Find people', localize: true),
             ),
@@ -452,6 +500,68 @@ class SocialExperiencePostCard extends StatelessWidget {
   final VoidCallback? onPostChanged;
   final bool homeFeedStyle;
 
+  String _textValue(Object? value) => '${value ?? ''}'.trim();
+
+  Map<String, dynamic> _mapValue(Object? value) {
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+    return const <String, dynamic>{};
+  }
+
+  List<String> _contextTags() {
+    final base = <String>[];
+    final matchData = _mapValue(post['match']);
+    final venueData = _mapValue(post['venue']);
+    final sport = _textValue(
+      post['sportType'] ??
+          post['sport'] ??
+          post['matchSportType'] ??
+          matchData['sportType'] ??
+          matchData['sport'],
+    );
+    if (sport.isNotEmpty) base.add(sport);
+
+    final venue = _textValue(
+      post['venueName'] ??
+          post['businessName'] ??
+          venueData['name'] ??
+          venueData['businessName'] ??
+          matchData['venueName'] ??
+          matchData['businessName'],
+    );
+    if (venue.isNotEmpty) base.add(venue);
+
+    final location = _textValue(
+      post['location'] ??
+          post['area'] ??
+          post['city'] ??
+          venueData['location'] ??
+          matchData['location'] ??
+          matchData['city'],
+    );
+    if (location.isNotEmpty) base.add(location);
+
+    final status = _textValue(
+      post['matchStatus'] ?? post['status'] ?? matchData['status'],
+    );
+    if (status.isNotEmpty && !base.contains(status)) base.add(status);
+
+    return base;
+  }
+
+  String? _contextActionLabel() {
+    if (post['matchId'] != null || post['matchmakingLobbyId'] != null) {
+      return 'View match';
+    }
+    if (post['businessId'] != null ||
+        _textValue(post['businessName']).isNotEmpty ||
+        _textValue(post['venueName']).isNotEmpty) {
+      return 'View venue';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final images = (post['images'] as List<dynamic>? ?? [])
@@ -462,6 +572,8 @@ class SocialExperiencePostCard extends StatelessWidget {
         ? null
         : socialAvatarProvider(avatar);
     final caption = '${post['caption'] ?? ''}'.trim();
+    final contextTags = _contextTags();
+    final contextActionLabel = _contextActionLabel();
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -514,6 +626,57 @@ class SocialExperiencePostCard extends StatelessWidget {
                       child: const AppText('Follow', localize: true),
                     ),
             ),
+          if (homeFeedStyle && contextTags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final tag in contextTags)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: SocialHomeColors.of(context).surfaceRaised,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: SocialHomeColors.of(context).border,
+                        ),
+                      ),
+                      child: AppText(
+                        tag,
+                        style: TextStyle(
+                          color: SocialHomeColors.of(context).text,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  if (contextActionLabel != null)
+                    TextButton.icon(
+                      onPressed: () {},
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                      ),
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                      label: AppText(
+                        contextActionLabel,
+                        style: TextStyle(
+                          color: SocialHomeColors.of(context).primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (images.isNotEmpty)
             Padding(
               padding: EdgeInsets.symmetric(horizontal: homeFeedStyle ? 10 : 0),
@@ -539,17 +702,26 @@ class SocialExperiencePostCard extends StatelessWidget {
                         ),
                         child: Container(
                           color: SocialHomeColors.of(context).surfaceRaised,
-                          child: AspectRatio(
-                            aspectRatio: 0.8,
-                            child: PageView.builder(
-                              itemCount: images.length,
-                              itemBuilder: (context, index) => Center(
-                                child: socialExperienceImage(
-                                  images[index],
-                                  fit: BoxFit.contain,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final imageHeight = constraints.maxWidth > 420
+                                  ? 360.0
+                                  : constraints.maxWidth > 300
+                                  ? 300.0
+                                  : 240.0;
+                              return SizedBox(
+                                height: imageHeight,
+                                child: PageView.builder(
+                                  itemCount: images.length,
+                                  itemBuilder: (context, index) => Center(
+                                    child: socialExperienceImage(
+                                      images[index],
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
                         ),
                       )
@@ -708,10 +880,51 @@ class _SocialPostOptionsMenuState extends State<_SocialPostOptionsMenu> {
       widget.onViewProfile?.call();
       return;
     }
-    if (value == 'save') {
+    if (value == 'delete') {
+      await _deletePost();
+    } else if (value == 'save') {
       await _toggleSave();
     } else if (value == 'report') {
       await _report();
+    }
+  }
+
+  Future<void> _deletePost() async {
+    final id = (widget.post['id'] as num?)?.toInt();
+    if (id == null || _working) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const AppText('Delete post?', localize: true),
+        content: const AppText(
+          'This post will be permanently deleted.',
+          localize: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const AppText('Cancel', localize: true),
+          ),
+          FilledButton(
+            key: ValueKey('social-post-delete-confirm-$id'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const AppText('Delete', localize: true),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final token = await _requireToken();
+    if (token == null || !mounted) return;
+    setState(() => _working = true);
+    try {
+      await widget.api.social.deleteSocialPost(token: token, postId: id);
+      _showMessage('Post deleted.');
+      widget.onPostChanged?.call();
+    } on Exception catch (error) {
+      _showMessage('Could not delete this post: $error');
+    } finally {
+      if (mounted) setState(() => _working = false);
     }
   }
 
@@ -843,6 +1056,15 @@ class _SocialPostOptionsMenuState extends State<_SocialPostOptionsMenu> {
           ),
         ),
       ),
+      if (widget.post['isOwnPost'] == true)
+        PopupMenuItem(
+          value: 'delete',
+          child: const ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.delete_outline_rounded),
+            title: AppText('Delete', localize: true),
+          ),
+        ),
     ],
     icon: const Icon(Icons.more_vert_rounded),
   );

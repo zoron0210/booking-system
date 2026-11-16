@@ -10,7 +10,17 @@ const paymentExpirationCandidatesSql = `
          b.payment_timeout_minutes AS paymentTimeoutMinutes
   FROM bookings b
   JOIN merchant_businesses v ON v.id = b.venue_id
-  WHERE b.status = 'approved'
+  WHERE (
+      b.status = 'approved'
+      OR (
+        b.status = 'matchmaking_open'
+        AND EXISTS (
+          SELECT 1 FROM matchmaking_lobbies l
+          WHERE l.booking_id = b.id
+            AND l.status = 'awaiting_host_downpayment'
+        )
+      )
+    )
     AND b.payment_method IN ('online', 'cash_on_arrival')
     AND b.payment_status = 'unpaid'
     AND b.payment_due_at <= CURRENT_TIMESTAMP
@@ -38,7 +48,10 @@ function createBookingPaymentDeadlineProcessor({
             `UPDATE bookings
              SET status = 'cancelled',
                  payment_expired_at = CURRENT_TIMESTAMP
-             WHERE id = ? AND status = 'approved'
+             WHERE id = ? AND (
+                 status = 'approved'
+                 OR status = 'matchmaking_open'
+               )
                AND payment_method IN ('online', 'cash_on_arrival')
                AND payment_status = 'unpaid'
                AND payment_due_at <= CURRENT_TIMESTAMP
@@ -49,6 +62,13 @@ function createBookingPaymentDeadlineProcessor({
             await connection.rollback();
             continue;
           }
+          await connection.execute(
+            `UPDATE matchmaking_lobbies
+             SET status = 'expired'
+             WHERE booking_id = ?
+               AND status = 'awaiting_host_downpayment'`,
+            [booking.id],
+          );
 
           const transactionId = `TP-TXN-${String(booking.id).padStart(8, '0')}`;
           const bookingReference = `BK-${booking.id}`;

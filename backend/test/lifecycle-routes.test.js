@@ -72,9 +72,22 @@ function makeConnection() {
         return [{ affectedRows: 1 }, []];
       }
       if (
+        sql.includes('FROM bookings b') &&
+        sql.includes('payment_checkout_session_id AS paymentCheckoutSessionId') &&
+        sql.includes('FOR UPDATE')
+      ) {
+        return response(
+          db.paymentBooking &&
+            Number(params[0]) === db.paymentBooking.id &&
+            String(params[1]) === '42'
+            ? [db.paymentBooking]
+            : [],
+        );
+      }
+      if (
         sql.includes('FROM bookings') &&
+        sql.includes('b.booking_type AS bookingType') &&
         sql.includes('payment_method AS paymentMethod') &&
-        sql.includes("status IN ('pending', 'approved')") &&
         sql.includes('FOR UPDATE')
       ) {
         return response(
@@ -132,13 +145,25 @@ function makeConnection() {
             : []
         );
         return response(
-          sql.includes("status = 'approved'")
+          sql.includes("status = 'approved'") ||
+            /status IN\s*\(\s*'approved'/.test(sql)
             ? overlapRows.filter((booking) => booking.status !== 'pending')
             : overlapRows,
         );
       }
       if (
         sql.includes('SELECT b.id, b.customer_id AS customerId') &&
+        sql.includes('l.accepted_opponent_id = ?')
+      ) {
+        return response(
+          db.paymentBooking &&
+            Number(params[0]) === db.paymentBooking.id
+            ? [db.paymentBooking]
+            : [],
+        );
+      }
+      if (
+        sql.includes('SELECT b.id, b.booking_type AS bookingType') &&
         sql.includes('CURRENT_DATE >= DATE_ADD(b.booking_date')
       ) {
         return response(db.dueBookings);
@@ -160,6 +185,40 @@ function makeConnection() {
           db.webhookBooking?.paymentCheckoutSessionId === params[0]
             ? [db.webhookBooking]
             : [],
+        );
+      }
+      if (
+        sql.includes('FROM matchmaking_lobbies l') &&
+        sql.includes("l.status = 'open'")
+      ) {
+        return response(db.publicMatchLobby ? [db.publicMatchLobby] : []);
+      }
+      if (
+        sql.includes('FROM matchmaking_lobbies l') &&
+        sql.includes('l.opponent_checkout_session_id = ?')
+      ) {
+        return response(
+          db.webhookMatchmakingLobby?.checkoutSessionId === params[0]
+            ? [db.webhookMatchmakingLobby]
+            : [],
+        );
+      }
+      if (
+        sql.includes('UPDATE matchmaking_lobbies') &&
+        sql.includes("SET opponent_payment_status = 'paid'")
+      ) {
+        if (db.webhookMatchmakingLobby) {
+          db.webhookMatchmakingLobby.opponentPaymentStatus = 'paid';
+          db.webhookMatchmakingLobby.paymentReference = params[0];
+        }
+        return [{ affectedRows: 1 }, []];
+      }
+      if (
+        sql.includes('FROM matchmaking_requests') &&
+        sql.includes('opponent_user_id = ?')
+      ) {
+        return response(
+          db.webhookMatchmakingRequest ? [db.webhookMatchmakingRequest] : [],
         );
       }
       if (
@@ -304,6 +363,28 @@ function makeConnection() {
         return response([]);
       }
       if (sql.includes('INSERT INTO conversations')) return [{ insertId: 601 }, []];
+      if (
+        sql.includes('UPDATE bookings') &&
+        sql.includes('SET payment_checkout_session_id = ?')
+      ) {
+        const bookingId = Number(params[3]);
+        const payment = db.paymentBooking;
+        const expectedSessionId = sql.includes(
+          'AND payment_checkout_session_id = ?',
+        ) ? params[4] : null;
+        const currentSessionId = payment?.paymentCheckoutSessionId ?? null;
+        if (
+          payment &&
+          payment.id === bookingId &&
+          currentSessionId === expectedSessionId
+        ) {
+          payment.paymentCheckoutSessionId = params[0];
+          payment.paymentCheckoutUrl = params[1];
+          payment.paymentCheckoutMethod = params[2];
+          return [{ affectedRows: 1 }, []];
+        }
+        return [{ affectedRows: 0 }, []];
+      }
       if (sql.includes('UPDATE bookings b JOIN merchant_businesses')) {
         if (
           sql.includes("SET b.status = 'cancelled'") &&
@@ -361,6 +442,8 @@ function resetDatabase() {
     verificationToken: null,
     resetToken: null,
     availabilityRows: [],
+    publicMatchLobby: null,
+    matchDiscoveryAlerts: [],
     availabilityError: null,
     messageRows: [],
     ticketVenueNames: new Map(),
@@ -450,6 +533,8 @@ function resetDatabase() {
       paymentDeadlineActive: 1,
     },
     webhookBooking: null,
+    webhookMatchmakingLobby: null,
+    webhookMatchmakingRequest: null,
     prototypePaymentBooking: null,
   };
   paymentBooking = db.paymentBooking;
@@ -523,6 +608,7 @@ before(async () => {
               id: db.venue.id,
               name: db.venue.name,
               image_url: db.venue.image_url,
+              businessType: db.venue.businessType,
             }]
             : [],
         );
@@ -567,7 +653,7 @@ before(async () => {
         return [{ affectedRows: db.imageUpdateAffected ?? 1 }, []];
       }
       if (
-        sql.includes('SELECT b.id, b.customer_id AS customerId') &&
+        sql.includes('SELECT b.id, b.booking_type AS bookingType') &&
         sql.includes('CURRENT_DATE >= DATE_ADD(b.booking_date')
       ) {
         return response(db.dueBookings);
@@ -579,7 +665,23 @@ before(async () => {
           category: 'Basketball',
         }]);
       }
-      if (sql.includes('SELECT id, total_amount AS totalAmount')) {
+      if (
+        sql.includes('SELECT b.id, b.customer_id AS customerId') &&
+        sql.includes('l.accepted_opponent_id = ?')
+      ) {
+        return response(
+          paymentBooking && Number(params[0]) === paymentBooking.id
+            ? [paymentBooking]
+            : [],
+        );
+      }
+      if (
+        sql.includes('FROM matchmaking_lobbies l') &&
+        sql.includes("l.status = 'open'")
+      ) {
+        return response(db.publicMatchLobby ? [db.publicMatchLobby] : []);
+      }
+      if (sql.includes('SELECT b.id, b.total_amount AS totalAmount')) {
         return response(paymentBooking ? [paymentBooking] : []);
       }
       if (sql.includes('SET payment_checkout_session_id = ?')) {
@@ -706,6 +808,12 @@ before(async () => {
         return [{ affectedRows: db.cancelAffected ? 1 : 0 }, []];
       }
       if (
+        sql.includes('UPDATE matchmaking_lobbies') &&
+        sql.includes("SET status = 'open'")
+      ) {
+        return [{ affectedRows: db.publicMatchLobby ? 1 : 0 }, []];
+      }
+      if (
         sql.includes("JOIN bookings b ON c.title = CONCAT('Booking ', b.id)") &&
         sql.includes('cm.deleted_at IS NULL')
       ) {
@@ -775,6 +883,23 @@ before(async () => {
       return {
         sendPasswordResetCode: async (_email, code) => sentResetCodes.push(code),
         sendVerificationCode: async (_email, code) => sentVerificationCodes.push(code),
+      };
+    }
+    if (
+      parent?.filename === serverFile &&
+      requestName === './booking_notification_service'
+    ) {
+      const notificationService = originalLoad.call(
+        this,
+        requestName,
+        parent,
+        isMain,
+      );
+      return {
+        ...notificationService,
+        createMatchDiscoveryNotificationService: () => async (match) => {
+          db.matchDiscoveryAlerts.push(match);
+        },
       };
     }
     return originalLoad.call(this, requestName, parent, isMain);
@@ -1448,6 +1573,52 @@ test('merchant business routes deny customers and inactive merchants', async () 
   );
 });
 
+test('merchant matchmaking settings validate input and require venue ownership', async () => {
+  db.calls = [];
+  const invalid = await request('/api/merchant/businesses/7/matchmaking', {
+    method: 'PUT',
+    role: 'merchant',
+    body: { allowMatchmaking: 'false' },
+  });
+  assert.equal(invalid.status, 400);
+  assert.deepEqual(await invalid.json(), {
+    error: 'Invalid matchmaking setting.',
+  });
+
+  db.calls = [];
+  const updated = await request('/api/merchant/businesses/7/matchmaking', {
+    method: 'PUT',
+    role: 'merchant',
+    body: { allowMatchmaking: false },
+  });
+  assert.equal(updated.status, 200);
+  assert.deepEqual(await updated.json(), {
+    message: 'Matchmaking setting updated.',
+    allowMatchmaking: false,
+  });
+  assert.ok(
+    db.calls.some(({ sql, params }) =>
+      sql.includes('SET allow_matchmaking = ?') &&
+      params[0] === 0 &&
+      params[1] === 7 &&
+      params[2] === '88',
+    ),
+  );
+
+  db.calls = [];
+  const otherVenue = await request('/api/merchant/businesses/8/matchmaking', {
+    method: 'PUT',
+    role: 'merchant',
+    body: { allowMatchmaking: true },
+  });
+  assert.equal(otherVenue.status, 404);
+  assert.deepEqual(await otherVenue.json(), { error: 'Business not found.' });
+  assert.equal(
+    db.calls.some(({ sql }) => sql.includes('SET allow_matchmaking = ?')),
+    false,
+  );
+});
+
 test('booking requests require an idempotency key', async () => {
   const response = await request('/api/bookings', {
     method: 'POST',
@@ -1766,6 +1937,7 @@ test('fitness businesses persist category plans and optional coaches', async () 
       facilityType: 'Studio',
       hours: '8:00 AM - 8:00 PM',
       pricePerHour: 500,
+      businessLogoUrl: 'data:image/png;base64,YnJhbmQ=',
       imageUrls: ['https://example.test/studio.jpg'],
       latitude: 10.3,
       longitude: 123.9,
@@ -1797,6 +1969,11 @@ test('fitness businesses persist category plans and optional coaches', async () 
   });
 
   assert.equal(response.status, 201);
+  const businessInsert = db.calls.find(({ sql }) =>
+    sql.includes('INSERT INTO merchant_businesses'),
+  );
+  assert.ok(businessInsert.sql.includes('business_logo_url'));
+  assert.equal(businessInsert.params[13], 'data:image/png;base64,YnJhbmQ=');
   const saveQuery = db.calls.find(({ sql }) =>
     sql.includes('INSERT INTO fitness_business_details'),
   );
@@ -1926,6 +2103,44 @@ test('customer feed reports aggregate hearts and the authenticated user heart st
   assert.deepEqual(feedQuery.params, ['42']);
 });
 
+test('customer feed exposes completed visit counts for ranking cards', async () => {
+  db.newsFeedRows = [{
+    id: 15,
+    business_id: 7,
+    status: 'published',
+    title: 'Weekend pass',
+    body: 'Reserved for community use.',
+    business_name: 'Court One',
+    business_type: 'Sports',
+    business_category: 'Basketball',
+    business_address: 'Cebu City',
+    image_url: 'https://example.test/court.jpg',
+    business_image_url: 'https://example.test/court.jpg',
+    business_logo_url: 'https://example.test/logo.jpg',
+    image_urls: '["https://example.test/court.jpg"]',
+    enabled: 1,
+    visit_count: 24,
+    heart_count: 7,
+    hearted_by_me: 0,
+    merchant_first_name: 'Jane',
+    merchant_last_name: 'Doe',
+    merchant_email: 'jane@example.com',
+    merchant_phone: '09999999999',
+    merchant_avatar_url: 'https://example.test/avatar.jpg',
+  }];
+
+  const response = await request('/api/news-feed');
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.posts[0].visitCount, 24);
+  const feedQuery = db.calls.find(({ sql }) =>
+    sql.includes('visit_count') && sql.includes('FROM merchant_news n'),
+  );
+  assert.ok(feedQuery);
+  assert.match(feedQuery.sql, /visit_count/);
+});
+
 test('customer feed can restrict results to one booking type', async () => {
   const response = await request('/api/news-feed?businessType=Fitness');
 
@@ -1967,6 +2182,7 @@ test('customer feed includes merchant-configured event types', async () => {
     event_types_json: '["Wedding","Birthday"]',
     image_url: 'https://example.test/venue-one.jpg',
     business_image_url: 'https://example.test/venue-one.jpg',
+    business_logo_url: 'https://example.test/venue-logo.png',
     image_urls: '["https://example.test/venue-one.jpg","https://example.test/venue-two.jpg"]',
   }];
 
@@ -1974,6 +2190,7 @@ test('customer feed includes merchant-configured event types', async () => {
 
   assert.equal(response.status, 200);
   const body = await response.json();
+  assert.equal(body.posts[0].businessLogoUrl, 'https://example.test/venue-logo.png');
   assert.deepEqual(body.posts[0].eventTypes, ['Wedding', 'Birthday']);
   assert.deepEqual(body.posts[0].imageUrls, [
     'https://example.test/venue-one.jpg',
@@ -1983,6 +2200,7 @@ test('customer feed includes merchant-configured event types', async () => {
     sql.includes('FROM merchant_news n'),
   );
   assert.ok(feedQuery);
+  assert.match(feedQuery.sql, /b\.business_logo_url AS business_logo_url/);
   assert.match(feedQuery.sql, /event_types_json/);
   assert.match(feedQuery.sql, /latest\.status = 'published'/);
 });
@@ -2052,6 +2270,7 @@ test('customer businesses include Event venues without published news, including
     ownerEmail: 'maya@example.test',
     ownerPhone: '+639171234567',
     ownerAvatarUrl: 'https://example.test/maya.jpg',
+    businessLogoUrl: 'https://example.test/brand.png',
     eventTypes: '["Wedding","Birthday"]',
     enabled: 0,
     heartCount: 0,
@@ -2069,6 +2288,10 @@ test('customer businesses include Event venues without published news, including
     body.businesses[0].ownerAvatarUrl,
     'https://example.test/maya.jpg',
   );
+  assert.equal(
+    body.businesses[0].businessLogoUrl,
+    'https://example.test/brand.png',
+  );
   assert.equal(body.businesses[0].enabled, 0);
   const businessesQuery = db.calls.find(({ sql }) =>
     sql.includes('LEFT JOIN event_business_details e') &&
@@ -2081,6 +2304,7 @@ test('customer businesses include Event venues without published news, including
   );
   assert.match(businessesQuery.sql, /b\.business_type = 'Event'\s+OR EXISTS/);
   assert.match(businessesQuery.sql, /AS heartCount/);
+  assert.match(businessesQuery.sql, /b\.business_logo_url AS businessLogoUrl/);
 });
 
 test('event venue review records its booking and venue details in activity history', async () => {
@@ -2225,7 +2449,10 @@ test('sports availability returns pending and approved bookings with status', as
   const availabilityQuery = db.calls.find(({ sql }) =>
     sql.includes('SELECT b.start_time AS startTime'),
   );
-  assert.ok(availabilityQuery.sql.includes("b.status IN ('pending', 'approved')"));
+  assert.match(
+    availabilityQuery.sql,
+    /b\.status IN \(\s*'pending', 'approved',\s*'matchmaking_pending_merchant', 'matchmaking_open'\s*\)/,
+  );
 
   const invalid = await request('/api/bookings/availability?venueId=0&date=bad');
   assert.equal(invalid.status, 400);
@@ -2297,8 +2524,11 @@ test('sports booking requests do not block pending requests for the same slot', 
   const overlapQuery = db.calls.find(({ sql }) =>
     sql.includes('AND start_time <'),
   );
-  assert.ok(overlapQuery.sql.includes("status = 'approved'"));
-  assert.ok(!overlapQuery.sql.includes("status IN ('pending', 'approved')"));
+  assert.match(
+    overlapQuery.sql,
+    /status IN \(\s*'approved', 'matchmaking_pending_merchant', 'matchmaking_open'\s*\)/,
+  );
+  assert.doesNotMatch(overlapQuery.sql, /status IN \(\s*'pending', 'approved'/);
 });
 
 test('booking success records the payment obligation without collecting it', async () => {
@@ -3292,6 +3522,15 @@ test('customer cancellation refunds online payments only at least six hours befo
 });
 
 test('merchant payment management records COA cash downpayment before balance', async () => {
+  db.publicMatchLobby = {
+    lobbyId: 91,
+    hostUserId: 42,
+    bookingId: 501,
+    venueName: 'Test Court',
+    sportType: 'Basketball',
+    matchDate: '2026-10-01',
+    startTime: '09:00',
+  };
   const downpayment = await request('/api/merchant/bookings/501/payment', {
     method: 'PATCH',
     role: 'merchant',
@@ -3309,6 +3548,20 @@ test('merchant payment management records COA cash downpayment before balance', 
   assert.match(downpaymentUpdate.sql, /b\.payment_method = 'cash_on_arrival'/);
   assert.match(downpaymentUpdate.sql, /b\.paid_amount = b\.downpayment_amount/);
   assert.match(downpaymentUpdate.sql, /b\.payment_status = 'unpaid'/);
+  assert.ok(db.calls.some(({ sql }) =>
+    sql.includes('UPDATE matchmaking_lobbies') &&
+    sql.includes("SET status = 'open'"),
+  ));
+  assert.ok(db.calls.some(({ sql }) =>
+    sql.includes('FROM matchmaking_lobbies l') &&
+    sql.includes("l.status = 'open'"),
+  ));
+  assert.deepEqual(db.matchDiscoveryAlerts, [db.publicMatchLobby]);
+  const lobbyOpenUpdate = db.calls.find(({ sql }) =>
+    sql.includes("SET status = 'open'") &&
+    sql.includes("status = 'awaiting_host_downpayment'"),
+  );
+  assert.ok(lobbyOpenUpdate);
 
   const paid = await request('/api/merchant/bookings/501/payment', {
     method: 'PATCH',
@@ -3365,7 +3618,7 @@ test('merchant booking refresh automatically completes bookings at type-specific
   assert.match(bookingsQuery.sql, /b\.approval_due_at AS approvalExpiresAt/);
   assert.match(bookingsQuery.sql, /b\.paid_at AS paidAt/);
   const completionQuery = db.calls.find(({ sql }) =>
-    sql.includes("WHERE b.status = 'approved'") &&
+    sql.includes("WHERE b.status IN ('approved', 'matchmaking_open')") &&
     sql.includes('CURRENT_DATE >= DATE_ADD(b.booking_date'),
   );
   assert.ok(completionQuery);
@@ -3535,6 +3788,7 @@ test('payment checkout validates method and reports missing configuration', asyn
     'PAYMONGO_WEBHOOK_SECRET',
     'PAYMONGO_SUCCESS_URL',
     'PAYMONGO_CANCEL_URL',
+    'PAYMONGO_LIVE_ENABLED',
   ].map((key) => [key, process.env[key]]);
   for (const [key] of originalConfig) delete process.env[key];
   let externalFetchCalled = false;
@@ -3577,6 +3831,7 @@ test('payment configuration endpoint reports readiness without exposing secrets'
     'PAYMONGO_WEBHOOK_SECRET',
     'PAYMONGO_SUCCESS_URL',
     'PAYMONGO_CANCEL_URL',
+    'PAYMONGO_LIVE_ENABLED',
   ].map((key) => [key, process.env[key]]);
   try {
     for (const [key] of originalConfig) delete process.env[key];
@@ -3591,6 +3846,21 @@ test('payment configuration endpoint reports readiness without exposing secrets'
     const ready = await request('/api/payments/paymongo/config');
     assert.equal(ready.status, 200);
     assert.deepEqual(await ready.json(), { onlinePaymentsEnabled: true });
+
+    process.env.PAYMONGO_SECRET_KEY = 'sk_live_test';
+    delete process.env.PAYMONGO_LIVE_ENABLED;
+    const liveModeBlocked = await request('/api/payments/paymongo/config');
+    assert.equal(liveModeBlocked.status, 200);
+    assert.deepEqual(await liveModeBlocked.json(), {
+      onlinePaymentsEnabled: false,
+    });
+
+    process.env.PAYMONGO_LIVE_ENABLED = 'true';
+    const liveModeEnabled = await request('/api/payments/paymongo/config');
+    assert.equal(liveModeEnabled.status, 200);
+    assert.deepEqual(await liveModeEnabled.json(), {
+      onlinePaymentsEnabled: true,
+    });
   } finally {
     for (const [key, value] of originalConfig) {
       if (value === undefined) delete process.env[key];
@@ -3611,18 +3881,32 @@ test('payment checkout creates a provider session for a customer booking', async
   process.env.PAYMONGO_WEBHOOK_SECRET = 'test-webhook-secret';
   process.env.PAYMONGO_SUCCESS_URL = 'https://example.test/payment-success';
   process.env.PAYMONGO_CANCEL_URL = 'https://example.test/payment-cancelled';
-  let providerRequest;
+  const providerRequests = [];
   global.fetch = async (url, options) => {
     if (!String(url).startsWith('https://api.paymongo.com/')) {
       return originalFetchImpl(url, options);
     }
-    providerRequest = { url, options };
+    providerRequests.push({ url, options });
+    if (options.method === 'GET') {
+      return {
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'cs_test_501',
+            attributes: {
+              checkout_url: 'https://checkout.paymongo.com/session',
+              payment_method_types: ['gcash'],
+            },
+          },
+        }),
+      };
+    }
     return {
       ok: true,
       json: async () => ({
         data: {
           id: 'cs_test_501',
-          attributes: { checkout_url: 'https://checkout.example.test/session' },
+          attributes: { checkout_url: 'https://checkout.paymongo.com/session' },
         },
       }),
     };
@@ -3634,11 +3918,15 @@ test('payment checkout creates a provider session for a customer booking', async
     });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
-      checkoutUrl: 'https://checkout.example.test/session',
+      checkoutUrl: 'https://checkout.paymongo.com/session',
     });
-    assert.equal(providerRequest.url, 'https://api.paymongo.com/v1/checkout_sessions');
-    assert.equal(providerRequest.options.method, 'POST');
-    const payload = JSON.parse(providerRequest.options.body);
+    assert.equal(providerRequests.length, 1);
+    assert.equal(
+      providerRequests[0].url,
+      'https://api.paymongo.com/v1/checkout_sessions',
+    );
+    assert.equal(providerRequests[0].options.method, 'POST');
+    const payload = JSON.parse(providerRequests[0].options.body);
     assert.equal(payload.data.attributes.line_items[0].amount, 27000);
     assert.deepEqual(payload.data.attributes.payment_method_types, ['gcash']);
     assert.deepEqual(payload.data.attributes.metadata, {
@@ -3651,6 +3939,40 @@ test('payment checkout creates a provider session for a customer booking', async
       sql.includes('SET payment_checkout_session_id = ?') &&
       params[0] === 'cs_test_501',
     ));
+    assert.ok(db.calls.some(({ sql }) => sql.includes('FOR UPDATE')));
+
+    const retry = await request('/api/payments/paymongo/checkout', {
+      method: 'POST',
+      body: { bookingId: 501, paymentMethod: 'gcash' },
+    });
+    assert.equal(retry.status, 200);
+    assert.deepEqual(await retry.json(), {
+      checkoutUrl: 'https://checkout.paymongo.com/session',
+    });
+    assert.equal(providerRequests.length, 1);
+
+    db.paymentBooking.paymentCheckoutUrl = null;
+    db.paymentBooking.paymentCheckoutMethod = null;
+    const legacyRetry = await request('/api/payments/paymongo/checkout', {
+      method: 'POST',
+      body: { bookingId: 501, paymentMethod: 'gcash' },
+    });
+    assert.equal(legacyRetry.status, 200);
+    assert.equal(providerRequests.length, 2);
+    assert.equal(
+      providerRequests[1].url,
+      'https://api.paymongo.com/v1/checkout_sessions/cs_test_501',
+    );
+    assert.equal(db.paymentBooking.paymentCheckoutUrl,
+      'https://checkout.paymongo.com/session');
+    assert.equal(db.paymentBooking.paymentCheckoutMethod, 'gcash');
+
+    const changedMethodRetry = await request('/api/payments/paymongo/checkout', {
+      method: 'POST',
+      body: { bookingId: 501, paymentMethod: 'paymaya' },
+    });
+    assert.equal(changedMethodRetry.status, 409);
+    assert.equal(providerRequests.length, 2);
 
     paymentBooking = {
       ...paymentBooking,
@@ -4121,6 +4443,182 @@ test('verified PayMongo payment records payment for an approved booking', async 
     else process.env.PAYMONGO_SECRET_KEY = originalPaymongoSecret;
     if (originalSecret === undefined) delete process.env.PAYMONGO_WEBHOOK_SECRET;
     else process.env.PAYMONGO_WEBHOOK_SECRET = originalSecret;
+  }
+});
+
+test('PayMongo webhook settles the matched opponent share once', async () => {
+  const originalSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
+  process.env.PAYMONGO_WEBHOOK_SECRET = 'test-webhook-secret';
+  db.webhookMatchmakingLobby = {
+    lobbyId: 31,
+    status: 'matched',
+    opponentUserId: 10,
+    opponentShareAmount: 125,
+    opponentPaymentStatus: 'unpaid',
+    checkoutSessionId: 'cs_test_match_31',
+    bookingId: 501,
+    hostUserId: 42,
+    merchantId: 88,
+    venueName: 'Test Court',
+  };
+  db.webhookMatchmakingRequest = { conversationId: 44 };
+  const payload = {
+    data: {
+      type: 'checkout_session.payment.paid',
+      livemode: false,
+      data: {
+        id: 'cs_test_match_31',
+        attributes: {
+          metadata: {
+            booking_id: '501',
+            lobby_id: '31',
+            payment_type: 'matchmaking_opponent_share',
+          },
+          payments: [{
+            id: 'pay_test_match_31',
+            attributes: { amount: 12500, currency: 'PHP', status: 'paid' },
+          }],
+        },
+      },
+    },
+  };
+  const body = JSON.stringify(payload);
+  const timestamp = '1790650000';
+  const signature = crypto
+    .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET)
+    .update(`${timestamp}.${body}`)
+    .digest('hex');
+  try {
+    const response = await request('/api/payments/paymongo/webhook', {
+      method: 'POST',
+      headers: {
+        'paymongo-signature': `t=${timestamp},te=${signature},li=`,
+      },
+      body: payload,
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      received: true,
+      lobbyId: 31,
+      opponentPaymentStatus: 'paid',
+    });
+    assert.equal(db.webhookMatchmakingLobby.opponentPaymentStatus, 'paid');
+    assert.equal(
+      db.webhookMatchmakingLobby.paymentReference,
+      'pay_test_match_31',
+    );
+    assert.ok(db.calls.some(({ sql }) =>
+      sql.includes("'$.opponentPaymentStatus', 'paid'"),
+    ));
+
+    const duplicate = await request('/api/payments/paymongo/webhook', {
+      method: 'POST',
+      headers: {
+        'paymongo-signature': `t=${timestamp},te=${signature},li=`,
+      },
+      body: payload,
+    });
+    assert.deepEqual(await duplicate.json(), {
+      received: true,
+      duplicate: true,
+      lobbyId: 31,
+    });
+  } finally {
+    if (originalSecret === undefined) delete process.env.PAYMONGO_WEBHOOK_SECRET;
+    else process.env.PAYMONGO_WEBHOOK_SECRET = originalSecret;
+  }
+});
+
+test('PayMongo downpayment publishes a public match and alerts its audience once', async () => {
+  const previousSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
+  process.env.PAYMONGO_WEBHOOK_SECRET = 'test-webhook-secret';
+  db.webhookBooking = {
+    id: 501,
+    customerId: 42,
+    venueId: 7,
+    bookingDate: '2026-11-18',
+    startTime: '18:30:00',
+    durationHours: 2,
+    players: 4,
+    totalAmount: 270,
+    downpaymentAmount: 135,
+    paidAmount: 0,
+    paymentMethod: 'online',
+    paymentStatus: 'unpaid',
+    status: 'matchmaking_open',
+    paymentDueAt: '2026-11-15 10:00:00',
+    paymentDeadlineExpired: 0,
+    paymentExpiredAt: null,
+    matchmakingStatus: 'awaiting_host_downpayment',
+    matchmakingLobbyId: 91,
+    hostUserId: 42,
+    venueName: 'Test Court',
+    sportType: 'Basketball',
+    merchantId: 88,
+    businessType: 'Sports',
+    paymentCheckoutSessionId: 'cs_test_match_host_501',
+  };
+  const matchAlertCountBefore = db.matchDiscoveryAlerts.length;
+  const payload = {
+    data: {
+      type: 'checkout_session.payment.paid',
+      livemode: false,
+      data: {
+        id: 'cs_test_match_host_501',
+        attributes: {
+          reference_number: 'BOOKING-501',
+          metadata: {
+            booking_id: '501',
+            payment_type: 'matchmaking_downpayment',
+          },
+          payments: [{
+            id: 'pay_test_match_host_501',
+            attributes: { amount: 13500, currency: 'PHP', status: 'paid' },
+          }],
+        },
+      },
+    },
+  };
+  const body = JSON.stringify(payload);
+  const timestamp = '1790650000';
+  const signature = crypto
+    .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET)
+    .update(`${timestamp}.${body}`)
+    .digest('hex');
+  try {
+    const response = await request('/api/payments/paymongo/webhook', {
+      method: 'POST',
+      headers: {
+        'paymongo-signature': `t=${timestamp},te=${signature},li=`,
+      },
+      body: payload,
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(db.matchDiscoveryAlerts.slice(matchAlertCountBefore), [{
+      lobbyId: 91,
+      hostUserId: 42,
+      bookingId: 501,
+      venueName: 'Test Court',
+      sportType: 'Basketball',
+      matchDate: '2026-11-18',
+      startTime: '18:30:00',
+    }]);
+
+    db.webhookBooking.paymentStatus = 'partial';
+    const duplicate = await request('/api/payments/paymongo/webhook', {
+      method: 'POST',
+      headers: {
+        'paymongo-signature': `t=${timestamp},te=${signature},li=`,
+      },
+      body: payload,
+    });
+    assert.equal((await duplicate.json()).duplicate, true);
+    assert.equal(db.matchDiscoveryAlerts.length, matchAlertCountBefore + 1);
+  } finally {
+    if (previousSecret === undefined) delete process.env.PAYMONGO_WEBHOOK_SECRET;
+    else process.env.PAYMONGO_WEBHOOK_SECRET = previousSecret;
   }
 });
 

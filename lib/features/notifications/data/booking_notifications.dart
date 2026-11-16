@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -20,7 +21,27 @@ class BookingNotifications {
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+  final StreamController<String> _tapPayloads =
+      StreamController<String>.broadcast();
   Future<void>? _initialization;
+  String? _pendingTapPayload;
+
+  Stream<String> get tapPayloads => _tapPayloads.stream;
+
+  String? takePendingTapPayload() {
+    final payload = _pendingTapPayload;
+    _pendingTapPayload = null;
+    return payload;
+  }
+
+  void publishNotificationTapPayload(String payload) {
+    if (payload.isEmpty) return;
+    if (_tapPayloads.hasListener) {
+      _tapPayloads.add(payload);
+    } else {
+      _pendingTapPayload = payload;
+    }
+  }
 
   bool get isSupported =>
       !kIsWeb &&
@@ -57,9 +78,18 @@ class BookingNotifications {
           requestSoundPermission: false,
         ),
       ),
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload != null) publishNotificationTapPayload(payload);
+      },
     );
     if (initialized != true) {
       throw Exception('The notification service could not be initialized.');
+    }
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true) {
+      final payload = launchDetails?.notificationResponse?.payload;
+      if (payload != null) publishNotificationTapPayload(payload);
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
       final android = _plugin
@@ -122,7 +152,7 @@ class BookingNotifications {
       title: title,
       body: body,
       notificationDetails: _notificationDetails(sound),
-      payload: 'booking:${message.data['bookingId'] ?? ''}',
+      payload: jsonEncode(message.data),
     );
   }
 

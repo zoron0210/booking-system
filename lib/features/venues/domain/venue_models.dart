@@ -8,7 +8,13 @@ class VenueDomainException implements Exception {
 }
 
 class VenueBusiness {
-  VenueBusiness._(this.id, this.businessType, this.enabled, this._data);
+  VenueBusiness._(
+    this.id,
+    this.businessType,
+    this.enabled,
+    this.allowMatchmaking,
+    this._data,
+  );
 
   factory VenueBusiness.fromJson(Map<String, dynamic> json) {
     final id = parseVenuePositiveId(json['id'] ?? json['businessId']);
@@ -22,6 +28,7 @@ class VenueBusiness {
       id,
       businessType as String? ?? '',
       parseVenueBoolean(json['enabled'] ?? true, 'enabled'),
+      parseVenueBoolean(json['allowMatchmaking'] ?? true, 'allowMatchmaking'),
       Map<String, dynamic>.unmodifiable(json),
     );
   }
@@ -29,6 +36,7 @@ class VenueBusiness {
   final int id;
   final String businessType;
   final bool enabled;
+  final bool allowMatchmaking;
   final Map<String, dynamic> _data;
 
   Map<String, dynamic> toViewData() => Map<String, dynamic>.of(_data);

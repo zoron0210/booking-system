@@ -563,7 +563,9 @@ extension _NewsFeedMiniVenueCards on _NewsFeedPageState {
                           ),
                           style: FilledButton.styleFrom(
                             backgroundColor: _venuePrimary,
-                            foregroundColor: Colors.white,
+                            foregroundColor: AppColors.contrastingForeground(
+                              _venuePrimary,
+                            ),
                             disabledBackgroundColor: _venueOutline,
                             disabledForegroundColor: _venueMuted,
                             padding: EdgeInsets.symmetric(

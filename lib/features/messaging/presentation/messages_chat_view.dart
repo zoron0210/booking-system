@@ -17,6 +17,8 @@ class MessagesChatView extends StatelessWidget {
     required this.composer,
     required this.pendingImageData,
     this.pendingGifUrl,
+    this.pendingDocumentData,
+    this.pendingDocumentName,
     required this.sending,
     this.composerError,
     this.onComposerChanged,
@@ -25,8 +27,13 @@ class MessagesChatView extends StatelessWidget {
     this.onMatchmakingMerchantDecision,
     this.isMerchant = false,
     this.onOpponentPayment,
+    this.replyTarget,
+    this.onReplyToMessage,
+    this.onClearReply,
     required this.onPickImage,
     required this.onRemovePendingImage,
+    this.onPickDocument,
+    this.onRemovePendingDocument,
     this.onPickGif,
     required this.onSend,
     this.scrollController,
@@ -38,6 +45,8 @@ class MessagesChatView extends StatelessWidget {
   final TextEditingController composer;
   final String? pendingImageData;
   final String? pendingGifUrl;
+  final String? pendingDocumentData;
+  final String? pendingDocumentName;
   final bool sending;
   final String? composerError;
   final ValueChanged<String>? onComposerChanged;
@@ -49,8 +58,13 @@ class MessagesChatView extends StatelessWidget {
   final bool isMerchant;
   final Future<void> Function(Map<String, dynamic> ticket, String method)?
   onOpponentPayment;
+  final Map<String, dynamic>? replyTarget;
+  final ValueChanged<Map<String, dynamic>>? onReplyToMessage;
+  final VoidCallback? onClearReply;
   final VoidCallback onPickImage;
   final VoidCallback onRemovePendingImage;
+  final VoidCallback? onPickDocument;
+  final VoidCallback? onRemovePendingDocument;
   final VoidCallback? onPickGif;
   final Future<void> Function() onSend;
   final ScrollController? scrollController;
@@ -234,6 +248,7 @@ class MessagesChatView extends StatelessWidget {
                         ),
                       );
                     }
+                    final replyReference = _replyReference(message);
                     final bubble = Card(
                       key: ValueKey('message-bubble-${message['id']}'),
                       color: mine
@@ -244,10 +259,50 @@ class MessagesChatView extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (replyReference != null)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(8),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: mine
+                                      ? AppColors.surface.withValues(
+                                          alpha: 0.45,
+                                        )
+                                      : AppColors.page,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    AppText(
+                                      'Replying to ${replyReference['senderName'] ?? 'message'}',
+                                      style: TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    AppText(
+                                      replyReference['label'] ?? 'Message',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: AppColors.ink,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             if ((attachment != null &&
                                 (safeString(attachment['type']) == 'image' ||
                                     safeString(attachment['type']) == 'gif')))
                               MessagesImageAttachment(attachment),
+                            if (attachment != null &&
+                                safeString(attachment['type']) == 'file')
+                              MessagesFileAttachment(attachment),
                             if (body.isNotEmpty)
                               Padding(
                                 padding: const EdgeInsets.only(top: 8),
@@ -303,6 +358,15 @@ class MessagesChatView extends StatelessWidget {
                           ? Alignment.centerRight
                           : Alignment.centerLeft,
                       child: GestureDetector(
+                        onHorizontalDragEnd: onReplyToMessage == null
+                            ? null
+                            : (details) {
+                                final velocity =
+                                    details.velocity.pixelsPerSecond.dx;
+                                if (velocity > 450) {
+                                  onReplyToMessage!(message);
+                                }
+                              },
                         onLongPress: () => onDeleteMessage(message),
                         child: bubble,
                       ),
@@ -388,12 +452,98 @@ class MessagesChatView extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (pendingDocumentName case final documentName?)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.attach_file_rounded, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: AppText(
+                            documentName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed:
+                              onRemovePendingDocument ?? onRemovePendingImage,
+                          icon: const Icon(Icons.close_rounded),
+                          iconSize: 18,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (replyTarget != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.softOrange,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.reply_rounded, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AppText(
+                                'Replying to ${_replySenderName(replyTarget!)}',
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              AppText(
+                                _replyLabel(replyTarget!),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppColors.ink,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: onClearReply ?? () {},
+                          icon: const Icon(Icons.close_rounded),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Row(
                 children: [
                   IconButton(
                     tooltip: appLanguageText('Attach image', 'Attach image'),
                     onPressed: sending || blocked ? null : onPickImage,
                     icon: const Icon(Icons.image_outlined),
+                  ),
+                  IconButton(
+                    tooltip: appLanguageText('Attach file', 'Attach file'),
+                    onPressed: sending || blocked ? null : onPickDocument,
+                    icon: const Icon(Icons.attach_file_rounded),
                   ),
                   IconButton(
                     tooltip: 'Add GIF',
@@ -431,6 +581,38 @@ class MessagesChatView extends StatelessWidget {
       ],
     );
   }
+}
+
+Map<String, dynamic>? _replyReference(Map<String, dynamic> message) {
+  final raw = message['reply'];
+  if (raw is! Map) return null;
+  return Map<String, dynamic>.from(raw);
+}
+
+String _replySenderName(Map<String, dynamic> reply) {
+  final value = safeString(reply['senderName'], '');
+  if (value.isNotEmpty) return value;
+  final first = safeString(reply['senderFirstName'], '');
+  final last = safeString(reply['senderLastName'], '');
+  final name = [first, last].where((part) => part.trim().isNotEmpty).join(' ');
+  return name.isNotEmpty ? name : 'Message';
+}
+
+String _replyLabel(Map<String, dynamic> reply) {
+  final label = safeString(reply['label']);
+  if (label.isNotEmpty) return label;
+  final body = safeString(reply['body']);
+  if (body.isNotEmpty) {
+    return body.length > 120 ? '${body.substring(0, 117)}...' : body;
+  }
+  final attachment = reply['attachment'];
+  if (attachment is Map) {
+    final type = safeString(attachment['type']);
+    if (type == 'image') return 'Photo';
+    if (type == 'gif') return 'GIF';
+    if (type == 'file') return safeString(attachment['name'], 'File');
+  }
+  return 'Message';
 }
 
 String? _messageTime(Map<String, dynamic> message) {

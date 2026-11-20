@@ -688,7 +688,7 @@ Verify with: flutter test
 ---
 
 ## Phase 25: Customer Venue Discovery and Trust Signals
-- [ ] **Task 25.1**: Make popular, top-rated, most-visited, and nearby venues obvious to customers
+- [x] **Task 25.1**: Make popular, top-rated, most-visited, and nearby venues obvious to customers
 
 ### [Task 25.1] Add Visible Venue Rankings and Automatic Nearby Discovery
 - **Inspect first**: Review `lib/features/app_shell/presentation/news_feed.dart`, `news_feed_venue_cards.dart`, `news_feed_mini_venue_cards.dart`, `news_feed_featured_cards.dart`, `lib/features/venues/presentation/all_venues_page.dart`, `backend/src/routes/customer_venue_routes.js`, `backend/src/routes/merchant_news_routes.js`, and the related venue/feed tests. Trace the customer venue data from database query through the API response to each card and curated section. Some implementation may already exist in the workspace; validate and refine it instead of duplicating it.
@@ -717,3 +717,222 @@ Verify with: flutter test
   - Venue cards have a scannable, attractive layout and remain usable on narrow phones and at larger text sizes.
   - Existing venue booking routes, filters, reviews, hearts, saved venues, location behavior, and full-list completeness continue to work.
 - **Verification**: Add or update focused API and widget tests for metric serialization, ranking order and tie cases, missing/zero metrics, automatic nearby discovery after permission, denied/unavailable location fallback, distance sorting and labels, all three business types, narrow card layouts, and existing booking/filter/action behavior. Run the focused venue/feed tests and analyze modified Dart files; do not run the full suite unless focused failures require broader diagnosis.
+
+---
+
+## Phase 26: Clear and User-Friendly Error Messages
+- [x] **Task 26.1**: Replace raw technical errors shown in customer and merchant UI with clear, actionable, localized messages
+
+### [Task 26.1] Make User-Facing Errors Understandable and Safe
+- **Inspect first**: Search all Flutter customer and merchant presentation code for exceptions, API response details, and dynamic error strings rendered in snackbars, dialogs, forms, and error screens. Trace existing `AuthApiException.userMessage`, domain exceptions, localization helpers, retry actions, and representative widget tests. Start with the known examples in `matchmaking_lobby_list_page.dart`, `merchant_profile_dashboard.dart`, `reserve_dashboard.dart`, `news_feed_posts.dart`, and `first_launch_onboarding.dart`; determine which other occurrences are genuinely user-visible before changing them. Some flows may already handle errors appropriately; preserve those rather than applying a broad replacement.
+- **Goal**: Give customers and merchants a short explanation of what happened and a useful next step, without exposing raw exception text or implementation details. Keep technical diagnostics available to developers through the existing logging approach.
+- **Zero-regression requirements**:
+  - Preserve API/domain-provided user messages when they are intentionally written for end users; do not replace useful booking, validation, permission, or authorization explanations with a generic failure.
+  - Preserve retry, refresh, sign-in, cancel, and other recovery actions and their current behavior.
+  - Do not claim a cause such as a network problem unless the error type confirms it. Do not tell users an operation failed if its result may be uncertain (for example, a request may have reached the server); explain how to safely check or retry in those cases.
+  - Do not expose stack traces, raw server responses, internal exception class names, SQL/provider details, tokens, or other diagnostic data in customer/merchant UI.
+  - Follow existing English/Filipino localization conventions for fixed user-facing strings. Avoid interpolating arbitrary exception text into a translated sentence.
+- **Specification**:
+  1. Inventory user-visible error rendering across customer and merchant journeys, including onboarding, authentication, venue discovery, booking, matchmaking, social actions, messaging, profile/settings, and merchant management. Record whether each message is a user-safe domain message, a validation message, or an internal/transport error.
+  2. Replace raw technical errors with concise messages matched to the user action and, where known, the failure category. Include a practical next step when one is available (retry, refresh, sign in again, check details, or contact support only if a working support route exists).
+  3. Keep diagnostic details out of UI and send them to the existing debug/logging path where appropriate. Do not add a logging dependency or log credentials, personal data, or payment details.
+  4. Localize new or revised fixed messages using the existing localization system. Ensure message interpolation does not prevent English/Filipino translation.
+  5. Make form validation specific and immediate: state what field/value needs correction, retain entered data where safe, and avoid clearing unrelated fields after validation or recoverable submission errors.
+  6. Keep error screens and snackbars consistent with the available recovery action. Verify loading/submitting indicators are cleared after failure and prevent duplicate submissions while a request is in progress.
+- **Acceptance Criteria**:
+  - No customer- or merchant-facing error surface prints an arbitrary raw exception or server diagnostic; intentional end-user domain messages remain informative.
+  - The known raw-error examples and every additional confirmed user-visible instance found during the inventory are handled with clear, context-specific messages.
+  - Revised fixed messages follow existing English/Filipino localization conventions.
+  - Errors explain a safe next step where possible, and existing retry/recovery behavior remains available and functional.
+  - Validation and recoverable submission failures preserve relevant user input and do not leave controls stuck in a loading state.
+- **Verification**: Add or update focused widget/controller tests for representative customer and merchant failures, including onboarding retry, matchmaking join failure, merchant profile refresh failure, social save failure, localized fixed copy, and preservation of existing validation/recovery behavior. Run focused tests and analyze modified Dart files; do not run the full suite unless focused failures require broader diagnosis.
+
+---
+
+## Phase 27: Prevent Double-Approval of Overlapping Sports Bookings
+- [x] **Task 27.1**: Recheck and serialize sports-slot availability when a merchant approves a regular booking request
+
+### [Task 27.1] Prevent Conflicting Booking Approvals
+- **Inspect first**: Trace regular booking creation in `backend/src/routes/booking_routes.js`, matchmaking booking creation and merchant approval in `backend/src/routes/matchmaking_routes.js`, and regular booking approval in `backend/src/routes/booking_routes.js`. Inspect booking status/slot fields and indexes in `backend/src/schema_migrations.js`, related route test fakes and fixtures in `backend/test/lifecycle-routes.test.js` and `backend/test/matchmaking-routes.test.js`, and existing MySQL integration coverage. Confirm current transaction isolation and lock order before implementing; both regular and matchmaking creation already lock the venue row and compare overlapping time intervals and occupied court slots.
+- **Confirmed issue**: Sports booking creation intentionally permits multiple regular requests for the same slot to remain `pending` (`backend/test/lifecycle-routes.test.js`, test `sports booking requests do not block pending requests for the same slot`). The merchant approval endpoint currently changes a pending booking to `approved` without rechecking whether another booking now occupies that interval. A merchant can therefore approve two requests that conflict.
+- **Goal**: Allow multiple customers to request a slot if that is the current product policy, but ensure only a request that still has available venue/court capacity can become approved. Apply the same availability rules across regular sports and matchmaking reservations.
+- **Zero-regression requirements**:
+  - Preserve the current product behavior that ordinary regular sports requests may coexist as pending; do not silently make every pending request reserve the slot unless a change is necessary and explicitly justified in the task implementation notes.
+  - Preserve status and time-overlap semantics, slot-number JSON handling, multi-slot and full-studio conflicts, merchant ownership checks, approval deadlines, payment obligations, ticket issuance, notifications, and transaction boundaries.
+  - Treat approved bookings and active matchmaking reservations (`matchmaking_pending_merchant`, `matchmaking_open`) as occupying capacity, and exclude the booking being approved from its own conflict query.
+  - Serialize approval against other approvals and regular/matchmaking booking creation for the same venue using a consistent venue/booking lock order. Avoid check-then-update races and retain rollback behavior on conflicts or failures.
+  - On a conflict, do not issue a ticket, start a payment deadline, notify the customer that the booking is approved, or change the booking to `approved`. Return a clear conflict response that lets the merchant understand the slot is no longer available; keep the request in its existing pending state so the merchant can decide whether to decline it or let it expire.
+  - Do not alter event and fitness approval behavior unless the existing resource model requires it; explain and test any necessary extension.
+- **Specification**:
+  1. Before updating a regular pending booking to `approved`, load and lock the venue and booking using a lock order compatible with booking and matchmaking creation. Revalidate merchant ownership, pending status, and approval deadline under the transaction.
+  2. For sports bookings, check the requested date and interval against other occupying bookings at that venue. Apply the same slot/full-studio overlap rules used at creation: same physical slot or multi-slot overlap conflicts; any full-studio reservation conflicts; non-overlapping times and independent court slots remain approvable.
+  3. Ensure two concurrent approvals for different pending requests on the same slot cannot both pass the availability check. Also ensure an approval cannot race with a new regular booking or matchmaking reservation creation.
+  4. Return a deterministic conflict status/message when capacity was taken after the request was submitted. Do not confuse a slot conflict with an expired request or missing booking.
+  5. Keep all success-side ticket, payment deadline, activity, and notification effects behind the successful conditional approval and transaction commit.
+- **Acceptance Criteria**:
+  - Given two overlapping regular pending sports requests for the same slot, approving the first succeeds and approving the second returns a conflict without changing its status, issuing a ticket, or creating a payment deadline.
+  - A regular booking approval conflicts with an overlapping active matchmaking reservation, and matchmaking creation/approval cannot race through the same venue capacity.
+  - Different slots at the same time can both be approved when neither reservation occupies the full studio; a full-studio reservation conflicts with every overlapping slot.
+  - Non-overlapping time intervals remain approvable, including intervals that only touch at an endpoint if current booking rules treat those as non-overlapping.
+  - Expired, declined, cancelled, and otherwise non-occupying records do not block approval; existing ownership, deadline, payment, ticket, and notification behavior remains correct.
+  - Transactional/concurrency coverage demonstrates that conflicting approvals cannot both succeed; add MySQL integration coverage if route fakes cannot establish row-lock behavior.
+- **Verification**: Add or update focused backend route and integration tests for same-slot double approval, separate slots, full-studio conflicts, overlapping matchmaking reservations, adjacent/non-overlapping times, expired requests, and competing approval/create transactions. Run focused backend tests and the relevant MySQL integration test where available; report any concurrency guarantees that cannot be verified locally.
+
+---
+
+## Phase 28: Theme-Aware Venue Cards
+- [x] **Task 28.1**: Align Near You and All Listed Courts card buttons and content across user-selected themes
+
+### [Task 28.1] Make Venue Card Styling Follow User Theme Preferences
+- **Inspect first**: Review the compact cards in `lib/features/app_shell/presentation/news_feed_mini_venue_cards.dart`, full listed cards in `news_feed_venue_cards.dart` (`_listedVenueCard`), larger featured cards in `news_feed_featured_cards.dart`, and their presentation in `news_feed.dart`. Trace theme selection through `lib/features/settings/presentation/app_settings_page.dart`, `lib/core/app_preferences.dart`, and `lib/core/app_theme.dart`. Check current widget tests for the Near you section and All listed courts page. Confirm which cards hardcode colors and which inherit theme colors before editing.
+- **Confirmed finding**: The compact Near you CTA explicitly uses the hardcoded `#5752E8` venue purple, while the All listed courts CTA inherits `FilledButtonThemeData`. The app theme updates filled buttons for the user's selected palette or custom accent, so these cards can show different CTA colors and the compact card can ignore the selected accent. Their content density differs by size, but rating wording and the visibility/order of price, location/distance, availability, and social metrics should remain understandable and consistent.
+- **Goal**: Make the small Near you card and large All listed courts card feel like two sizes of the same venue-card system. Keep each size's appropriate information density while making button roles, labels, and theme behavior consistent.
+- **Zero-regression requirements**:
+  - Respect all supported preset accent palettes, custom accent colors, light mode, and dark mode. Do not introduce a fixed button color that bypasses `AppPreferences`/`AppTheme` or breaks accessible foreground contrast.
+  - Preserve booking destinations, unavailable/disabled behavior, venue discovery ordering, distance display, ratings/review counts, price units, venue availability data, and heart/save/review actions.
+  - Keep the compact card scannable and prioritize its Near you distance. The full card may show more detail; do not force identical layouts or duplicate content solely for visual uniformity.
+  - Use only real venue data. Do not imply live slot availability from opening hours or invent missing ratings, prices, visits, or distance.
+- **Specification**:
+  1. Make the primary booking CTA in the compact Near you card and full All listed courts card use the active app theme's accent/button style, including its foreground contrast and disabled colors. Preserve size-appropriate height, padding, and shape while matching the same visual role.
+  2. Review the larger featured-card CTA and related venue-card actions for the same hardcoded-accent issue; align them where they represent the same primary booking action, without recoloring unrelated status badges or semantic colors.
+  3. Align content meaning and label wording across compact and full cards: venue name/category, rating with review count, price with unit, location and distance when available, accurate availability status, and the primary booking action. Keep distance prominent in Near you; allow the full listing to present its richer details.
+  4. Replace ambiguous rating wording such as `Review 5.0` with an understandable rating label and review count, and ensure missing ratings are not rendered as scores.
+  5. Check long names, labels, large text, unavailable venues, and color contrast in each palette and both brightness modes. Keep heart/save controls and booking CTA independently operable and accessible.
+- **Acceptance Criteria**:
+  - Near you, All listed courts, and any matching featured booking CTA use the user's selected accent color in all preset palettes and custom accent mode; none retains an unintended hardcoded purple or reverts to an unrelated theme default.
+  - CTA foreground and disabled states remain legible in light and dark modes, including supported custom accent colors.
+  - Compact and full cards communicate rating/review count, price unit, location/distance, availability, and booking action consistently, with Near you prioritizing distance and full cards retaining their richer layout.
+  - Unavailable state, booking route, rating/review navigation, heart/save actions, and real availability wording remain correct.
+  - Cards remain readable and their actions operable at narrow widths and larger text scales.
+- **Verification**: Add or update focused widget tests for Near you and All listed courts CTAs under multiple preset palettes, a custom accent, light/dark mode, disabled state, and content labels/availability. Run the focused venue-card/settings tests and analyze modified Dart files; do not run the full suite unless focused failures require broader diagnosis.
+
+---
+
+## Phase 29: Rich Messaging and Replies
+- [x] **Task 29.1**: Add swipe-to-reply, camera capture, and private phone/cloud file attachments to chat
+
+### [Task 29.1] Improve Chat Replies and Media Sharing
+- **Inspect first**: Trace the chat composer, message bubbles, attachment rendering, current image/GIF flow, realtime refresh, and delete/block behavior in `lib/features/messaging/presentation/messages_dashboard.dart`, `messages_chat_view.dart`, `messages_ui.dart`, `lib/features/messaging/data/`, and `backend/src/routes/messaging_routes.js`. Inspect `messages` schema/migrations, available private object storage and signed upload/read patterns, platform camera/file-picker configuration, and focused messaging tests before choosing implementation details. The existing chat supports gallery images and Tenor GIFs; `_pickImage` uses `ImageSource.gallery`, and the backend currently accepts image/GIF attachment JSON.
+- **Build issue found during verification**: The current workspace reports compile errors in `messages_dashboard.dart` `_pickDocument()`. It depends on `file_picker: ^13.3.3`; fix this against the API actually resolved by `pubspec.lock` before considering the task complete. Version 13.3.3 exposes static `FilePicker.pickFile()` for one file (returns `PlatformFile?`) and `FilePicker.pickFiles()` for a list; it does not expose `FilePicker.platform`, and the v13 API removed `allowMultiple`, `withData`, and `PlatformFile.bytes`. Read selected data with `PlatformFile.readAsBytes()`. Avoid dynamic inference in extension/MIME mapping; use the typed `PlatformFile.name`/`extension` and explicit `if/else` or exhaustive typed switches. The screenshot's switch exhaustiveness errors may be cascading from the unresolved picker invocation; rerun analysis after fixing the API usage and resolve any remaining diagnostics.
+- **Goal**: Let a user reply to a specific message with a familiar right-swipe gesture, capture a photo from the camera, or attach one supported file from the system picker. The system picker should expose phone storage and any cloud/file providers already connected to the device (such as Google Drive) without requiring a separate in-app Drive OAuth integration.
+- **Zero-regression requirements**:
+  - Preserve plain text, gallery images, Tenor GIFs, current image size/format rules, booking and matchmaking ticket cards, realtime message updates, blocked-conversation restrictions, and per-user message deletion behavior.
+  - Keep one attachment per message for this task; allow accompanying text if the current composer supports it. Do not change ordinary text-send behavior.
+  - Do not upload documents as base64 inside MySQL message JSON. Use authenticated private storage and short-lived, conversation-authorized access consistent with the existing storage architecture; never expose permanent public file URLs.
+  - Validate allowed MIME types, file size, filename, conversation membership, and reply target on the server; do not trust client-provided metadata or a client-supplied storage path.
+  - Preserve the draft and selected attachment after a recoverable send/upload failure; do not show a sent message until the server confirms it.
+  - Keep the gesture directional and limited to an individual message so it does not break vertical chat scrolling, message selection/deletion, or system back navigation.
+- **Specification**:
+  1. Add a right-swipe gesture on eligible message bubbles to select that exact message as the reply target. Show a dismissible quoted-message preview above the composer and a compact reply reference in the sent/received bubble, including sender and a safely truncated text or attachment label. Handle replies to deleted or unavailable messages gracefully.
+  2. Persist the reply relationship with a stable message ID (using an appropriate migration and server-side same-conversation validation). Ensure loading older messages, realtime updates, and message deletion do not render a stale or cross-conversation quoted message.
+  3. Provide clear camera and gallery choices using the existing image flow where suitable. Camera capture should use the platform picker/API already available or add a supported dependency only if needed; show the captured image preview with remove/cancel before sending and retain the current image limits.
+  4. Add a system document picker for one file per message. Support common image and document formats: JPEG/PNG/WebP images and PDF, DOC/DOCX, XLS/XLSX, and PPT/PPTX documents. Enforce the existing 5 MiB image limit and a 10 MiB document limit with clear user feedback before upload.
+  5. Store attachments privately with validated metadata (display filename, MIME type, size, and storage identifier). Authorize download/read access through conversation membership and existing deletion rules. Reuse existing storage only if its security and lifecycle model fits messaging; otherwise add a dedicated, clearly scoped messaging storage path and document its configuration/cleanup needs.
+  6. Render image previews and document rows in chat with file type/name/size and an explicit open/download action. Handle expired access URLs, missing files, unsupported previews, and download/open failures with a retryable user-friendly state; do not attempt to render office documents inline unless the app already supports it.
+  7. Keep composer controls operable with screen readers, larger text, narrow screens, and both themes. Prevent duplicate uploads/sends and clean up abandoned staged uploads where supported.
+- **Acceptance Criteria**:
+  - Swiping right on a message selects the correct reply target; cancelling clears it; sending persists and displays the reply reference for both participants. Vertical scrolling and existing message actions continue to work.
+  - Reply targets must belong to the same conversation and unauthorized or deleted targets cannot leak content.
+  - Camera capture and gallery selection both produce a preview that can be removed before sending; permissions/cancellation/failure are handled without losing the draft.
+  - The system picker can select supported local files and device-connected cloud-provider files when those providers are available. Unsupported types and files over their respective limits are rejected with clear feedback.
+  - Supported attachments upload to private storage, are readable only by authorized conversation participants, survive app/API restart, and do not place file bytes in MySQL JSON.
+  - Existing text, image, GIF, booking-ticket, matchmaking-ticket, block, realtime, and per-user deletion behavior remains intact.
+  - Focused UI/API tests cover swipe reply, reply rendering and validation, camera/gallery preview handling, file type/size validation, upload/read authorization, failed-send draft preservation, and regressions to existing chat attachments.
+- **Verification**: Add or update focused Flutter messaging tests and backend messaging/storage tests, plus a schema migration test if reply persistence requires a migration. Run the focused messaging/backend tests and analyze modified Dart files. Report camera/device-picker and connected-provider checks that require physical-device validation; do not claim Drive-provider behavior on devices where no provider is installed or connected.
+
+---
+
+## Phase 31: Realistic Prototype Checkout
+- [x] **Task 31.1**: Expand prototype payments into a realistic, provider-ready simulated checkout
+
+### [Task 31.1] Build a Realistic, Provider-Ready Prototype Checkout Flow
+- **Inspect first**: Review `lib/features/bookings/presentation/prototype_payment_dialog.dart`, payment actions and status display in `lib/features/bookings/presentation/customer_bookings_page.dart`, `lib/features/bookings/data/booking_api.dart`, the prototype and PayMongo routes in `backend/src/routes/payment_routes.js`, booking payment fields and migrations, and existing payment lifecycle/UI/backend tests. Trace regular bookings, cash-on-arrival downpayments, and matchmaking payment paths so this task changes only the existing prototype checkout scope and does not duplicate provider integration work.
+- **Goal**: Let customers exercise a realistic simulated payment lifecycle during development, including processing, verification, success, decline, cancellation, timeout, and retry where eligible. Keep the simulator behind a small payment boundary with normalized intent/status data so a future approved provider adapter can replace the simulator without rewriting booking UI and lifecycle handling. This task is for development/testing only; real payment processing is intentionally not being implemented now.
+- **Zero-regression requirements**:
+  - Preserve unmistakable prototype/demo labeling and the existing production prohibition on recording prototype payments. Never enable live charges, contact a payment provider, add provider credentials, or change `PAYMONGO_LIVE_ENABLED` as part of this task.
+  - Never collect, transmit, log, or persist real card numbers, CVC/security codes, wallet PINs/passwords, or real one-time passcodes. Use clearly identified synthetic demo inputs or deterministic simulator scenarios; do not present the prototype as PCI-compliant or as a real provider checkout.
+  - Keep payment state authoritative on the backend. A client-side success screen or callback alone must not mark a booking paid; validate booking ownership, amount, currency, eligible status, and payment deadline on the server before applying a simulated outcome.
+  - Preserve existing booking approval gates, downpayment/balance calculations, expiry rules, transaction boundaries, ticket updates, and notification behavior. A failed, cancelled, or timed-out attempt must not be reported as paid or erase a prior valid payment.
+  - Make duplicate submissions and retries safe. A retry must not create duplicate successful payment records or charge-like effects for the same simulated intent; only eligible unpaid obligations may be retried.
+  - Keep simulator-specific behavior behind a replaceable boundary and use a normalized payment intent/result contract. Avoid speculative abstractions that require real provider accounts, secrets, SDKs, webhooks, or network calls in this task.
+- **Specification**:
+  1. Replace the single-step prototype confirmation with a clear checkout sequence that shows the obligation and amount, a processing state, and a simulated verification step where applicable. Provide explicit demo scenarios for success, decline, user cancellation, and timeout so the lifecycle can be tested without real credentials or nondeterministic delays.
+  2. Create or adapt a small simulator/payment boundary with normalized intent identifiers, provider type (`prototype`), amount/currency, status, timestamps, and safe user-facing result data. Keep presentation code independent of simulator-specific backend response shapes.
+  3. Have the backend create/resolve simulated payment attempts and enforce allowed state transitions. Persist only synthetic payment metadata needed for booking history and support; never accept sensitive payment form fields at these endpoints. Ensure repeat requests are idempotent and status polling/reload returns the same authoritative result.
+  4. Map success to the existing booking payment lifecycle only after server-side validation. Map decline/cancel/timeout to recoverable unpaid states with clear next steps; enforce the existing deadline and do not allow a retry after the obligation expires or is already fully paid.
+  5. Show a safe receipt/confirmation for successful prototype payments with a clearly synthetic reference and method label. Show distinct, accessible recovery messages for declined, cancelled, timed-out, expired, and retryable network/error states; preserve booking context when the user returns to the booking screen.
+  6. Keep the real PayMongo route and configuration behavior unchanged. Document the seam for a future provider adapter and state explicitly that provider checkout sessions, signed webhook processing, refunds, reconciliation, and real-money launch approval are separate future work.
+- **Acceptance Criteria**:
+  - A development user can simulate processing, verification, success, decline, cancellation, and timeout; each outcome displays the right state and recovery action.
+  - Reloading the booking or repeating a request returns the backend-authoritative payment result; duplicate/replayed attempts cannot record duplicate successful payments.
+  - Only the owner of an eligible booking can create or resolve its simulated payment; wrong amount/currency, expired obligations, ineligible booking states, and unauthorized users are rejected without changing payment state.
+  - Declined, cancelled, timed-out, and recoverable failed attempts remain unpaid and can be retried only while the obligation remains eligible. Successful payments update the existing booking/ticket lifecycle once.
+  - No real sensitive payment credentials are required, sent, logged, or stored. Prototype requests and UI remain clearly labeled, and production continues to reject prototype payment recording.
+  - Existing sports, event, fitness, cash-on-arrival, and matchmaking booking/payment behavior remains covered and unchanged except where the existing prototype flow is explicitly extended.
+  - Focused Flutter and backend tests cover every simulator outcome, server validation, state transitions, idempotent retries/replays, production rejection, and existing payment lifecycle regressions.
+- **Verification**: Add/update focused tests for prototype dialog/controller, payment API contract, backend payment routes, and relevant booking/ticket status flows. Run focused Flutter and backend tests and analysis for modified Dart files. Report any provider or physical-device behavior as unverified; do not claim real payment readiness.
+
+---
+
+## Phase 32: Customer Booking Status Banner Reliability and Dark Mode
+- [x] **Task 32.1**: Keep dismissed booking status banners hidden and make banner text readable in dark mode
+
+### [Task 32.1] Fix Customer Booking Banner Dismissal and Theme Contrast
+- **Inspect first**: Trace banner selection, refresh, dismissal, and persistence in `lib/features/bookings/presentation/customer_bookings_page.dart`, `booking_status_banner.dart`, `customer_booking_controller.dart`, `lib/features/bookings/data/customer_bookings_session_provider.dart`, and `lib/core/app_session.dart`. Review `BookingStatusAnalyzer.bannerKey`, the customer booking banner tests in `test/customer_bookings_banner_test.dart`, and how light/dark colors are selected in `lib/core/app_design_system.dart` and `lib/core/app_theme.dart`. Reproduce the banner reappearing after refresh, dismissal, and reopening the Bookings page before changing code; identify whether the cause is key identity, account-scoped preference persistence, selection state, or refresh ordering.
+- **Confirmed user report**: A customer reports that a booking status notification banner appears again whenever the Bookings page opens, even after using Refresh or Dismiss. The banner wording and reference text are also difficult to read with dark mode enabled. The existing page already attempts to persist dismissal and uses some theme-aware foreground colors, so verify the actual state and contrast behavior instead of assuming the existing tests cover the user's case.
+- **Goal**: A customer can refresh booking data or dismiss a status banner without the same unchanged booking/status notification reopening on the next refresh or page visit. New booking status changes must still be eligible to notify. All banner content and actions must remain legible in both light and dark modes.
+- **Zero-regression requirements**:
+  - Preserve account-scoped dismissal; one customer's dismissal must not hide another customer's banner.
+  - Keep notification identity stable for the same booking and status, but allow a materially changed status or payment obligation to produce a new notification.
+  - Do not let periodic/background refresh reopen a notification the customer has dismissed. Refresh must still fetch and display current booking data and must not discard a newly changed status.
+  - Preserve selection/priority when multiple booking notifications are eligible, unread booking counts, payment deadline messaging, booking references, and refresh/dismiss actions.
+  - Respect the selected palette and dark mode. Use accessible foreground/background combinations for status text, references, icons, and action labels; retain semantic status meaning without relying on color alone.
+  - Keep fixed user-facing strings within the existing English/Filipino localization conventions.
+- **Specification**:
+  1. Reproduce the reported behavior with focused tests using the real app session persistence boundary or a stateful test double. Cover refresh, explicit dismiss, page disposal/reopen, repeated refresh, and a subsequent booking status change.
+  2. Correct the dismissal lifecycle at its source. Persist successful dismissals reliably and apply them consistently before selecting the active banner; ensure asynchronous refresh completion cannot overwrite a newer dismissed state. Do not merely collapse the widget while leaving the same notification eligible to reopen.
+  3. Keep Refresh and Dismiss semantics clear and consistent. Refresh the server state while keeping the current unchanged notification hidden after the action; show a new notification if its booking status/payment identity changed.
+  4. Update banner palette behavior for light and dark modes, including status-specific backgrounds, primary wording, transaction/booking reference labels and values, leading icon, and Refresh/Dismiss actions. Use existing design-system colors or a documented theme-aware mapping with adequate contrast.
+  5. Add regression coverage for account isolation, multiple notifications, and a status transition after dismissal. Verify the banner's rendered foreground/background contrast in both brightness modes and at least one non-default accent palette.
+- **Acceptance Criteria**:
+  - Refreshing or dismissing a notification hides that same booking/status banner and it remains hidden after reload, periodic refresh, and reopening the Bookings page.
+  - A changed booking status or changed payment obligation can generate a new banner without reviving the dismissed old state.
+  - Dismissal for one account does not affect another account; eligible notifications for other bookings remain available according to existing priority rules.
+  - Refresh still retrieves current bookings, updates unread counts, and exposes newly relevant status changes.
+  - Banner message, transaction ID, booking reference, icon, and action labels are readable with sufficient contrast in light and dark modes, including a non-default accent palette.
+  - Existing booking banner, payment deadline, unread count, and navigation tests continue to pass.
+- **Verification**: Add/update focused Flutter tests in `test/customer_bookings_banner_test.dart` and relevant session/provider tests. Run the focused customer booking banner/session tests and Flutter analysis for modified Dart files; do not run the full suite unless focused failures require broader diagnosis.
+
+---
+
+## Phase 33: First-Time Customer Booking Confidence
+- [x] **Task 33.1**: Make the first customer booking journey clear, recoverable, and safe to try
+
+### [Task 33.1] Improve End-to-End Customer Booking Clarity
+- **Inspect first**: Trace one complete customer journey from venue discovery and venue detail through selecting a date/time, submitting a booking request, merchant decision, payment obligation, and the resulting booking details/status. Review the current implementations and acceptance criteria of completed Tasks 8.1, 10.1, 18.1, 23.1, 25.1, 26.1, 31.1, and 32.1, plus their related screens, repositories, backend booking/payment routes, and focused tests. Treat completed items as existing behavior to verify, not as permission to redo them. Review current `git status` and diffs first; preserve unrelated workspace changes.
+- **User feedback to address**: A first-time customer needs to know whether a slot is available, what the booking will cost, whether the booking is only requested or fully confirmed, when payment is due, and what to do if the merchant declines or payment expires. The prototype checkout currently resembles a real financial form by asking for card/mobile details even though it is demo-only; make the simulation clearly safe to try without asking for financial credentials.
+- **Goal**: A new customer can understand and complete the booking journey without guessing about availability, total cost, booking state, payment timing, or the next action. Demo payment can be exercised safely without entering or transmitting real payment details.
+- **Zero-regression requirements**:
+  - Preserve existing booking availability checks, submit-time revalidation, booking idempotency, merchant approval, payment deadlines, downpayment/balance rules, cancellation/refund rules, and backend-authoritative payment state.
+  - Never claim that a request is confirmed or a payment succeeded before the authoritative backend state says so. If a request times out after submission, provide a safe way to refresh/check its status before retrying.
+  - Keep venue availability, ratings, price, ranking, and trust claims grounded in actual data; do not invent open slots, fees, venue verification, or merchant response guarantees.
+  - Keep prototype/demo checkout clearly labeled and unavailable for production payment recording. Do not ask for, send, log, or store real card numbers, security codes, wallet PINs/passwords, mobile-wallet credentials, or one-time passcodes.
+  - Preserve existing customer and merchant booking behavior, localization conventions, accessibility, responsive layouts, and account/session boundaries.
+  - Do not duplicate work already satisfying completed-task acceptance criteria; make the smallest focused changes to demonstrated gaps in the integrated journey.
+- **Specification**:
+  1. Walk the current UI as a first-time customer and map the visible information and state changes at each step. Record any unmet requirement from this task with its screen/code path before implementation; do not expand scope into unrelated social, messaging, or merchant-dashboard redesign.
+  2. Before the customer submits a booking, make the selected venue, date/time, duration/slots, price rate/unit, total amount, amount due, payment timing, and relevant cancellation/payment policy understandable together. Show availability as subject to the existing authoritative checks and explain when a slot is no longer available.
+  3. Make each post-submit state distinguishable: request submitted and awaiting merchant action; approved with payment due; paid/confirmed; declined/cancelled; or expired. For each state, show the next safe action using the existing booking details and recovery routes.
+  4. Replace prototype checkout's card/mobile/verification data entry with clearly labeled deterministic demo outcome choices (at minimum success, decline, cancel, and timeout) that require no payment credentials. Keep the amount and obligation visible. The backend must validate and apply only the selected simulated outcome; failed/cancelled/timed-out attempts remain unpaid and eligible only for safe retry while the obligation remains active. Keep simulator behavior isolated from live PayMongo checkout.
+  5. Review retry and error paths across availability refresh, booking submission, merchant decision, payment, and booking reload. Preserve customer input where safe, prevent duplicate submissions, use clear actionable messages, and direct uncertain outcomes to a status refresh instead of implying success or failure.
+  6. Ensure the journey remains understandable at narrow phone widths, larger text scales, screen-reader navigation, and both light and dark themes. Keep fixed copy within current English/Filipino localization conventions and avoid relying on color alone to distinguish booking/payment states.
+  7. Add focused regression tests for the integrated customer journey, including unavailable slot/revalidation, visible total and payment timing, awaiting-approval versus confirmed state, each demo payment outcome, safe retry/timeout recovery, and preservation of existing booking policy behavior.
+- **Acceptance Criteria**:
+  - A first-time customer can identify the chosen venue/time, total cost, amount due, and payment deadline before submitting; displayed values match existing booking/pricing rules.
+  - The UI never describes a pending merchant request as a confirmed reservation, and every resulting booking/payment state has a clear next action.
+  - A newly unavailable slot or uncertain submission result is handled safely without duplicate booking requests or false confirmation.
+  - Demo checkout supports success, decline, cancel, and timeout outcomes without requesting or transmitting financial credentials; only a server-validated successful simulation updates payment state.
+  - Prototype behavior remains unmistakably demo-only and production continues to reject prototype payment recording; the real PayMongo flow remains separate and unchanged.
+  - Existing availability, merchant approval, payment deadline/downpayment, cancellation, refund, notification, and booking-history behavior remains intact.
+  - Focused tests cover the journey and its recovery paths, and changed UI remains accessible and readable across supported layouts, themes, and languages.
+- **Verification**: Add or update focused Flutter customer booking/payment tests and backend prototype-payment route tests for each simulated outcome and eligibility boundary. Run those focused tests and Flutter analysis for modified Dart files. Report visual, device, provider-sandbox, and production payment checks that were not exercised; do not claim real-money readiness.

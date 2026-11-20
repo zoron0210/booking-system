@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/app_preferences.dart';
@@ -246,6 +247,23 @@ class MessagesImageAttachment extends StatelessWidget {
         child: Image.network(url, width: 220, height: 220, fit: BoxFit.cover),
       );
     }
+    final downloadUrl = safeString(attachment['downloadUrl']);
+    if (downloadUrl.isNotEmpty) {
+      final uri = Uri.tryParse(downloadUrl);
+      if (uri != null && uri.scheme == 'https') {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(
+            downloadUrl,
+            width: 220,
+            height: 220,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) =>
+                const AppText('Image unavailable', localize: true),
+          ),
+        );
+      }
+    }
     final data = safeString(attachment['data']);
     if (data.isEmpty || !data.startsWith('data:image/')) {
       return const AppText('Image unavailable', localize: true);
@@ -260,6 +278,116 @@ class MessagesImageAttachment extends StatelessWidget {
     } on FormatException {
       return const AppText('Image unavailable', localize: true);
     }
+  }
+}
+
+class MessagesFileAttachment extends StatelessWidget {
+  const MessagesFileAttachment(this.rawAttachment, {super.key});
+
+  final dynamic rawAttachment;
+
+  @override
+  Widget build(BuildContext context) {
+    final attachment = rawAttachment is Map
+        ? Map<String, dynamic>.from(rawAttachment)
+        : <String, dynamic>{};
+    final name = safeString(attachment['name'], 'Document');
+    final mimeType = safeString(
+      attachment['mimeType'],
+      'application/octet-stream',
+    );
+    final data = safeString(attachment['data']);
+    final downloadUrl = safeString(attachment['downloadUrl']);
+    final size = attachment['size'] is num
+        ? (attachment['size'] as num).toInt()
+        : null;
+    final isImage = data.startsWith('data:image/');
+    if (isImage) {
+      try {
+        final encoded = data.contains(',') ? data.split(',').last : data;
+        final bytes = base64Decode(encoded);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            bytes,
+            width: 220,
+            height: 220,
+            fit: BoxFit.cover,
+          ),
+        );
+      } on FormatException {
+        return const AppText('File unavailable', localize: true);
+      }
+    }
+    final label = name.trim().isEmpty ? 'Document' : name;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 220),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            mimeType.contains('pdf')
+                ? Icons.picture_as_pdf_rounded
+                : mimeType.contains('sheet') || mimeType.contains('excel')
+                ? Icons.table_chart_rounded
+                : mimeType.contains('powerpoint') ||
+                      mimeType.contains('presentation')
+                ? Icons.slideshow_rounded
+                : Icons.description_rounded,
+            color: messageOrange,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppText(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppColors.ink),
+                ),
+                if (size != null)
+                  AppText(
+                    '${(size / 1024).ceil()} KB',
+                    style: TextStyle(color: AppColors.muted, fontSize: 11),
+                  ),
+              ],
+            ),
+          ),
+          if (downloadUrl.isNotEmpty)
+            IconButton(
+              tooltip: 'Open or download',
+              onPressed: () async {
+                final uri = Uri.tryParse(downloadUrl);
+                if (uri == null ||
+                    uri.scheme != 'https' ||
+                    !await launchUrl(
+                      uri,
+                      mode: LaunchMode.externalApplication,
+                    )) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: AppText(
+                          'Could not open this file. Please try again.',
+                          localize: true,
+                        ),
+                      ),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.open_in_new_rounded, size: 18),
+            ),
+        ],
+      ),
+    );
   }
 }
 

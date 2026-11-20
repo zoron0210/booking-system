@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/api_transport.dart';
+import 'package:myapp/core/user_facing_error.dart';
 import 'package:myapp/core/app_preferences.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/bookings/data/matchmaking_api.dart';
@@ -152,9 +153,10 @@ class _MatchmakingLobbyListPageState extends State<MatchmakingLobbyListPage> {
     } on Exception catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error is AuthApiException
-            ? error.userMessage
-            : error.toString();
+        _error = userFacingErrorMessage(
+          error,
+          fallback: 'We couldn’t load match listings. Please try again.',
+        );
         _loading = false;
         _loadingMore = false;
       });
@@ -179,7 +181,14 @@ class _MatchmakingLobbyListPageState extends State<MatchmakingLobbyListPage> {
     } on Exception catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not request to join: $error')),
+          SnackBar(
+            content: Text(
+              userFacingErrorMessage(
+                error,
+                fallback: 'We couldn’t send your join request. Please try again.',
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -240,7 +249,14 @@ class _MatchmakingLobbyListPageState extends State<MatchmakingLobbyListPage> {
     } on Exception catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start payment: $error')),
+          SnackBar(
+            content: Text(
+              userFacingErrorMessage(
+                error,
+                fallback: 'We couldn’t start payment. Please try again.',
+              ),
+            ),
+          ),
         );
       }
     }
@@ -278,7 +294,14 @@ class _MatchmakingLobbyListPageState extends State<MatchmakingLobbyListPage> {
     } on Exception catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start payment: $error')),
+          SnackBar(
+            content: Text(
+              userFacingErrorMessage(
+                error,
+                fallback: 'We couldn’t start payment. Please try again.',
+              ),
+            ),
+          ),
         );
       }
     }
@@ -336,8 +359,16 @@ class _MatchmakingLobbyListPageState extends State<MatchmakingLobbyListPage> {
       if (mounted) setState(() => _userPosition = position);
     } on Exception catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              userFacingErrorMessage(
+                error,
+                fallback: 'We couldn’t update your location. Please try again.',
+              ),
+            ),
+          ),
+        );
       }
     }
   }

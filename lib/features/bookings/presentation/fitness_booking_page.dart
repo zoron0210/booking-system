@@ -389,6 +389,12 @@ class _FitnessBookingPageState extends State<FitnessBookingPage> {
                   '${_payment == 'cash_on_arrival' ? 'Cash on arrival · After approval, pay the 50% downpayment of \u{20B1} ${coaDownpayment.toStringAsFixed(2)} at the venue before the payment deadline. Remaining cash balance: \u{20B1} ${coaRemaining.toStringAsFixed(2)}.' : 'Online payment after approval: \u{20B1} ${_total.toStringAsFixed(2)}. Pay before the payment deadline.'}',
                   localize: true,
                 ),
+                const SizedBox(height: 8),
+                AppText(
+                  'Booking total: \u{20B1} ${_total.toStringAsFixed(2)}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                  localize: true,
+                ),
                 if (startsWithin24Hours) ...[
                   const SizedBox(height: 12),
                   const BookingCancellationNotice(),
@@ -430,8 +436,10 @@ class _FitnessBookingPageState extends State<FitnessBookingPage> {
       );
       _message('Fitness booking request sent. Waiting for venue approval.');
       if (mounted) Navigator.of(context).pop();
-    } on Exception catch (error) {
-      _message('Could not submit Fitness booking: $error');
+    } on Exception {
+      _message(
+        'Submission could not be confirmed. Refresh Pending or Approved bookings before trying again.',
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

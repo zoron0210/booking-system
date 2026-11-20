@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -85,6 +86,10 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
   XFile? _pendingImage;
   String? _pendingImageData;
   String? _pendingGifUrl;
+  String? _pendingDocumentName;
+  String? _pendingDocumentData;
+  String? _pendingDocumentMimeType;
+  Map<String, dynamic>? _replyTarget;
   bool _ownerConversationOpened = false;
   bool _initialConversationOpened = false;
 
@@ -221,27 +226,43 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
       return;
     }
 
-    if (text.isEmpty && _pendingImageData == null && _pendingGifUrl == null) {
-      setState(() => _composerError = 'Write a message or attach an image.');
+    if (text.isEmpty &&
+        _pendingImageData == null &&
+        _pendingGifUrl == null &&
+        _pendingDocumentData == null) {
+      setState(() => _composerError = 'Write a message or attach media.');
       return;
     }
     setState(() => _composerError = null);
     _controller.setSending(true);
     try {
+      final attachment = _pendingImageData == null
+          ? _pendingGifUrl == null
+                ? _pendingDocumentData == null
+                      ? null
+                      : {
+                          'type': 'file',
+                          'name': _pendingDocumentName ?? 'document',
+                          'mimeType':
+                              _pendingDocumentMimeType ??
+                              'application/octet-stream',
+                          'data': _pendingDocumentData,
+                        }
+                : {'type': 'gif', 'url': _pendingGifUrl}
+          : {
+              'type': 'image',
+              'name': _pendingImage?.name ?? 'image',
+              'data': _pendingImageData,
+            };
       await _messagesService.sendMessage(
         token: token,
         conversationId: id,
         body: text,
         businessType: widget.businessType,
-        attachment: _pendingImageData == null
-            ? _pendingGifUrl == null
-                  ? null
-                  : {'type': 'gif', 'url': _pendingGifUrl}
-            : {
-                'type': 'image',
-                'name': _pendingImage?.name ?? 'image',
-                'data': _pendingImageData,
-              },
+        attachment: attachment,
+        replyToMessageId: _replyTarget == null
+            ? null
+            : asInt(_replyTarget!['id']),
       );
       _composer.clear();
       if (mounted) {
@@ -249,6 +270,10 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
           _pendingImage = null;
           _pendingImageData = null;
           _pendingGifUrl = null;
+          _pendingDocumentName = null;
+          _pendingDocumentData = null;
+          _pendingDocumentMimeType = null;
+          _replyTarget = null;
         });
       }
       await _select(id);
@@ -611,10 +636,42 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
     }
   }
 
-  Future<void> _pickImage() async {
+  Future<void> _pickImageSource() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const AppText('Choose from gallery', localize: true),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded),
+                title: const AppText('Use camera', localize: true),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || source == null) return;
+    await _pickImage(source);
+  }
+
+  Future<void> _pickImage([ImageSource? source]) async {
     try {
       final image = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
+        source: source ?? ImageSource.gallery,
         imageQuality: 82,
         maxWidth: 1600,
         maxHeight: 1600,
@@ -635,9 +692,102 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
         _pendingImage = image;
         _pendingImageData = 'data:$mime;base64,${base64Encode(bytes)}';
         _pendingGifUrl = null;
+        _pendingDocumentName = null;
+        _pendingDocumentData = null;
+        _pendingDocumentMimeType = null;
       });
     } on Exception catch (error) {
       _show('Could not select the image: $error');
+    }
+  }
+
+  Future<void> _pickDocument() async {
+    try {
+      final file = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: [
+          'jpg',
+          'jpeg',
+          'png',
+          'webp',
+          'pdf',
+          'doc',
+          'docx',
+          'xls',
+          'xlsx',
+          'ppt',
+          'pptx',
+        ],
+      );
+      if (file == null) return;
+      final name = file.name;
+      final extension = file.extension?.toLowerCase();
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) {
+        _show('This file could not be read. Please try another file.');
+        return;
+      }
+      const imageExtensions = {'jpg', 'jpeg', 'png', 'webp'};
+      const documentExtensions = {
+        'pdf',
+        'doc',
+        'docx',
+        'xls',
+        'xlsx',
+        'ppt',
+        'pptx',
+      };
+      final isImage = imageExtensions.contains(extension);
+      final isValidDocument = documentExtensions.contains(extension);
+      if (!isImage && !isValidDocument) {
+        _show('Please choose a supported image or document file.');
+        return;
+      }
+      final maxBytes = isImage ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
+      if (bytes.length > maxBytes) {
+        _show(
+          isImage
+              ? 'Please choose an image smaller than 5 MB.'
+              : 'Please choose a document smaller than 10 MB.',
+        );
+        return;
+      }
+      final String mimeType;
+      if (extension == 'png') {
+        mimeType = 'image/png';
+      } else if (extension == 'webp') {
+        mimeType = 'image/webp';
+      } else if (extension == 'jpg' || extension == 'jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == 'pdf') {
+        mimeType = 'application/pdf';
+      } else if (extension == 'docx') {
+        mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      } else if (extension == 'doc') {
+        mimeType = 'application/msword';
+      } else if (extension == 'xlsx') {
+        mimeType =
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      } else if (extension == 'xls') {
+        mimeType = 'application/vnd.ms-excel';
+      } else if (extension == 'pptx') {
+        mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      } else if (extension == 'ppt') {
+        mimeType = 'application/vnd.ms-powerpoint';
+      } else {
+        _show('Please choose a supported image or document file.');
+        return;
+      }
+      setState(() {
+        _pendingImage = null;
+        _pendingImageData = null;
+        _pendingGifUrl = null;
+        _pendingDocumentName = name;
+        _pendingDocumentData = 'data:$mimeType;base64,${base64Encode(bytes)}';
+        _pendingDocumentMimeType = mimeType;
+      });
+    } on Exception catch (error) {
+      _show('Could not attach the file: $error');
     }
   }
 
@@ -647,6 +797,22 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
       _pendingImageData = null;
       _pendingGifUrl = null;
     });
+  }
+
+  void _removePendingDocument() {
+    setState(() {
+      _pendingDocumentName = null;
+      _pendingDocumentData = null;
+      _pendingDocumentMimeType = null;
+    });
+  }
+
+  void _replyToMessage(Map<String, dynamic> message) {
+    setState(() => _replyTarget = message);
+  }
+
+  void _clearReply() {
+    setState(() => _replyTarget = null);
   }
 
   Future<void> _pickGif() async {
@@ -1117,6 +1283,8 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
                           composer: _composer,
                           pendingImageData: _pendingImageData,
                           pendingGifUrl: _pendingGifUrl,
+                          pendingDocumentData: _pendingDocumentData,
+                          pendingDocumentName: _pendingDocumentName,
                           sending: _sending,
                           composerError: _composerError,
                           onComposerChanged: _onComposerChanged,
@@ -1126,8 +1294,13 @@ class _MessagesDashboardPageState extends State<MessagesDashboardPage> {
                               _handleMatchmakingMerchantDecision,
                           isMerchant: _role == 'merchant',
                           onOpponentPayment: _handleOpponentPayment,
-                          onPickImage: _pickImage,
+                          replyTarget: _replyTarget,
+                          onReplyToMessage: _replyToMessage,
+                          onClearReply: _clearReply,
+                          onPickImage: _pickImageSource,
                           onRemovePendingImage: _removePendingImage,
+                          onPickDocument: _pickDocument,
+                          onRemovePendingDocument: _removePendingDocument,
                           onPickGif: _pickGif,
                           onSend: _send,
                           scrollController: _chatScrollController,

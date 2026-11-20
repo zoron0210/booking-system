@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:myapp/core/app_session.dart';
+import 'package:myapp/core/user_facing_error.dart';
 
 import '../../../core/app_text.dart';
 
@@ -126,7 +127,10 @@ class _OnboardingGateError extends StatelessWidget {
               localize: true,
             ),
             const SizedBox(height: 8),
-            AppText('$error', textAlign: TextAlign.center),
+            AppText(
+              userFacingErrorMessage(error),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
             FilledButton(onPressed: onRetry, child: const Text('Try again')),
           ],
@@ -207,7 +211,14 @@ class _FirstLaunchOnboardingPageState extends State<FirstLaunchOnboardingPage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(content: Text('Could not save onboarding: $error')),
+          SnackBar(
+            content: Text(
+              userFacingErrorMessage(
+                error,
+                fallback: 'We could not save your onboarding details. Please try again.',
+              ),
+            ),
+          ),
         );
     }
   }

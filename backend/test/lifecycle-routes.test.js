@@ -47,6 +47,16 @@ function makeConnection() {
     execute: async (sql, params = []) => {
       db.calls.push({ sql, params });
 
+      if (sql.includes('FROM prototype_payment_intents')) {
+        return response([]);
+      }
+      if (sql.includes('INSERT INTO prototype_payment_intents')) {
+        return [{ affectedRows: 1, insertId: 1 }, []];
+      }
+      if (sql.includes('UPDATE prototype_payment_intents')) {
+        return [{ affectedRows: 1 }, []];
+      }
+
       if (
         sql.includes('FROM bookings b') &&
         sql.includes('b.customer_id = ? AND b.venue_id = ?') &&
@@ -329,6 +339,46 @@ function makeConnection() {
       ) {
         if (db.declineBooking) db.declineBooking.status = 'cancelled';
         return [{ affectedRows: db.declineBooking ? 1 : 0 }, []];
+      }
+      if (
+        sql.includes("b.status = 'pending'") &&
+        sql.includes('LIMIT 1 FOR UPDATE') &&
+        sql.includes('JOIN merchant_businesses v ON v.id = b.venue_id')
+      ) {
+        if (
+          db.expiredApprovalBooking &&
+          Number(params[0]) === db.expiredApprovalBooking.id
+        ) {
+          return response([]);
+        }
+        return response([{
+          id: Number(params[0]),
+          customerId: 42,
+          venueId: 7,
+          bookingDate: '2026-10-01',
+          startTime: '09:00:00',
+          durationHours: 2,
+          slotNumber: 1,
+          slotNumbers: [],
+          occupiesFullStudio: 1,
+          totalAmount: 270,
+          downpaymentAmount: 135,
+          paymentReference: null,
+          paymentMethod: 'online',
+          paymentStatus: 'unpaid',
+          paymentDueAt: '2026-10-15 10:00:00',
+          paymentTimeoutMinutes: 15,
+          businessType: 'Sports',
+          venueName: 'Test Court',
+          sportType: 'Basketball',
+          eventType: null,
+          fitnessPlanType: null,
+          fitnessCategory: null,
+          fitnessCoachName: null,
+          fitnessCoachDurationMonths: null,
+          fitnessPlanPrice: null,
+          fitnessCoachPrice: null,
+        }]);
       }
       if (
         sql.includes('SELECT b.id, b.customer_id AS customerId') &&
@@ -847,6 +897,18 @@ before(async () => {
         return response(db.messageRows);
       }
       if (
+        sql.includes('SELECT id, conversation_id, removed_at') &&
+        sql.includes('FROM messages') &&
+        sql.includes('WHERE id = ? AND conversation_id = ?')
+      ) {
+        const match = db.messageRows.filter(
+          (row) =>
+            Number(row.id) === Number(params[0]) &&
+            Number(row.conversationId ?? row.conversation_id) === Number(params[1]),
+        );
+        return response(match);
+      }
+      if (
         sql.includes('SELECT b.id AS bookingId, v.name AS venueName') &&
         sql.includes('FROM bookings b') &&
         sql.includes('merchant_businesses v')
@@ -1220,6 +1282,24 @@ test('deleting a conversation is per-user and new messages restore it for both m
       params[1] === '88',
     ),
   );
+});
+
+test('message replies are persisted and bound to the same conversation', async () => {
+  db.messageRows = [
+    { id: 900, conversationId: 601, senderId: '42', body: 'Original', attachmentJson: null },
+  ];
+
+  const response = await request('/api/messages/conversations/601', {
+    method: 'POST',
+    body: { body: 'Reply', replyToMessageId: 900 },
+  });
+
+  assert.equal(response.status, 201);
+  const insert = db.calls.find(({ sql }) =>
+    sql.includes('INSERT INTO messages') && sql.includes('reply_to_message_id'),
+  );
+  assert.ok(insert);
+  assert.deepEqual(insert.params, [601, '42', 'Reply', null, 900]);
 });
 
 test('deleting a message for me only records a viewer-specific deletion', async () => {
@@ -3146,6 +3226,33 @@ test('whole-studio bookings conflict with an occupied small slot', async () => {
   assert.equal(response.status, 409);
 });
 
+test('merchant approval blocks a sports booking when the slot is taken in the meantime', async () => {
+  db.overlapRows = [{
+    slotNumber: 2,
+    slotNumbers: [2],
+    occupiesFullStudio: 0,
+    status: 'approved',
+  }];
+
+  const response = await request('/api/merchant/bookings/501/approve', {
+    method: 'PATCH',
+    role: 'merchant',
+  });
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: 'That sport slot is already booked for the selected time.',
+  });
+  assert.equal(
+    db.calls.some(({ sql }) => sql.includes("SET b.status = 'approved'")),
+    false,
+  );
+  assert.equal(
+    db.calls.some(({ sql }) => sql.includes('INSERT INTO messages') && sql.includes('attachment_json')),
+    false,
+  );
+});
+
 test('merchant approval issues a booking ticket', async () => {
   const response = await request('/api/merchant/bookings/501/approve', {
     method: 'PATCH',
@@ -4114,6 +4221,126 @@ test('prototype payment rejects an unsupported payment provider', async () => {
   assert.deepEqual(await response.json(), {
     error: 'A valid booking and prototype payment method are required.',
   });
+});
+
+test('prototype payment records decline as an unpaid retryable intent', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+  db.prototypePaymentBooking = {
+    id: 503,
+    customerId: 42,
+    venueId: 7,
+    totalAmount: 300,
+    paymentMethod: 'online',
+    paymentStatus: 'unpaid',
+    status: 'approved',
+    paymentDueAt: '2026-10-15 10:00:00',
+    paymentDeadlineActive: 1,
+    merchantId: 88,
+    venueName: 'Test Court',
+    businessType: 'Sports',
+  };
+  try {
+    const response = await request('/api/bookings/503/prototype-payment', {
+      method: 'POST',
+      body: {
+        paymentMethod: 'prototype_card',
+        provider: 'gcash',
+        scenario: 'decline',
+        amount: 300,
+        currency: 'PHP',
+      },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.providerType, 'prototype');
+    assert.equal(body.status, 'declined');
+    assert.equal(body.retryable, true);
+    assert.equal(db.calls.some(({ sql }) =>
+      sql.includes('SET payment_status = ?, paid_amount = ?')), false);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
+
+test('prototype payment supports cancel timeout and error outcomes without payment updates', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+  db.prototypePaymentBooking = {
+    id: 505,
+    customerId: 42,
+    venueId: 7,
+    totalAmount: 350,
+    paymentMethod: 'online',
+    paymentStatus: 'unpaid',
+    status: 'approved',
+    paymentDueAt: '2026-10-15 10:00:00',
+    paymentDeadlineActive: 1,
+    merchantId: 88,
+    venueName: 'Test Court',
+    businessType: 'Sports',
+  };
+  try {
+    for (const scenario of ['cancel', 'timeout', 'error']) {
+      const response = await request('/api/bookings/505/prototype-payment', {
+        method: 'POST',
+        body: {
+          paymentMethod: 'prototype_card',
+          provider: 'synthetic',
+          scenario,
+          amount: 350,
+          currency: 'PHP',
+        },
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.retryable, true);
+      assert.equal(body.status, scenario === 'cancel'
+        ? 'cancelled'
+        : scenario === 'timeout'
+          ? 'timed_out'
+          : 'failed');
+    }
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
+
+test('prototype payment rejects a mismatched amount', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+  db.prototypePaymentBooking = {
+    id: 504,
+    customerId: 42,
+    venueId: 7,
+    totalAmount: 400,
+    paymentMethod: 'online',
+    paymentStatus: 'unpaid',
+    status: 'approved',
+    paymentDueAt: '2026-10-15 10:00:00',
+    paymentDeadlineActive: 1,
+    merchantId: 88,
+    venueName: 'Test Court',
+    businessType: 'Sports',
+  };
+  try {
+    const response = await request('/api/bookings/504/prototype-payment', {
+      method: 'POST',
+      body: {
+        paymentMethod: 'prototype_card',
+        provider: 'gcash',
+        scenario: 'success',
+        amount: 399,
+        currency: 'PHP',
+      },
+    });
+    assert.equal(response.status, 409);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
 });
 
 test('prototype payment records only the approved COA downpayment', async () => {

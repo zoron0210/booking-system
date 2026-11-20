@@ -364,6 +364,56 @@ void main() {
     );
   });
 
+  testWidgets('shows a reply preview and responds to a right swipe', (
+    tester,
+  ) async {
+    final composer = TextEditingController();
+    addTearDown(composer.dispose);
+    Map<String, dynamic>? repliedTo;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessagesChatView(
+            messages: [
+              {'id': 12, 'senderId': 8, 'body': 'Original message'},
+            ],
+            currentUserId: 7,
+            blocked: false,
+            composer: composer,
+            pendingImageData: null,
+            sending: false,
+            onDeleteMessage: (_) {},
+            onPickImage: () {},
+            onRemovePendingImage: () {},
+            onPickDocument: () {},
+            onRemovePendingDocument: () {},
+            onSend: () async {},
+            replyTarget: {
+              'id': 12,
+              'senderName': 'Mary',
+              'body': 'Original message',
+            },
+            onReplyToMessage: (message) => repliedTo = message,
+            onClearReply: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Replying to Mary'), findsOneWidget);
+    expect(find.textContaining('Original message'), findsWidgets);
+
+    await tester.fling(
+      find.byKey(const ValueKey('message-bubble-12')),
+      const Offset(250, 0),
+      2000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(repliedTo?['id'], 12);
+  });
+
   testWidgets('incoming message text remains readable in dark mode', (
     tester,
   ) async {

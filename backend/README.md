@@ -98,6 +98,19 @@ reviews, using MySQL.
    checkout redirect alone does not mark a booking paid. Venue approval issues
    a separate approval ticket. Prototype payments are test-only, and real
    online payments are recorded only after the signed payment webhook succeeds.
+
+   Prototype payments use persisted normalized payment intents behind the
+   `prototype` provider boundary. Success, decline, cancellation, timeout,
+   and recoverable errors remain explicitly test-only states. Idempotent
+   intent requests prevent replayed success records. Live provider sessions,
+   signed provider webhooks, refunds, reconciliation, and real-money launch
+   approval remain separate future work.
+
+   Private chat images and documents require `MESSAGING_STORAGE_BUCKET` and
+   Google Cloud credentials compatible with the existing Firebase service
+   account configuration. Attachments are stored outside MySQL under
+   `message-attachments/{conversationId}/`; message JSON retains only metadata,
+   a private storage URI, and short-lived authorized read URLs.
 5. Install dependencies and apply database changes before starting the API:
 
    ```sh

@@ -102,6 +102,7 @@ class MessagingApi {
     required String body,
     Map<String, dynamic>? attachment,
     String? businessType,
+    int? replyToMessageId,
   }) async {
     await _api.request(
       'POST',
@@ -112,6 +113,9 @@ class MessagingApi {
             ? null
             : {'businessType': businessType.trim()}),
         ...?(attachment == null ? null : {'attachment': attachment}),
+        ...?(replyToMessageId == null
+            ? null
+            : {'replyToMessageId': replyToMessageId}),
       },
       headers: _api.authHeadersForToken(
         token,

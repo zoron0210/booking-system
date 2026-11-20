@@ -487,7 +487,9 @@ extension _NewsFeedFeaturedCards on _NewsFeedPageState {
                         ),
                         style: FilledButton.styleFrom(
                           backgroundColor: _venuePrimary,
-                          foregroundColor: Colors.white,
+                          foregroundColor: AppColors.contrastingForeground(
+                            _venuePrimary,
+                          ),
                           disabledBackgroundColor: _venueOutline,
                           disabledForegroundColor: _venueMuted,
                           shape: RoundedRectangleBorder(

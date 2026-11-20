@@ -373,26 +373,14 @@ void main() {
     await tester.tap(payButton);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('prototype-payment-provider')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Credit/debit card').last);
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('prototype-payment-cardholder')),
-      'Test Customer',
+    expect(find.textContaining('Do not enter card numbers'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('prototype-payment-scenario')),
+      findsOneWidget,
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('prototype-payment-card-number')),
-      '4242 4242 4242 4242',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('prototype-payment-expiry')),
-      '12/30',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('prototype-payment-security-code')),
-      '123',
+    expect(
+      find.byKey(const ValueKey('prototype-payment-method')),
+      findsOneWidget,
     );
     await tester.ensureVisible(
       find.byKey(const ValueKey('prototype-payment-confirm')),
@@ -403,7 +391,10 @@ void main() {
     expect(prototypePaymentRequested, isTrue);
     expect(paymentPayload, {
       'paymentMethod': 'prototype_card',
-      'provider': 'card',
+      'provider': 'synthetic',
+      'scenario': 'success',
+      'currency': 'PHP',
+      'amount': 500.0,
     });
     expect(
       find.textContaining('No real payment was processed'),
@@ -594,18 +585,10 @@ void main() {
       await tester.tap(pay);
       await tester.pumpAndSettle();
 
-      expect(find.text('Test amount: ₱ 250.00'), findsOneWidget);
+      expect(find.textContaining('Amount due: ₱ 250.00'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('customer-booking-delete-58')),
         findsNothing,
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('prototype-payment-mobile')),
-        '09171234567',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('prototype-payment-verification-code')),
-        '123456',
       );
       await tester.ensureVisible(
         find.byKey(const ValueKey('prototype-payment-confirm')),
@@ -615,7 +598,10 @@ void main() {
 
       expect(paymentPayload, {
         'paymentMethod': 'prototype_card',
-        'provider': 'gcash',
+        'provider': 'synthetic',
+        'scenario': 'success',
+        'currency': 'PHP',
+        'amount': 250.0,
       });
       expect(paymentPayload!.containsKey('mobileNumber'), isFalse);
       expect(paymentPayload!.containsKey('verificationCode'), isFalse);

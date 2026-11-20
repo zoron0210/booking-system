@@ -185,14 +185,36 @@ class BookingApi {
     required String token,
     required int bookingId,
     required String provider,
+    String scenario = 'success',
+    double? amount,
+    String currency = 'PHP',
   }) => _api.request(
     'POST',
     '/api/bookings/$bookingId/prototype-payment',
-    body: {'paymentMethod': 'prototype_card', 'provider': provider},
+    body: {
+      'paymentMethod': 'prototype_card',
+      'provider': provider,
+      'scenario': scenario,
+      'currency': currency,
+      ...?amount == null ? null : {'amount': amount},
+    },
     headers: _api.authHeadersForToken(
       token,
-      extra: {'Content-Type': 'application/json'},
+      extra: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'prototype-$bookingId-${newBookingIdempotencyKey()}',
+      },
     ),
+  );
+
+  Future<Map<String, dynamic>> getPrototypeBookingPayment({
+    required String token,
+    required int bookingId,
+    required String intentId,
+  }) => _api.request(
+    'GET',
+    '/api/bookings/$bookingId/prototype-payment/${Uri.encodeQueryComponent(intentId)}',
+    headers: _api.authHeadersForToken(token),
   );
 
   Future<bool> payMongoPaymentsEnabled(String token) async {

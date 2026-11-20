@@ -1537,32 +1537,36 @@ app.patch('/api/merchant/bookings/:id/approve', requireAuth, requireRole('mercha
     connection = await pool.getConnection();
     await connection.beginTransaction();
     const ticketCode = createBookingToken();
-    const [result] = await connection.execute(
-      `UPDATE bookings b JOIN merchant_businesses v ON v.id = b.venue_id
-       SET b.status = 'approved',
-           b.ticket_token_hash = ?,
-           b.payment_due_at = CASE
-             WHEN b.payment_status = 'unpaid'
-             THEN DATE_ADD(
-               CURRENT_TIMESTAMP,
-               INTERVAL COALESCE(b.payment_timeout_minutes, 15) MINUTE
-             )
-             ELSE NULL
-           END
+    const [pendingRows] = await connection.execute(
+      `SELECT b.id, b.customer_id AS customerId, b.venue_id AS venueId,
+              b.booking_date AS bookingDate, b.start_time AS startTime,
+              b.duration_hours AS durationHours, b.slot_number AS slotNumber,
+              b.slot_numbers_json AS slotNumbers,
+              b.occupies_full_studio AS occupiesFullStudio,
+              b.total_amount AS totalAmount,
+              b.downpayment_amount AS downpaymentAmount,
+              b.payment_reference AS paymentReference,
+              b.payment_method AS paymentMethod,
+              b.payment_status AS paymentStatus,
+              b.payment_due_at AS paymentDueAt,
+              b.payment_timeout_minutes AS paymentTimeoutMinutes,
+              v.business_type AS businessType,
+              v.name AS venueName,
+              COALESCE(b.sport_type, v.category) AS sportType,
+              b.event_type AS eventType,
+              b.fitness_plan_type AS fitnessPlanType,
+              b.fitness_category AS fitnessCategory,
+              b.fitness_coach_name AS fitnessCoachName,
+              b.fitness_coach_duration_months AS fitnessCoachDurationMonths,
+              b.fitness_plan_price AS fitnessPlanPrice,
+              b.fitness_coach_price AS fitnessCoachPrice
+       FROM bookings b
+       JOIN merchant_businesses v ON v.id = b.venue_id
        WHERE b.id = ? AND v.merchant_id = ? AND b.status = 'pending'
-         AND NOT (
-           COALESCE(b.approval_due_at, DATE_ADD(
-             b.created_at,
-             INTERVAL COALESCE(b.approval_timeout_minutes, 15) MINUTE
-           )) <= CURRENT_TIMESTAMP
-         )
-         AND (
-           b.payment_method = 'online'
-           OR b.payment_method = 'cash_on_arrival'
-         )`,
-      [hashBookingToken(ticketCode), req.params.id, req.auth.sub],
+       LIMIT 1 FOR UPDATE`,
+      [req.params.id, req.auth.sub],
     );
-    if (!result.affectedRows) {
+    if (pendingRows.length === 0) {
       const [expired] = await connection.execute(
         `SELECT b.id, b.customer_id AS customerId, b.venue_id AS venueId,
                 v.name AS venueName,
@@ -1666,35 +1670,76 @@ app.patch('/api/merchant/bookings/:id/approve', requireAuth, requireRole('mercha
       }
       return res.status(404).json({ error: 'Pending booking not found.' });
     }
-    const [rows] = await connection.execute(
-      `SELECT b.id, b.customer_id AS customerId, b.venue_id AS venueId,
-              b.booking_date AS bookingDate, b.start_time AS startTime,
-              b.duration_hours AS durationHours, b.players,
-              b.total_amount AS totalAmount,
-              b.downpayment_amount AS downpaymentAmount,
-              b.payment_reference AS paymentReference,
-              b.payment_method AS paymentMethod,
-              b.payment_status AS paymentStatus,
-              b.payment_due_at AS paymentDueAt,
-              b.payment_timeout_minutes AS paymentTimeoutMinutes,
-              v.business_type AS businessType,
-              v.name AS venueName,
-              COALESCE(b.sport_type, v.category) AS sportType,
-              b.event_type AS eventType,
-              b.fitness_plan_type AS fitnessPlanType,
-              b.fitness_category AS fitnessCategory,
-              b.fitness_coach_name AS fitnessCoachName,
-              b.fitness_coach_duration_months AS fitnessCoachDurationMonths,
-              b.fitness_plan_price AS fitnessPlanPrice,
-              b.fitness_coach_price AS fitnessCoachPrice,
-              b.slot_number AS slotNumber,
-              b.slot_numbers_json AS slotNumbers,
-              b.occupies_full_studio AS occupiesFullStudio
-       FROM bookings b JOIN merchant_businesses v ON v.id = b.venue_id
-       WHERE b.id = ? AND v.merchant_id = ? LIMIT 1`,
-      [req.params.id, req.auth.sub],
+    const booking = pendingRows[0];
+    if (String(booking.businessType) === 'Sports') {
+      const requestedSlots = bookingSlotNumbers(
+        booking.slotNumbers,
+        booking.slotNumber,
+      );
+      const [conflicts] = await connection.execute(
+        `SELECT slot_number AS slotNumber,
+                slot_numbers_json AS slotNumbers,
+                occupies_full_studio AS occupiesFullStudio
+         FROM bookings
+         WHERE venue_id = ? AND booking_date = ?
+           AND id <> ?
+           AND status IN (
+             'approved', 'matchmaking_pending_merchant', 'matchmaking_open'
+           )
+           AND start_time < ADDTIME(?, SEC_TO_TIME(? * 3600))
+           AND ADDTIME(start_time, SEC_TO_TIME(duration_hours * 3600)) > ?
+         FOR UPDATE`,
+        [
+          booking.venueId,
+          booking.bookingDate,
+          booking.id,
+          booking.startTime,
+          Number(booking.durationHours),
+          booking.startTime,
+        ],
+      );
+      const hasConflict = conflicts.some((other) =>
+        Number(booking.occupiesFullStudio) === 1 ||
+        Number(other.occupiesFullStudio) === 1 ||
+        bookingSlotNumbers(other.slotNumbers, other.slotNumber)
+          .some((slot) => requestedSlots.includes(slot)),
+      );
+      if (hasConflict) {
+        await connection.rollback();
+        return res.status(409).json({
+          error: 'That sport slot is already booked for the selected time.',
+        });
+      }
+    }
+    const [result] = await connection.execute(
+      `UPDATE bookings b JOIN merchant_businesses v ON v.id = b.venue_id
+       SET b.status = 'approved',
+           b.ticket_token_hash = ?,
+           b.payment_due_at = CASE
+             WHEN b.payment_status = 'unpaid'
+             THEN DATE_ADD(
+               CURRENT_TIMESTAMP,
+               INTERVAL COALESCE(b.payment_timeout_minutes, 15) MINUTE
+             )
+             ELSE NULL
+           END
+       WHERE b.id = ? AND v.merchant_id = ? AND b.status = 'pending'
+         AND NOT (
+           COALESCE(b.approval_due_at, DATE_ADD(
+             b.created_at,
+             INTERVAL COALESCE(b.approval_timeout_minutes, 15) MINUTE
+           )) <= CURRENT_TIMESTAMP
+         )
+         AND (
+           b.payment_method = 'online'
+           OR b.payment_method = 'cash_on_arrival'
+         )`,
+      [hashBookingToken(ticketCode), booking.id, req.auth.sub],
     );
-    const booking = rows[0];
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Pending booking not found.' });
+    }
     const payableAmount = booking.paymentMethod === 'online'
       ? Number(booking.totalAmount)
       : Number(booking.downpaymentAmount);

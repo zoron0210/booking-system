@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/user_facing_error.dart';
 import 'package:myapp/features/activity_log/presentation/activity_log_routes.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/merchant_management/data/merchant_booking_repository.dart';
@@ -161,7 +162,14 @@ class _MerchantProfileDashboardPageState
     } on Exception catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not refresh merchant profile: $error')),
+          SnackBar(
+            content: Text(
+              userFacingErrorMessage(
+                error,
+                fallback: 'We couldn’t refresh your profile. Please try again.',
+              ),
+            ),
+          ),
         );
       }
     }
@@ -190,7 +198,14 @@ class _MerchantProfileDashboardPageState
         );
       }
     } on Exception catch (error) {
-      if (mounted) _showMessage('Could not check match alerts: $error');
+      if (mounted) {
+        _showMessage(
+          userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t update your match alerts. Please try again.',
+          ),
+        );
+      }
     }
   }
 
@@ -249,7 +264,14 @@ class _MerchantProfileDashboardPageState
             : 'Match start and end alerts are turned off.',
       );
     } on Exception catch (error) {
-      if (mounted) _showMessage('Could not update match alerts: $error');
+      if (mounted) {
+        _showMessage(
+          userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t update your match alerts. Please try again.',
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _updatingMatchNotificationSetting = false);
@@ -269,7 +291,12 @@ class _MerchantProfileDashboardPageState
       }
     } on Exception catch (error) {
       if (mounted) {
-        _showMessage('Could not open notification settings: $error');
+        _showMessage(
+          userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t open your notification settings. Please try again.',
+          ),
+        );
       }
     }
   }
@@ -760,7 +787,10 @@ class _MerchantProfileDashboardPageState
         _showProfileMessage(
           error is AuthApiException
               ? error.userMessage
-              : 'Could not open the venue check-in QR: $error',
+              : userFacingErrorMessage(
+                  error,
+                  fallback: 'We couldn’t open the venue check-in QR. Please try again.',
+                ),
         );
       }
     }
@@ -802,7 +832,14 @@ class _MerchantProfileDashboardPageState
         deadlines.paymentTimeoutMinutes,
       );
     } on Exception catch (error) {
-      if (mounted) _showProfileMessage(error.toString());
+      if (mounted) {
+        _showProfileMessage(
+          userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t update your booking deadlines. Please try again.',
+          ),
+        );
+      }
     }
   }
 
@@ -819,7 +856,14 @@ class _MerchantProfileDashboardPageState
       );
       if (mounted) _showProfileMessage('Booking deadlines saved.');
     } on Exception catch (error) {
-      if (mounted) _showProfileMessage(error.toString());
+      if (mounted) {
+        _showProfileMessage(
+          userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t save your booking deadlines. Please try again.',
+          ),
+        );
+      }
     }
   }
 

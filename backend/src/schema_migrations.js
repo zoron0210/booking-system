@@ -236,6 +236,7 @@ async function ensureMessagingSchema() {
       sender_id BIGINT UNSIGNED NOT NULL,
       body TEXT NULL,
       attachment_json LONGTEXT NULL,
+      reply_to_message_id BIGINT UNSIGNED NULL,
       removed_at DATETIME NULL,
       removed_by BIGINT UNSIGNED NULL,
       read_at DATETIME NULL,
@@ -243,10 +244,13 @@ async function ensureMessagingSchema() {
       PRIMARY KEY (id),
       KEY idx_messages_conversation_created (conversation_id, created_at),
       KEY idx_messages_unread (conversation_id, read_at),
+      KEY idx_messages_reply_target (reply_to_message_id),
       CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id)
         REFERENCES conversations (id) ON UPDATE CASCADE ON DELETE CASCADE,
       CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (id)
-        ON UPDATE CASCADE ON DELETE CASCADE
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to_message_id)
+        REFERENCES messages (id) ON UPDATE CASCADE ON DELETE SET NULL
     ) ENGINE=InnoDB
   `);
   await pool.execute(`
@@ -268,6 +272,22 @@ async function ensureMessagingSchema() {
     );
   } catch (error) {
     if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
+  try {
+    await pool.execute(
+      'ALTER TABLE messages ADD COLUMN reply_to_message_id BIGINT UNSIGNED NULL AFTER attachment_json',
+    );
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
+  try {
+    await pool.execute(
+      'ALTER TABLE messages ADD CONSTRAINT fk_messages_reply FOREIGN KEY (reply_to_message_id) REFERENCES messages (id) ON UPDATE CASCADE ON DELETE SET NULL',
+    );
+  } catch (error) {
+    if (!['ER_DUP_KEYNAME', 'ER_DUP_CONSTRAINT_NAME', 'ER_NOT_SUPPORTED_AUTH_MODE'].includes(error.code)) {
+      if (error.code !== 'ER_FK_DUP_NAME') throw error;
+    }
   }
   await pool.execute('ALTER TABLE messages MODIFY COLUMN body TEXT NULL');
   await pool.execute(`
@@ -1682,6 +1702,63 @@ async function ensureVenueHeartsSchema() {
         `INSERT INTO schema_migrations (version, name)
          VALUES (?, ?)`,
         [34, 'reuse-paymongo-checkout-sessions'],
+      );
+    }
+    if (!appliedVersions.has(35)) {
+      await ensureTableColumn(
+        'messages',
+        'reply_to_message_id',
+        'BIGINT UNSIGNED NULL',
+      );
+      await ensureTableIndex(
+        'messages',
+        'idx_messages_reply_target',
+        'KEY idx_messages_reply_target (reply_to_message_id)',
+      );
+      await ensureForeignKey(
+        'messages',
+        'fk_messages_reply',
+        `CONSTRAINT fk_messages_reply
+         FOREIGN KEY (reply_to_message_id) REFERENCES messages (id)
+         ON UPDATE CASCADE ON DELETE SET NULL`,
+      );
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [35, 'message-reply-targets'],
+      );
+    }
+    if (!appliedVersions.has(36)) {
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS prototype_payment_intents (
+          intent_id VARCHAR(64) NOT NULL,
+          idempotency_key VARCHAR(100) NOT NULL,
+          booking_id BIGINT UNSIGNED NOT NULL,
+          customer_id BIGINT UNSIGNED NOT NULL,
+          provider VARCHAR(32) NOT NULL,
+          provider_type VARCHAR(32) NOT NULL DEFAULT 'prototype',
+          scenario VARCHAR(32) NOT NULL,
+          amount DECIMAL(10,2) NOT NULL,
+          currency CHAR(3) NOT NULL DEFAULT 'PHP',
+          status VARCHAR(32) NOT NULL,
+          payment_reference VARCHAR(100) NULL,
+          result_message VARCHAR(255) NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          resolved_at DATETIME NULL,
+          PRIMARY KEY (intent_id),
+          UNIQUE KEY uq_prototype_intent_idempotency (customer_id, idempotency_key),
+          KEY idx_prototype_intent_booking (booking_id, customer_id),
+          CONSTRAINT fk_prototype_intent_booking FOREIGN KEY (booking_id) REFERENCES bookings(id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+          CONSTRAINT fk_prototype_intent_customer FOREIGN KEY (customer_id) REFERENCES users(id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        ) ENGINE=InnoDB
+      `);
+      await connection.execute(
+        `INSERT INTO schema_migrations (version, name)
+         VALUES (?, ?)`,
+        [36, 'prototype-payment-intents'],
       );
     }
   } finally {

@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:myapp/core/app_card_styles.dart';
 import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/user_facing_error.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
 import 'package:myapp/features/merchant_management/data/merchant_add_session.dart';
 import 'package:myapp/features/merchant_management/presentation/merchant_fitness_form_sections.dart';
@@ -284,8 +285,16 @@ class MerchantAddPageState extends State<MerchantAddPage> {
         await _session.dismissBookingDeadlineReminder();
       } on Exception catch (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: AppText(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: AppText(
+                userFacingErrorMessage(
+                  error,
+                  fallback: 'We couldn’t update your venue reminder. Please try again.',
+                ),
+              ),
+            ),
+          );
         }
       }
     }
@@ -335,7 +344,7 @@ class MerchantAddPageState extends State<MerchantAddPage> {
         }
       } on Exception catch (error) {
         lookupMessage =
-            'Could not look up the address ($error). Tap the map to place the pin manually.';
+            'Could not look up the address. Tap the map to place the pin manually.';
       }
     }
     if (!mounted) return null;

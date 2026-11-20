@@ -3553,8 +3553,10 @@ class _SportsDashboardPageState extends State<SportsDashboardPage> {
       _showMessage(
         'Booking request sent to ${venue.ownerName}. Payment is due only after venue approval.',
       );
-    } on Exception catch (error) {
-      _showMessage('Could not submit booking: $error');
+    } on Exception {
+      _showMessage(
+        'Submission could not be confirmed. Refresh Pending or Approved bookings before trying again.',
+      );
     } finally {
       onSubmittingChanged(false);
     }

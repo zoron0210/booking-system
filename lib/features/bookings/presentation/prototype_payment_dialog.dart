@@ -12,183 +12,82 @@ class PrototypePaymentDialog extends StatefulWidget {
 }
 
 class _PrototypePaymentDialogState extends State<PrototypePaymentDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _cardholder = TextEditingController();
-  final _cardNumber = TextEditingController();
-  final _expiry = TextEditingController();
-  final _securityCode = TextEditingController();
-  final _mobileNumber = TextEditingController();
-  final _verificationCode = TextEditingController();
-  String _provider = 'gcash';
-
-  bool get _usesCard => _provider == 'card';
-
-  String get _providerLabel => switch (_provider) {
-    'gcash' => 'GCash',
-    'maya' => 'Maya',
-    'atome' => 'Atome',
-    _ => 'Card',
-  };
-
-  @override
-  void dispose() {
-    _cardholder.dispose();
-    _cardNumber.dispose();
-    _expiry.dispose();
-    _securityCode.dispose();
-    _mobileNumber.dispose();
-    _verificationCode.dispose();
-    super.dispose();
-  }
+  String _scenario = 'success';
+  String _method = 'synthetic';
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const AppText('Prototype payment', localize: true),
+    title: const AppText('Prototype demo checkout', localize: true),
     content: SingleChildScrollView(
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AppText(
-              'Test amount: \u{20B1} ${widget.amount.toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.w800),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppText(
+            'Amount due: \u{20B1} ${widget.amount.toStringAsFixed(2)}',
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          const AppText(
+            'Demo only. No real charge will be made. Do not enter card numbers, CVCs, wallet PINs, passwords, or verification codes.',
+            localize: true,
+          ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            key: const ValueKey('prototype-payment-scenario'),
+            initialValue: _scenario,
+            decoration: const InputDecoration(
+              labelText: 'Choose simulated result',
             ),
-            const SizedBox(height: 8),
-            const AppText(
-              'Demo only: no real payment is made. Do not enter real payment details, PINs, or passwords. Demo details stay on this device.',
-              localize: true,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              key: const ValueKey('prototype-payment-provider'),
-              initialValue: _provider,
-              decoration: const InputDecoration(
-                labelText: 'Choose demo payment method',
+            items: const [
+              DropdownMenuItem(value: 'success', child: Text('Success')),
+              DropdownMenuItem(value: 'decline', child: Text('Decline')),
+              DropdownMenuItem(
+                value: 'cancel',
+                child: Text('User cancellation'),
               ),
-              items: const [
-                DropdownMenuItem(value: 'gcash', child: Text('GCash')),
-                DropdownMenuItem(value: 'maya', child: Text('Maya')),
-                DropdownMenuItem(value: 'atome', child: Text('Atome')),
-                DropdownMenuItem(
-                  value: 'card',
-                  child: Text('Credit/debit card'),
-                ),
-              ],
-              onChanged: (provider) {
-                if (provider != null) setState(() => _provider = provider);
-              },
-            ),
-            const SizedBox(height: 12),
-            if (_usesCard) ...[
-              const AppText(
-                'Use the sample card only: 4242 4242 4242 4242',
-                localize: true,
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                key: const ValueKey('prototype-payment-cardholder'),
-                controller: _cardholder,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  labelText: 'Demo cardholder name',
-                ),
-                validator: (value) =>
-                    _usesCard && (value == null || value.trim().isEmpty)
-                    ? 'Enter a demo name.'
-                    : null,
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                key: const ValueKey('prototype-payment-card-number'),
-                controller: _cardNumber,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Demo card number',
-                ),
-                validator: (value) {
-                  if (!_usesCard) return null;
-                  final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
-                  return digits == '4242424242424242'
-                      ? null
-                      : 'Use the sample card number shown above.';
-                },
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      key: const ValueKey('prototype-payment-expiry'),
-                      controller: _expiry,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(labelText: 'MM/YY'),
-                      validator: (value) =>
-                          !_usesCard ||
-                              RegExp(r'^(0[1-9]|1[0-2])\/\d{2}$')
-                                  .hasMatch(value?.trim() ?? '')
-                          ? null
-                          : 'Use MM/YY.',
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextFormField(
-                      key: const ValueKey('prototype-payment-security-code'),
-                      controller: _securityCode,
-                      keyboardType: TextInputType.number,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: 'Demo CVC'),
-                      validator: (value) =>
-                          !_usesCard ||
-                              RegExp(r'^\d{3}$').hasMatch(value?.trim() ?? '')
-                          ? null
-                          : 'Enter 3 digits.',
-                    ),
-                  ),
-                ],
-              ),
-            ] else ...[
-              TextFormField(
-                key: const ValueKey('prototype-payment-mobile'),
-                controller: _mobileNumber,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'Demo mobile number',
-                  hintText: '09171234567',
-                ),
-                validator: (value) {
-                  if (_usesCard) return null;
-                  return RegExp(r'^09\d{9}$').hasMatch(value?.trim() ?? '')
-                      ? null
-                      : 'Enter the demo number 09171234567.';
-                },
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                key: const ValueKey('prototype-payment-verification-code'),
-                controller: _verificationCode,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Demo verification code',
-                  hintText: '123456',
-                ),
-                validator: (value) =>
-                    _usesCard ||
-                        RegExp(r'^\d{6}$').hasMatch(value?.trim() ?? '')
-                    ? null
-                    : 'Enter the demo code 123456.',
-              ),
-              const SizedBox(height: 6),
-              const AppText(
-                'Demo number: 09171234567 · Demo code: 123456',
-                localize: true,
-                style: TextStyle(fontSize: 12),
+              DropdownMenuItem(value: 'timeout', child: Text('Timeout')),
+              DropdownMenuItem(
+                value: 'error',
+                child: Text('Recoverable error'),
               ),
             ],
-          ],
-        ),
+            onChanged: (scenario) {
+              if (scenario != null) setState(() => _scenario = scenario);
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: const ValueKey('prototype-payment-method'),
+            initialValue: _method,
+            decoration: const InputDecoration(
+              labelText: 'Synthetic demo method',
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'synthetic',
+                child: Text('Synthetic demo wallet'),
+              ),
+              DropdownMenuItem(
+                value: 'synthetic_card',
+                child: Text('Synthetic demo card'),
+              ),
+            ],
+            onChanged: (method) {
+              if (method != null) setState(() => _method = method);
+            },
+          ),
+          const SizedBox(height: 12),
+          AppText(
+            _scenario == 'success'
+                ? 'Success will be verified by the server before payment status changes.'
+                : 'This result stays unpaid and can be retried while the 15-minute payment window is active.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     ),
     actions: [
@@ -198,12 +97,10 @@ class _PrototypePaymentDialogState extends State<PrototypePaymentDialog> {
       ),
       FilledButton(
         key: const ValueKey('prototype-payment-confirm'),
-        onPressed: () {
-          if (_formKey.currentState?.validate() == true) {
-            Navigator.of(context).pop(_provider);
-          }
-        },
-        child: AppText('Simulate $_providerLabel payment', localize: true),
+        onPressed: () =>
+            Navigator.of(context)
+                .pop({'provider': _method, 'scenario': _scenario}),
+        child: const AppText('Run demo checkout', localize: true),
       ),
     ],
   );

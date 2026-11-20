@@ -1193,3 +1193,89 @@ test('migration 34 persists checkout URLs and methods for session reuse', async 
     params[1] === 'reuse-paymongo-checkout-sessions',
   ));
 });
+
+test('migration 35 upgrades reply targets in databases with legacy schema version 1', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 34 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes(
+      'ALTER TABLE `messages` ADD COLUMN `reply_to_message_id` BIGINT UNSIGNED NULL',
+    ),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes(
+      'ALTER TABLE `messages` ADD KEY idx_messages_reply_target (reply_to_message_id)',
+    ),
+  ));
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes(
+      'ALTER TABLE `messages` ADD CONSTRAINT fk_messages_reply',
+    ),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 35 &&
+    params[1] === 'message-reply-targets',
+  ));
+});
+
+test('migration 36 creates prototype payment intents', async () => {
+  const calls = [];
+  const connection = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }], []];
+      if (sql.includes('SELECT version FROM schema_migrations')) {
+        return [Array.from({ length: 35 }, (_, index) => ({
+          version: index + 1,
+        })), []];
+      }
+      return [[], []];
+    },
+    release() {},
+  };
+  const pool = {
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  };
+
+  await runSchemaMigrations(pool);
+
+  assert.ok(calls.some(({ sql }) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS prototype_payment_intents'),
+  ));
+  assert.ok(calls.some(({ sql, params }) =>
+    sql.includes('INSERT INTO schema_migrations (version, name)') &&
+    params[0] === 36 &&
+    params[1] === 'prototype-payment-intents',
+  ));
+});

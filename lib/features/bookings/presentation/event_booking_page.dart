@@ -336,6 +336,10 @@ class _EventBookingPageState extends State<EventBookingPage> {
                 _confirmationRow('Event type', _eventType!),
                 _confirmationRow('Date', _dateValue),
                 _confirmationRow(
+                  'Booking total',
+                  '\u{20B1} ${_eventFee.toStringAsFixed(2)}',
+                ),
+                _confirmationRow(
                   'Venue hours',
                   '${_venueHours.openingTime.format(context)} - ${_venueHours.closingTime.format(context)}',
                 ),
@@ -390,8 +394,10 @@ class _EventBookingPageState extends State<EventBookingPage> {
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
-    } on Exception catch (error) {
-      _showError('Could not submit event booking: $error');
+    } on Exception {
+      _showError(
+        'Submission could not be confirmed. Refresh Pending or Approved bookings before trying again.',
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

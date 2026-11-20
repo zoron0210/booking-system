@@ -512,6 +512,51 @@ function registerMatchmakingRoutes({
         return res.status(409).json({ error: 'This matchmaking request is no longer pending.' });
       }
       if (approve) {
+        const [bookingRows] = await connection.execute(
+          `SELECT id, venue_id AS venueId, booking_date AS bookingDate,
+                  start_time AS startTime, duration_hours AS durationHours,
+                  slot_number AS slotNumber, occupies_full_studio AS occupiesFullStudio
+           FROM bookings
+           WHERE id = ?
+           LIMIT 1 FOR UPDATE`,
+          [lobby.bookingId],
+        );
+        const booking = bookingRows[0];
+        if (!booking) {
+          await connection.rollback();
+          return res.status(409).json({
+            error: 'The linked court booking is no longer available.',
+          });
+        }
+        const [conflicts] = await connection.execute(
+          `SELECT id
+           FROM bookings
+           WHERE venue_id = ? AND booking_date = ?
+             AND id <> ?
+             AND start_time < ADDTIME(?, SEC_TO_TIME(? * 3600))
+             AND ADDTIME(start_time, SEC_TO_TIME(duration_hours * 3600)) > ?
+             AND status IN (
+               'approved', 'matchmaking_pending_merchant', 'matchmaking_open'
+             )
+             AND (? = 1 OR occupies_full_studio = 1 OR slot_number = ?)
+           FOR UPDATE`,
+          [
+            booking.venueId,
+            lobby.matchDate,
+            booking.id,
+            booking.startTime,
+            Number(booking.durationHours),
+            booking.startTime,
+            Number(booking.occupiesFullStudio) === 1 ? 1 : 0,
+            Number(booking.slotNumber),
+          ],
+        );
+        if (conflicts.length > 0) {
+          await connection.rollback();
+          return res.status(409).json({
+            error: 'This court slot is already booked for this date and time.',
+          });
+        }
         const [bookingUpdate] = await connection.execute(
           `UPDATE bookings
            SET status = 'matchmaking_open',

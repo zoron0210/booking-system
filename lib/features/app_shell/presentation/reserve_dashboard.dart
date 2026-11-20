@@ -48,13 +48,15 @@ class _ReserveDashboardPageState extends State<ReserveDashboardPage> {
     try {
       final session = await AppSessionService.instance.load();
       await session.setLastBookingType(_selected);
-    } on Exception catch (error) {
+    } on Exception {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
             SnackBar(
-              content: AppText('Could not save your booking type: $error'),
+              content: AppText(
+                'Could not save your booking type. Please try again.',
+              ),
               backgroundColor: _surfaceLight,
               behavior: SnackBarBehavior.floating,
             ),

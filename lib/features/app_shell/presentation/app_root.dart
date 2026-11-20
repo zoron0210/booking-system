@@ -7,6 +7,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/app_preferences.dart';
 import 'package:myapp/core/app_session.dart';
+import 'package:myapp/core/user_facing_error.dart';
 import 'package:myapp/features/app_shell/application/app_startup.dart';
 import 'package:myapp/features/app_shell/presentation/customer_navigation_shell.dart';
 import 'package:myapp/features/session/application/session_service.dart';
@@ -100,8 +101,11 @@ class MyApp extends StatelessWidget {
       );
     } on Exception catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(userFacingErrorMessage(error)),
+          ),
+        );
       }
     }
   }

@@ -45,12 +45,14 @@ class MessagesService {
     required String body,
     Map<String, dynamic>? attachment,
     String? businessType,
+    int? replyToMessageId,
   }) => _api.messaging.sendConversationMessage(
     token: token,
     conversationId: conversationId,
     body: body,
     attachment: attachment,
     businessType: businessType,
+    replyToMessageId: replyToMessageId,
   );
 
   Future<void> deleteMessage({

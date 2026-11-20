@@ -11,7 +11,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:myapp/features/venues/presentation/all_venues_page.dart';
 import 'package:myapp/features/auth/data/auth_api.dart';
+import 'package:myapp/core/app_design_system.dart';
 import 'package:myapp/core/app_preferences.dart';
+import 'package:myapp/core/app_theme.dart';
 import 'package:myapp/features/social/presentation/social_home_palette.dart';
 import 'package:myapp/features/bookings/presentation/customer_bookings_page.dart';
 import 'package:myapp/features/bookings/presentation/sports_booking_page.dart';
@@ -329,7 +331,7 @@ void main() {
     expect(indicators, findsNWidgets(2));
     expect(
       tester.widget<Container>(indicators.at(0)).color,
-      const Color(0xFF5752E8),
+      AppColors.accent,
     );
     expect(
       tester.widget<Container>(indicators.at(1)).color,
@@ -346,7 +348,7 @@ void main() {
     );
     expect(
       tester.widget<Container>(indicators.at(1)).color,
-      const Color(0xFF5752E8),
+      AppColors.accent,
     );
 
     final pagesFinder = find.byKey(const ValueKey('sports-discovery-pages'));
@@ -3702,6 +3704,55 @@ void main() {
     expect(navigationTheme.backgroundColor, Colors.transparent);
     expect(navigationTheme.indicatorColor, const Color(0xFF3935A8));
     expectSmallCardSurface(const Color(0xFF171F33));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('news feed booking CTAs inherit the active app accent', (
+    tester,
+  ) async {
+    const customAccent = Color(0xFF2EC4B6);
+    await AppPreferences.instance.update(
+      darkMode: false,
+      customAccentColor: customAccent,
+    );
+    addTearDown(() => AppPreferences.instance.update(darkMode: false));
+
+    await tester.pumpWidget(
+      AnimatedBuilder(
+        animation: AppPreferences.instance,
+        builder: (context, _) => MaterialApp(
+          theme: AppTheme.configured(
+            darkMode: AppPreferences.instance.darkMode,
+            accentColor: AppPreferences.instance.accentColor,
+          ),
+          home: NewsFeedPage(api: api()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final bookingAction = find.byKey(
+      const ValueKey('news-feed-list-book-business-42'),
+    );
+    await tester.scrollUntilVisible(
+      bookingAction,
+      50,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('news-feed-content-list')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+
+    final buttonTheme = Theme.of(tester.element(bookingAction))
+        .filledButtonTheme
+        .style!;
+    expect(buttonTheme.backgroundColor!.resolve({}), customAccent);
+    expect(
+      buttonTheme.foregroundColor!.resolve({}),
+      AppColors.contrastingForeground(customAccent),
+    );
     expect(tester.takeException(), isNull);
   });
 

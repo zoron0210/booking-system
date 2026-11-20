@@ -1,3 +1,5 @@
+const { randomUUID } = require('node:crypto');
+
 function registerPaymentRoutes({
   app,
   pool,
@@ -381,8 +383,55 @@ app.post('/api/payments/paymongo/checkout', requireAuth, requireRole('customer')
   }
 });
 
+app.get(
+ '/api/bookings/:id/prototype-payment/:intentId',
+ requireAuth,
+ requireRole('customer'),
+ async (req, res, next) => {
+   if (process.env.NODE_ENV === 'production') {
+     return res.status(503).json({
+       error: 'Prototype payments are disabled in production.',
+     });
+   }
+   const bookingId = Number(req.params.id);
+   const intentId = req.params.intentId;
+   if (!isNumericInput(req.params.id) ||
+       !Number.isSafeInteger(bookingId) ||
+       bookingId <= 0 ||
+       typeof intentId !== 'string') {
+     return res.status(400).json({ error: 'The prototype payment intent is invalid.' });
+   }
+   try {
+     const [rows] = await pool.execute(
+       `SELECT intent_id AS intentId, booking_id AS bookingId,
+               status, amount, currency, provider, provider_type AS providerType,
+               payment_reference AS paymentReference,
+               result_message AS resultMessage, created_at AS createdAt,
+               resolved_at AS resolvedAt
+        FROM prototype_payment_intents
+        WHERE intent_id = ? AND booking_id = ? AND customer_id = ?
+        LIMIT 1`,
+       [intentId, bookingId, req.auth.sub],
+     );
+     if (rows.length === 0) {
+       return res.status(404).json({ error: 'Prototype payment intent not found.' });
+     }
+     const intent = rows[0];
+     return res.json({
+       received: true,
+       prototype: true,
+       ...intent,
+       amount: Number(intent.amount),
+       retryable: !['succeeded'].includes(intent.status),
+     });
+   } catch (error) {
+     return next(error);
+   }
+ },
+);
+
 app.post(
-  '/api/bookings/:id/prototype-payment',
+ '/api/bookings/:id/prototype-payment',
   requireAuth,
   requireRole('customer'),
   async (req, res, next) => {
@@ -392,13 +441,39 @@ app.post(
       });
     }
     const bookingId = Number(req.params.id);
-    const prototypeProviders = ['gcash', 'maya', 'atome', 'card'];
+    const prototypeProviders = [
+      'gcash',
+      'maya',
+      'atome',
+      'card',
+      'synthetic',
+      'synthetic_card',
+    ];
+    const prototypeScenarios = ['success', 'decline', 'cancel', 'timeout', 'error'];
+    const scenario =
+      typeof req.body.scenario === 'string'
+        ? req.body.scenario.trim().toLowerCase()
+        : 'success';
+    const currency =
+      typeof req.body.currency === 'string'
+        ? req.body.currency.trim().toUpperCase()
+        : 'PHP';
+    const intentId =
+      typeof req.body.intentId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.body.intentId)
+        ? req.body.intentId
+        : `prototype-${randomUUID()}`;
+    const idempotencyKey =
+      typeof req.get('Idempotency-Key') === 'string'
+        ? req.get('Idempotency-Key').trim().slice(0, 100)
+        : intentId;
     if (
       !isNumericInput(req.params.id) ||
       !Number.isSafeInteger(bookingId) ||
       bookingId <= 0 ||
       req.body.paymentMethod !== 'prototype_card' ||
-      !prototypeProviders.includes(req.body.provider)
+      !prototypeProviders.includes(req.body.provider) ||
+      !prototypeScenarios.includes(scenario) ||
+      currency !== 'PHP'
     ) {
       return res.status(400).json({
         error: 'A valid booking and prototype payment method are required.',
@@ -462,6 +537,86 @@ app.post(
           error: 'This booking has no valid payment amount due.',
         });
       }
+      if (
+        req.body.amount !== undefined &&
+        (!Number.isFinite(Number(req.body.amount)) ||
+          Math.abs(Number(req.body.amount) - amount) > 0.005)
+      ) {
+        await connection.rollback();
+        return res.status(409).json({
+          error: 'The prototype payment amount does not match this booking obligation.',
+        });
+      }
+      const [existingIntents] = await connection.execute(
+        `SELECT intent_id AS intentId, status, amount, currency,
+                payment_reference AS paymentReference,
+                result_message AS resultMessage,
+                created_at AS createdAt, resolved_at AS resolvedAt
+         FROM prototype_payment_intents
+         WHERE customer_id = ? AND booking_id = ? AND
+               (intent_id = ? OR idempotency_key = ?)
+         LIMIT 1`,
+        [req.auth.sub, booking.id, intentId, idempotencyKey],
+      );
+      if (existingIntents.length > 0) {
+        const existing = existingIntents[0];
+        await connection.rollback();
+        return res.json({
+          received: true,
+          prototype: true,
+          providerType: 'prototype',
+          intentId: existing.intentId,
+          status: existing.status,
+          amount: Number(existing.amount),
+          currency: existing.currency,
+          paymentReference: existing.paymentReference,
+          resultMessage: existing.resultMessage,
+          createdAt: existing.createdAt,
+          resolvedAt: existing.resolvedAt,
+          bookingId: booking.id,
+        });
+      }
+      await connection.execute(
+        `INSERT INTO prototype_payment_intents
+         (intent_id, idempotency_key, booking_id, customer_id, provider,
+          provider_type, scenario, amount, currency, status)
+         VALUES (?, ?, ?, ?, ?, 'prototype', ?, ?, 'PHP', 'processing')`,
+        [intentId, idempotencyKey, booking.id, req.auth.sub, req.body.provider, scenario, amount],
+      );
+      if (scenario !== 'success') {
+        const statusMap = {
+          decline: 'declined',
+          cancel: 'cancelled',
+          timeout: 'timed_out',
+          error: 'failed',
+        };
+        const status = statusMap[scenario];
+        const resultMessages = {
+          decline: 'The prototype payment was declined. The booking remains unpaid and can be retried.',
+          cancel: 'Prototype checkout was cancelled. No payment was recorded.',
+          timeout: 'The prototype checkout timed out. Retry while the payment window remains open.',
+          error: 'The prototype payment failed with a recoverable error. You can retry.',
+        };
+        await connection.execute(
+          `UPDATE prototype_payment_intents
+           SET status = ?, result_message = ?, resolved_at = CURRENT_TIMESTAMP
+           WHERE intent_id = ? AND customer_id = ? AND booking_id = ?`,
+          [status, resultMessages[scenario], intentId, req.auth.sub, booking.id],
+        );
+        await connection.commit();
+        return res.json({
+          received: true,
+          prototype: true,
+          providerType: 'prototype',
+          intentId,
+          status,
+          amount,
+          currency: 'PHP',
+          retryable: true,
+          resultMessage: resultMessages[scenario],
+          bookingId: booking.id,
+        });
+      }
       const paymentReference = `PROTOTYPE-${booking.id}-${Date.now()}`;
       const [paymentUpdate] = await connection.execute(
         `UPDATE bookings
@@ -485,6 +640,14 @@ app.post(
           error: 'This booking is no longer eligible for prototype payment.',
         });
       }
+      await connection.execute(
+        `UPDATE prototype_payment_intents
+         SET status = 'succeeded', payment_reference = ?,
+             result_message = 'Prototype payment succeeded.',
+             resolved_at = CURRENT_TIMESTAMP
+         WHERE intent_id = ? AND customer_id = ? AND booking_id = ?`,
+        [paymentReference, intentId, req.auth.sub, booking.id],
+      );
 
       await connection.execute(
         `UPDATE messages m
@@ -602,6 +765,11 @@ app.post(
       return res.json({
         received: true,
         prototype: true,
+        providerType: 'prototype',
+        intentId,
+        status: 'succeeded',
+        currency: 'PHP',
+        retryable: false,
         bookingId: booking.id,
         transactionId,
         bookingReference,

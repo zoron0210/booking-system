@@ -67,7 +67,7 @@ Color get _venueCard =>
 Color get _venueOutline => AppPreferences.instance.darkMode
     ? const Color(0xFF30394E)
     : const Color(0xFFD8DEEA);
-const _venuePrimary = Color(0xFF5752E8);
+Color get _venuePrimary => AppColors.accent;
 Color get _venueMint => AppPreferences.instance.darkMode
     ? const Color(0xFF55DDA4)
     : const Color(0xFF087F5B);
@@ -965,7 +965,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(32),
-          borderSide: const BorderSide(color: _venuePrimary, width: 1.4),
+          borderSide: BorderSide(color: _venuePrimary, width: 1.4),
         ),
       ),
     ),

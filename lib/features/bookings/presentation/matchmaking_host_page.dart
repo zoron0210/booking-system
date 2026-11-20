@@ -1,8 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+
 import 'package:myapp/core/app_design_system.dart';
-import 'package:myapp/core/api_transport.dart';
+import 'package:myapp/core/user_facing_error.dart';import 'package:myapp/core/api_transport.dart';
 import 'package:myapp/core/app_preferences.dart';
 import 'package:myapp/core/business_type.dart';
 import 'package:myapp/features/bookings/data/matchmaking_api.dart';
@@ -86,7 +87,10 @@ class _MatchmakingHostPageState extends State<MatchmakingHostPage> {
     } on Exception catch (error) {
       if (mounted && request == _availabilityRequest) {
         setState(() {
-          _availabilityError = error.toString();
+          _availabilityError = userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t load this venue’s availability. Please try again.',
+          );
           _availabilityLoading = false;
         });
       }
@@ -233,7 +237,10 @@ class _MatchmakingHostPageState extends State<MatchmakingHostPage> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = error.toString();
+          _error = userFacingErrorMessage(
+            error,
+            fallback: 'We couldn’t submit your match request. Please try again.',
+          );
         });
       }
     }

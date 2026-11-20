@@ -1032,17 +1032,41 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage>
           503,
         );
       }
-      final paymentProvider = await showDialog<String>(
+      final checkoutSelection = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (_) =>
             PrototypePaymentDialog(amount: _prototypePayableAmount(booking)),
       );
-      if (paymentProvider == null || !mounted) return;
-      await _api.bookings.recordPrototypeBookingPayment(
+      if (checkoutSelection == null || !mounted) return;
+      final paymentProvider =
+          checkoutSelection['provider'] as String? ?? 'gcash';
+      final scenario = checkoutSelection['scenario'] as String? ?? 'success';
+      final result = await _api.bookings.recordPrototypeBookingPayment(
         token: token,
         bookingId: booking.id!,
         provider: paymentProvider,
+        scenario: scenario,
+        amount: _prototypePayableAmount(booking),
+        currency: 'PHP',
       );
+      if (scenario != 'success') {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        final status = result['status']?.toString() ?? '';
+        final rawMessage = result['resultMessage']?.toString();
+        final resultMessage = (rawMessage == null || rawMessage.isEmpty)
+            ? 'The prototype payment did not complete.'
+            : rawMessage;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: AppText(
+              '$resultMessage ${status == 'failed' ? 'You can retry.' : 'No payment was recorded.'}',
+              localize: true,
+            ),
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       Navigator.of(context).pop();
       await _refresh();

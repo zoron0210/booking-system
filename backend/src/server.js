@@ -10,6 +10,7 @@ const pool = require('./db');
 const { createCorsOriginPolicy } = require('./cors_policy');
 const { createJsonBodyParser } = require('./json_body_parser');
 const { createSocialMediaStorage } = require('./social_media_storage');
+const { createMessagingStorage } = require('./messaging_storage');
 const {
   createBookingApprovalDeadlineProcessor,
 } = require('./booking_approval_deadlines');
@@ -74,6 +75,7 @@ const { createWebSocketHub } = require('./websocket_hub');
 
 const app = express();
 const socialMediaStorage = createSocialMediaStorage();
+const messagingStorage = createMessagingStorage();
 app.set('json escape', true);
 const auditContextStorage = new AsyncLocalStorage();
 const port = Number(process.env.PORT || 3000);
@@ -715,6 +717,7 @@ registerMessagingRoutes({
   normalizeBusinessType,
   recordUserActivity,
   publishToUser: liveUpdates.publishToUser,
+  messagingStorage,
 });
 registerSavedItemsRoutes({
   app,

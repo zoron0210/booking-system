@@ -13,6 +13,15 @@ function validTenorGifUrl(value) {
   } catch {
     return false;
   }
+
+  function decodeDataUrl(value, mimePattern) {
+    if (typeof value !== 'string') return null;
+    const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(value);
+    if (!match || !mimePattern.test(match[1])) return null;
+    const bytes = Buffer.from(match[2], 'base64');
+    if (!bytes.length || bytes.toString('base64') !== match[2].replace(/=+$/, '')) return null;
+    return { mimeType: match[1].toLowerCase(), bytes };
+  }
 }
 
 function registerMessagingRoutes({
@@ -23,6 +32,7 @@ function registerMessagingRoutes({
   normalizeBusinessType,
   recordUserActivity,
   publishToUser = () => {},
+  messagingStorage = null,
 }) {
   async function isConversationForBusinessType(conversationId, userId, businessType) {
     const [rows] = await pool.execute(
@@ -502,6 +512,7 @@ function registerMessagingRoutes({
         `SELECT m.id, m.conversation_id AS conversationId,
                 m.sender_id AS senderId, m.body, m.created_at AS createdAt,
                 m.removed_at AS removedAt,
+                m.reply_to_message_id AS replyToMessageId,
                 CASE WHEN m.removed_at IS NULL THEN NULL
                      ELSE CONCAT_WS(' ', remover.first_name, remover.last_name)
                 END AS removedByName,
@@ -523,6 +534,64 @@ function registerMessagingRoutes({
          ORDER BY m.created_at ASC, m.id ASC`,
         [req.auth.sub, ...readConversationIds, req.auth.sub],
       );
+      const replyIds = [...new Set(
+        rows
+          .map((message) => positiveIntegerId(message.replyToMessageId))
+          .filter((messageId) => messageId !== null),
+      )];
+      const replyLookup = new Map();
+      if (replyIds.length > 0) {
+        const placeholders = replyIds.map(() => '?').join(', ');
+        const [replyRows] = await pool.execute(
+          `SELECT m.id, m.body, m.attachment_json AS attachmentJson,
+                  m.removed_at AS removedAt,
+                  u.first_name AS senderFirstName,
+                  u.last_name AS senderLastName
+           FROM messages m
+           JOIN users u ON u.id = m.sender_id
+           WHERE m.id IN (${placeholders})`,
+          replyIds,
+        );
+        for (const reply of replyRows) {
+          let attachment = null;
+          if (typeof reply.attachmentJson === 'string') {
+            try {
+              attachment = JSON.parse(reply.attachmentJson);
+            } catch {
+              attachment = null;
+            }
+          } else {
+            attachment = reply.attachmentJson || null;
+          }
+          if (attachment?.storageUri && messagingStorage) {
+            attachment.downloadUrl = await messagingStorage.signAttachment(
+              attachment.storageUri,
+              null,
+            );
+          }
+          const senderName = [reply.senderFirstName, reply.senderLastName]
+            .filter((value) => typeof value === 'string' && value.trim().length > 0)
+            .join(' ')
+            .trim();
+          const label = reply.body && reply.body.trim().length > 0
+            ? reply.body.trim()
+            : attachment && attachment.type === 'image'
+            ? 'Photo'
+            : attachment && attachment.type === 'gif'
+            ? 'GIF'
+            : attachment && attachment.type === 'file'
+            ? attachment.name || 'Document'
+            : 'Message';
+          replyLookup.set(String(reply.id), {
+            id: reply.id,
+            senderName: senderName || 'Message sender',
+            body: reply.body || null,
+            attachment,
+            label: reply.removedAt ? 'Message deleted' : label,
+            removed: reply.removedAt != null,
+          });
+        }
+      }
       for (const message of rows) {
         if (typeof message.attachmentJson === 'string') {
           try {
@@ -533,7 +602,24 @@ function registerMessagingRoutes({
         } else {
           message.attachment = message.attachmentJson || null;
         }
+        if (message.attachment?.storageUri && messagingStorage) {
+          message.attachment.downloadUrl = await messagingStorage.signAttachment(
+            message.attachment.storageUri,
+            message.conversationId,
+          );
+        }
         delete message.attachmentJson;
+        const replyId = positiveIntegerId(message.replyToMessageId);
+        if (replyId !== null) {
+          message.reply = replyLookup.get(String(replyId)) || {
+            id: replyId,
+            senderName: 'Message',
+            label: 'Message deleted',
+            removed: true,
+          };
+        } else {
+          delete message.reply;
+        }
       }
       const bookingIdsWithApprovalTickets = new Set(
         rows
@@ -668,11 +754,15 @@ function registerMessagingRoutes({
   app.post('/api/messages/conversations/:id', requireAuth, async (req, res, next) => {
     const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
     const attachment = req.body.attachment;
+    const replyToMessageId = positiveIntegerId(req.body.replyToMessageId);
     const businessType = req.body.businessType === undefined
       ? null
       : normalizeBusinessType(req.body.businessType);
     if (req.body.businessType !== undefined && !businessType) {
       return res.status(400).json({ error: 'Invalid business type filter.' });
+    }
+    if (req.body.replyToMessageId !== undefined && replyToMessageId === null) {
+      return res.status(400).json({ error: 'The reply target is invalid.' });
     }
     const hasImage = attachment &&
       typeof attachment === 'object' &&
@@ -684,13 +774,22 @@ function registerMessagingRoutes({
       typeof attachment === 'object' &&
       attachment.type === 'gif' &&
       validTenorGifUrl(attachment.url);
-    if ((!body && !hasImage && !hasGif) || body.length > 4000) {
+    const hasFile = attachment &&
+      typeof attachment === 'object' &&
+      attachment.type === 'file' &&
+      typeof attachment.name === 'string' &&
+      attachment.name.trim().length > 0 &&
+      attachment.name.length <= 255 &&
+      typeof attachment.data === 'string' &&
+      /^data:(application|image)\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/.test(attachment.data) &&
+      attachment.data.length <= 10 * 1024 * 1024;
+    if ((!body && !hasImage && !hasGif && !hasFile) || body.length > 4000) {
       return res.status(400).json({
-        error: 'Add a message or a valid image attachment. Images must be smaller than 5 MB.',
+        error: 'Add a message or a valid image or file attachment. Images must be smaller than 5 MB.',
       });
     }
-    if (attachment != null && !hasImage && !hasGif) {
-      return res.status(400).json({ error: 'The image or GIF attachment is invalid or too large.' });
+    if (attachment != null && !hasImage && !hasGif && !hasFile) {
+      return res.status(400).json({ error: 'The image, GIF, or file attachment is invalid or too large.' });
     }
     try {
       const conversationId = positiveIntegerId(req.params.id);
@@ -704,6 +803,18 @@ function registerMessagingRoutes({
       );
       if (members.length === 0) {
         return res.status(403).json({ error: 'You are not a member of this conversation.' });
+      }
+      if (replyToMessageId !== null) {
+        const [replyTarget] = await pool.execute(
+          `SELECT id, conversation_id, removed_at
+           FROM messages
+           WHERE id = ? AND conversation_id = ?
+           LIMIT 1`,
+          [replyToMessageId, conversationId],
+        );
+        if (replyTarget.length === 0 || replyTarget[0].removed_at != null) {
+          return res.status(400).json({ error: 'The reply target is not available in this conversation.' });
+        }
       }
       if (
         businessType &&
@@ -744,23 +855,44 @@ function registerMessagingRoutes({
          WHERE conversation_id = ?`,
         [conversationId],
       );
+      let attachmentPayload = null;
+      if (hasImage || hasFile) {
+        if (!messagingStorage) {
+          return res.status(503).json({
+            error: 'Private attachment storage is not configured.',
+          });
+        }
+        const decoded = decodeDataUrl(
+          attachment.data,
+          hasImage ? /^image\/(jpeg|png|webp)$/ : /^(application\/pdf|application\/msword|application\/vnd\.)/,
+        );
+        if (!decoded) {
+          return res.status(400).json({ error: 'The attachment content is invalid.' });
+        }
+        const stored = await messagingStorage.storeAttachment({
+          conversationId,
+          userId: req.auth.sub,
+          name: typeof attachment.name === 'string' ? attachment.name : 'attachment',
+          mimeType: decoded.mimeType,
+          bytes: decoded.bytes,
+        });
+        if (!stored) {
+          return res.status(400).json({
+            error: 'The attachment type or size is not supported.',
+          });
+        }
+        attachmentPayload = JSON.stringify(stored);
+      } else if (hasGif) {
+        attachmentPayload = JSON.stringify({ type: 'gif', url: attachment.url });
+      }
       await pool.execute(
-        'INSERT INTO messages (conversation_id, sender_id, body, attachment_json) VALUES (?, ?, ?, ?)',
+        'INSERT INTO messages (conversation_id, sender_id, body, attachment_json, reply_to_message_id) VALUES (?, ?, ?, ?, ?)',
         [
           conversationId,
           req.auth.sub,
           body || null,
-          hasImage
-            ? JSON.stringify({
-                type: 'image',
-                name: typeof attachment.name === 'string'
-                  ? attachment.name.slice(0, 255)
-                  : 'image',
-                data: attachment.data,
-              })
-            : hasGif
-            ? JSON.stringify({ type: 'gif', url: attachment.url })
-            : null,
+          attachmentPayload,
+          replyToMessageId,
         ],
       );
       await recordUserActivity(
